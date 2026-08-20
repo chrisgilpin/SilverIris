@@ -289,7 +289,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
-		$(BUILD)/src/game/frametiming.o $(BUILD)/src/port/os/count.o | overlay
+		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -I$(ROOT)/src/glue -o $@ \
 		$(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
@@ -433,14 +433,19 @@ split-test: overlay $(BUILD)/test_split
 $(BUILD)/test_view_seat: $(ROOT)/tools/det/test_view_seat.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/overrides/lv_clock.o $(BUILD)/src/port/rng/random.o \
+		$(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/vi/sim_tick.o \
+		$(BUILD)/src/port/os/count.o $(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_view_seat.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/overrides/lv_clock.o $(BUILD)/src/port/rng/random.o \
-		$(BUILD)/src/game/frametiming.o $(BUILD)/src/port/os/count.o -lm
+		$(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
+		$(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
 
 view-seat-test: overlay $(BUILD)/test_view_seat
 	$(BUILD)/test_view_seat

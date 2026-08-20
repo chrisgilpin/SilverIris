@@ -10,6 +10,7 @@ import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
 import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
 import { LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
 import { bytesFromHex, decodeMatchConfig } from "./net/match_config.ts";
+import { releaseMatchHold, startMatchHold } from "./net/hold_tab.ts";
 import { dataChannelsPerPeer, meshOfferTargets, PeerMesh } from "./net/rtc.ts";
 import { buildPack } from "./pack.ts";
 import { pickRomFile, romFromDrop } from "./rom/pick.ts";
@@ -737,7 +738,7 @@ function startLockstep(): void {
   if (!game?.ready())
     return;
   const cfg = lastCfgHex ? decodeMatchConfig(bytesFromHex(lastCfgHex)) : null;
-  const nseats = Math.max(2, lastRosterSeats.length || 0, cfg?.nseats ?? 0);
+  const nseats = Math.min(4, Math.max(2, lastRosterSeats.length || 0, cfg?.nseats ?? 0));
   const delay = Math.min(3, Math.max(1, cfg?.delayTicks ?? 2));
   const seed = cfg?.rngSeed ?? 1;
   netLock = new LockstepSession(mySeat, nseats, delay, lockEngine());
@@ -749,6 +750,7 @@ function startLockstep(): void {
   hitMarks.length = 0;
   checksumLog.length = 0;
   applyRemoteView();
+  void startMatchHold();
   lastStageNote = `${nseats}P lockstep delay ${delay} Hor+ seat ${mySeat}. WASD+Z this seat (P${mySeat + 1}). Keep tab visible.`;
   setStatus("ok", lastStageNote);
 }
@@ -788,18 +790,22 @@ function onLockEvent(ev: LockstepEvent): void {
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
   } else if (ev.t === "drop") {
+    void releaseMatchHold();
     mesh?.sendCtl({ t: "bye" });
     mesh?.close();
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
     setStatus("err", netLock?.overlay ?? "peer dropped");
   } else if (ev.t === "desync") {
+    void releaseMatchHold();
     mesh?.sendCtl({ t: "desync", tick: ev.tick });
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
     setStatus("err", `${netLock?.overlay ?? "DESYNC"}. Copy the debug report (no ROM).`);
   } else if (ev.t === "hidden") {
     mesh?.sendCtl({ t: "stall", seat: mySeat });
+    if (lobbyStatus)
+      lobbyStatus.textContent = netLock?.overlay ?? "tab must stay visible.";
   }
 }
 
