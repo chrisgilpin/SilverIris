@@ -34,17 +34,19 @@ not black-screen. A retail-shaped C0 room now also inflates `pPointTableBin`
 (the vertex table), binds RSP segment 14 (`SPSEGMENT_BG_VTX`), skips
 unknown opcodes / unresolved `G_DL`, and applies a player look-at (theta=0
 faces -Z) so world-space `G_TRI4`s can land on the G1 FB as untextured
-grey. G1 now decodes Rare `G_SETTEX` (0xC0): `texture_id = w1 & 0xfff`
+grey. G1 decodes Rare `G_SETTEX` (0xC0): `texture_id = w1 & 0xfff`
 looks up `assets/images/split/<images.def name>.bin` (or `imageN.bin`)
-in the user pack. SITX tiles still bind. Pack blobs that use the Rare
-bank container (`uzllllll`: zlib/1172 paletted CI, or non-zlib
-uncompressed / Huffman / RLE / lookup I4/I8/RGBA16) inflate into the
-same 4 KiB TMEM. Native tests prove synthetic Rare I8 and 1172-wrapped
-CI4 checkers change the picture and increment `texOk`. Retail Facility
-banks use that container, but this tree has no ROM/extracted texels, so
-retail `texOk > 0` is **unproven** — corridors may stay grey. HUD
-`settex` / `texOk` / `texMiss` report binds. Do not claim textured
-Facility is on screen. Campaign is not v1. Title boot is not in this
+in the user pack. After 0b83df6 some retail wall tiles already bind
+(Facility hallway showed repeating beige brick). Floors and ceilings
+in that view stayed black because later SETTEX ids did not stay bound
+(last-wins TMEM at raster time), IA4/IA8/IA16 tiles were rejected, the
+secondary room GDL (`pSecMappingBin`) was not walked, and large floor
+tris that crossed the near plane were discarded whole. G1 now keeps a
+per-triangle tile cache, samples IA/RGBA32, inflates the secondary GDL,
+and clips against `w>0`. Native tests prove synthetic IA8/IA4 floor
+tiles, two SETTEX ids in one DL, a near-plane floor, and `pSec`. HUD
+`settex` / `texOk` / `texMiss` are honest — a miss stays a miss. No
+retail texels in git. Campaign is not v1. Title boot is not in this
 build.
 
 Design:

@@ -47,6 +47,7 @@ typedef struct {
     size_t ntex;
     uint16_t tlut[256];
     unsigned ntlut;
+    uint8_t tlut_ia;
 } G1TexBankOut;
 
 int g1_tex_bank_decode(const uint8_t *src, size_t n, G1TexBankOut *out);

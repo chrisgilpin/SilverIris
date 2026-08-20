@@ -51,8 +51,14 @@ static size_t g_gdl_len;
 static uint8_t *g_vtx;
 static size_t g_vtx_len;
 static int g_gdl_vtx;
+static int g_gdl_sec;
 static size_t g_vtx_off;
 static size_t g_vtx_csize;
+static uint8_t *g_sec;
+static size_t g_sec_len;
+static uint32_t g_sec_ngfx;
+static size_t g_sec_off;
+static size_t g_sec_csize;
 static void *g_first_room;
 static char g_stage_err[160];
 
@@ -136,11 +142,15 @@ static int fixup_bg(uint8_t *bg, size_t n)
     g_gdl_raw = 0;
     g_gdl_c0 = 0;
     g_gdl_vtx = 0;
+    g_gdl_sec = 0;
     g_gdl_off = 0;
     g_gdl_csize = 0;
     g_gdl_ngfx = 0;
     g_vtx_off = 0;
     g_vtx_csize = 0;
+    g_sec_off = 0;
+    g_sec_csize = 0;
+    g_sec_ngfx = 0;
 
     if (n < BG_HDR_BYTES)
         return PORT_STAGE_ERR_FORMAT;
@@ -217,6 +227,41 @@ static int fixup_bg(uint8_t *bg, size_t n)
                 }
             }
         }
+        if (i == 1) {
+            uint32_t sec = be32(r + 8);
+            uint8_t *sp = sec ? (uint8_t *)maybe_ptr(bg, n, sec) : NULL;
+            if (sec && sp) {
+                size_t sec_off = (size_t)(sp - bg);
+                size_t sec_end = n;
+                uint32_t cand[3];
+                int ci;
+                cand[0] = 0;
+                cand[1] = 0;
+                cand[2] = 0;
+                if (r + 2 * BG_ROOM_BYTES <= bg + n) {
+                    cand[0] = be32(r + BG_ROOM_BYTES + 0);
+                    cand[1] = be32(r + BG_ROOM_BYTES + 4);
+                    cand[2] = be32(r + BG_ROOM_BYTES + 8);
+                }
+                for (ci = 0; ci < 3; ci++) {
+                    uint32_t rel;
+                    if (!cand[ci] || !maybe_ptr(bg, n, cand[ci]))
+                        continue;
+                    rel = seg_to_off(cand[ci]);
+                    if (rel > sec_off && rel < sec_end)
+                        sec_end = rel;
+                }
+                if (sec_end > sec_off + 8) {
+                    g_sec_off = sec_off;
+                    if (magic == 0 && sp[0] == 0x11 && sp[1] == 0x72)
+                        g_sec_csize = sec_end - sec_off;
+                    else if (magic == PORT_BG_MAGIC_G1DL) {
+                        g_sec_ngfx = (uint32_t)((sec_end - sec_off) / 8u);
+                        g_gdl_sec = 1;
+                    }
+                }
+            }
+        }
     }
 
     /* Portal list: walk until offset_portal == 0. Do not rewrite u32s (LP64). */
@@ -290,11 +335,18 @@ void port_stage_unload(void)
     free(g_vtx);
     g_vtx = NULL;
     g_vtx_len = 0;
+    free(g_sec);
+    g_sec = NULL;
+    g_sec_len = 0;
+    g_sec_ngfx = 0;
     g_gdl_raw = 0;
     g_gdl_c0 = 0;
     g_gdl_vtx = 0;
+    g_gdl_sec = 0;
     g_vtx_off = 0;
     g_vtx_csize = 0;
+    g_sec_off = 0;
+    g_sec_csize = 0;
     g_gdl_off = 0;
     g_gdl_csize = 0;
     g_gdl_ngfx = 0;
@@ -391,6 +443,26 @@ int port_stage_load(int level_id)
         }
     }
 
+    if (g_sec_csize) {
+        size_t need = 0;
+        uint8_t *exp = NULL;
+        rc = bgDecompress(bg + g_sec_off, g_sec_csize, NULL, 0, &need);
+        if (rc == PORT_INFLATE1172_OK && need) {
+            exp = (uint8_t *)malloc(need);
+            if (exp) {
+                rc = bgDecompress(bg + g_sec_off, g_sec_csize, exp, need, &need);
+                if (rc == PORT_INFLATE1172_OK) {
+                    g_sec = exp;
+                    g_sec_len = need;
+                    g_sec_ngfx = (uint32_t)(need / 8u);
+                    g_gdl_sec = 1;
+                } else {
+                    free(exp);
+                }
+            }
+        }
+    }
+
     g_bg = bg;
     g_bg_len = bg_len;
     g_stan = stan;
@@ -415,6 +487,8 @@ int port_stage_gdl_c0(void) { return g_gdl_c0; }
 
 int port_stage_gdl_vtx(void) { return g_gdl_vtx; }
 
+int port_stage_gdl_sec(void) { return g_gdl_sec; }
+
 int port_stage_draw(void)
 {
     const uint8_t *dl = NULL;
@@ -430,6 +504,10 @@ int port_stage_draw(void)
     if (g_vtx)
         g1_set_segment(14, (uintptr_t)g_vtx);
     g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
+    if (g_gdl_sec && g_sec && g_sec_ngfx)
+        return g1_interpret_be_dl2(dl, g_gdl_ngfx, g_sec, g_sec_ngfx);
+    if (g_gdl_sec && g_sec_ngfx && g_bg && g_sec_off)
+        return g1_interpret_be_dl2(dl, g_gdl_ngfx, g_bg + g_sec_off, g_sec_ngfx);
     return g1_interpret_be_dl(dl, g_gdl_ngfx);
 }
 

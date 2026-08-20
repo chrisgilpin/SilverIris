@@ -911,6 +911,350 @@ static int test_settex_miss_stays_grey(void)
     return 0;
 }
 
+
+static void fill_ia8_checker(uint8_t *dst, int w, int h, uint8_t a, uint8_t b)
+{
+    int y, x;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            dst[y * w + x] = ((x ^ y) & 1) ? b : a;
+}
+
+static size_t build_rare_ia8(uint8_t *dst, const uint8_t *tex, unsigned w, unsigned h)
+{
+    dst[0] = 0x01;
+    dst[1] = (uint8_t)((5u << 4) | ((w >> 4) & 0x0fu));
+    dst[2] = (uint8_t)((w << 4) | ((h >> 4) & 0x0fu));
+    dst[3] = (uint8_t)((h << 4) | 0u);
+    memcpy(dst + 4, tex, (size_t)w * h);
+    return 4u + (size_t)w * h;
+}
+
+static size_t build_rare_ia4(uint8_t *dst, const uint8_t *tex, unsigned w, unsigned h)
+{
+    size_t n = ((size_t)w * h + 1u) / 2u;
+    dst[0] = 0x01;
+    dst[1] = (uint8_t)((6u << 4) | ((w >> 4) & 0x0fu));
+    dst[2] = (uint8_t)((w << 4) | ((h >> 4) & 0x0fu));
+    dst[3] = (uint8_t)((h << 4) | 0u);
+    memcpy(dst + 4, tex, n);
+    return 4u + n;
+}
+
+static int test_settex_ia_formats(void)
+{
+    uint8_t ia8[64], ia4[32], vtx_be[48];
+    int dark, lit;
+
+    fill_ia8_checker(ia8, 8, 8, 0x2F, 0xEF);
+    if (g1_tex_load_raw(11, G1_TEX_IA8, 8, 8, ia8, 64, NULL, 0) != 0)
+        return fail("load ia8");
+    if (run_tex_dl(11, vtx_be) != 0)
+        return fail("ia8 dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("ia8 settex not ok");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("ia8 checker not both tones");
+    printf("settex IA8 checker dark=%d lit=%d ok=%u\n", dark, lit, g1_tex_ok_count());
+
+    fill_i4_checker(ia4, 8, 8, 0x5, 0xD);
+    if (g1_tex_load_raw(12, G1_TEX_IA4, 8, 8, ia4, 32, NULL, 0) != 0)
+        return fail("load ia4");
+    if (run_tex_dl(12, vtx_be) != 0)
+        return fail("ia4 dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("ia4 settex not ok");
+    dark = count_tone(0, 100);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("ia4 checker not both tones");
+    printf("settex IA4 checker dark=%d lit=%d ok=%u\n", dark, lit, g1_tex_ok_count());
+
+    {
+        uint8_t rare[80];
+        G1TexBankOut d;
+        size_t n = build_rare_ia8(rare, ia8, 8, 8);
+        if (g1_tex_bank_decode(rare, n, &d) != G1_TEX_BANK_OK || d.fmt != G1_TEX_IA8)
+            return fail("decode rare IA8");
+        if (g1_tex_load_bank(13, rare, n) != 0)
+            return fail("load rare IA8");
+        if (run_tex_dl(13, vtx_be) != 0)
+            return fail("rare ia8 dl");
+        dark = count_tone(0, 80);
+        lit = count_tone(180, 255);
+        if (dark < 200 || lit < 200)
+            return fail("rare IA8 not sampled");
+        printf("settex pack-like RARE-IA8 dark=%d lit=%d\n", dark, lit);
+    }
+    g1_tex_unload();
+    return 0;
+}
+
+/* Two SETTEX ids in one DL: I8 checker then CI4 red/green. Last-wins would drop I8. */
+static int test_settex_two_ids(void)
+{
+    uint8_t i8[64], ci4[32], host[0x400], gdl[128];
+    uint16_t tlut[2];
+    static Vtx vtx[6];
+    static Mtx mv, proj;
+    float id[4][4];
+    int i, j, ngfx;
+    const uint8_t *fb;
+    unsigned n, red = 0, grn = 0, grey = 0;
+
+    fill_i8_checker(i8, 8, 8, 0x20, 0xE0);
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    tlut[0] = 0xF801;
+    tlut[1] = 0x07C1;
+    g1_tex_unload();
+    if (g1_tex_load_raw(1, G1_TEX_I8, 8, 8, i8, 64, NULL, 0) != 0)
+        return fail("two-id load i8");
+    if (g1_tex_load_raw(2, G1_TEX_CI4, 8, 8, ci4, 32, tlut, 2) != 0)
+        return fail("two-id load ci4");
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[0].v.tc[0] = 0;
+    vtx[0].v.tc[1] = 0;
+    vtx[1].v.ob[0] = 0;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.tc[0] = 256;
+    vtx[1].v.tc[1] = 0;
+    vtx[2].v.ob[0] = -1;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.tc[0] = 0;
+    vtx[2].v.tc[1] = 256;
+    vtx[3].v.ob[0] = 0;
+    vtx[3].v.ob[1] = -1;
+    vtx[3].v.tc[0] = 0;
+    vtx[3].v.tc[1] = 0;
+    vtx[4].v.ob[0] = 1;
+    vtx[4].v.ob[1] = -1;
+    vtx[4].v.tc[0] = 256;
+    vtx[4].v.tc[1] = 0;
+    vtx[5].v.ob[0] = 1;
+    vtx[5].v.ob[1] = 1;
+    vtx[5].v.tc[0] = 256;
+    vtx[5].v.tc[1] = 256;
+
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+    for (i = 0; i < 6; i++)
+        wr_be_vtx(host + 0x280 + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(gdl + ngfx * 8 + 4,
+            GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) | ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000200u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) | ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000240u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x50 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000280u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 1);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 2);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000005u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000034u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_clear_lookat();
+    g1_set_segment(0xF, (uintptr_t)host);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("two-id interpret");
+    if (g1_tex_ok_count() < 2)
+        return fail("two-id expected texOk>=2");
+    fb = g1_fb_rgba();
+    n = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    for (i = 0; i < (int)n; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        if (r > 160 && g < 80)
+            red++;
+        else if (g > 160 && r < 80)
+            grn++;
+        else if (r > 160 && g > 160 && b > 160)
+            grey++;
+        else if (r < 80 && g < 80 && b < 80 && (r | g | b))
+            grey++;
+    }
+    if (red < 80 || grn < 80)
+        return fail("two-id missing CI4 red/green (second SETTEX)");
+    if (grey < 80)
+        return fail("two-id missing I8 checker (first SETTEX last-wins)");
+    printf("settex two-id I8+CI4 grey=%u red=%u green=%u ok=%u\n", grey, red, grn,
+           g1_tex_ok_count());
+    g1_tex_unload();
+    return 0;
+}
+
+static int test_near_clip_floor(void)
+{
+    uint8_t vtx_be[48], gdl[40];
+    Vtx vtx[3];
+    int i, ngfx;
+    unsigned nz;
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = -20;
+    vtx[0].v.ob[2] = 40;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = -20;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[0] = -80;
+    vtx[2].v.ob[1] = -20;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 200;
+        vtx[i].v.cn[1] = 200;
+        vtx[i].v.cn[2] = 200;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_tex_unload();
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("near-clip interpret");
+    nz = g1_fb_nonzero();
+    if (nz < 400)
+        return fail("near-clip floor still discarded");
+    printf("near-clip floor fb_nonzero=%u\n", nz);
+    g1_clear_lookat();
+    return 0;
+}
+
+static int test_secondary_gdl(void)
+{
+    uint8_t pri[32], sec[32], bg[0x300], stan[256];
+    C0File files[2];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0, plen, slen;
+    uint8_t hash[32];
+    unsigned nz;
+    Vtx vtx[3];
+    uint8_t raw_v[48], wrapped_v[80], raw_p[40], raw_s[40], wp[80], ws[80];
+    int i, ng;
+
+#define OFF_SEC 0x1C0
+    memset(bg, 0, sizeof bg);
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_be32(bg + 0, 0);
+    wr_be32(bg + 4, SEG(OFF_ROOMS));
+    wr_be32(bg + 8, SEG(OFF_PORTAL));
+    wr_be32(bg + OFF_ROOM1 + 0, SEG(OFF_VTX));
+    wr_be32(bg + OFF_ROOM1 + 4, SEG(OFF_GDL));
+    wr_be32(bg + OFF_ROOM1 + 8, SEG(OFF_SEC));
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -40;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 40;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 40;
+        vtx[i].v.cn[2] = 40;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(raw_v + (size_t)i * 16, &vtx[i]);
+    }
+    plen = wrap1172_stored(raw_v, sizeof raw_v, wrapped_v, sizeof wrapped_v);
+    if (!plen || OFF_VTX + plen > OFF_GDL)
+        return fail("sec vtx wrap");
+    memcpy(bg + OFF_VTX, wrapped_v, plen);
+
+    ng = 0;
+    wr_be32(raw_p + ng * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(raw_p + ng * 8 + 4, VTX_SEG14);
+    ng++;
+    wr_be32(raw_p + ng * 8, 0xB1000002u);
+    wr_be32(raw_p + ng * 8 + 4, 0x00000010u);
+    ng++;
+    wr_be32(raw_p + ng * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(raw_p + ng * 8 + 4, 0);
+    ng++;
+    plen = wrap1172_stored(raw_p, (size_t)ng * 8u, wp, sizeof wp);
+    if (!plen || OFF_GDL + plen > OFF_SEC)
+        return fail("sec pri wrap");
+    memcpy(bg + OFF_GDL, wp, plen);
+
+    /* Secondary: a second TRI4 using the same verts (must still walk). */
+    slen = wrap1172_stored(raw_p, (size_t)ng * 8u, ws, sizeof ws);
+    if (!slen || OFF_SEC + slen > sizeof bg)
+        return fail("sec wrap");
+    memcpy(bg + OFF_SEC, ws, slen);
+
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    if (c0pack_build(files, 2, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("sec pack build");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("sec port_api init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("sec stage load");
+    if (!port_stage_gdl_c0())
+        return fail("sec expected pri c0");
+    if (!port_stage_gdl_sec())
+        return fail("sec expected inflated pSecMappingBin");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("sec last_draw");
+    nz = port_api_fb_nonzero();
+    if (nz < 1000)
+        return fail("sec draw still black");
+    printf("secondary GDL inflated gdl_sec=1 fb_nonzero=%u\n", nz);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+#undef OFF_SEC
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -1143,6 +1487,14 @@ int main(int argc, char **argv)
     if (test_tex_bank_synthetic() != 0)
         return 1;
     if (test_settex_formats() != 0)
+        return 1;
+    if (test_settex_ia_formats() != 0)
+        return 1;
+    if (test_settex_two_ids() != 0)
+        return 1;
+    if (test_near_clip_floor() != 0)
+        return 1;
+    if (test_secondary_gdl() != 0)
         return 1;
     if (test_settex_pack_lookup() != 0)
         return 1;

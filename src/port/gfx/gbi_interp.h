@@ -16,6 +16,7 @@ void g1_fb_grey_sha256(uint8_t out[32]);
 /* K17: pack DLs stay big-endian; 0x0Nxxxxxx resolves via the 16-entry table. */
 void g1_set_segment(unsigned seg, uintptr_t base);
 int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx);
+int g1_interpret_be_dl2(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_t nb);
 
 /* Player look-at (theta=0 faces -Z). Identity when cleared. */
 void g1_set_lookat(float x, float y, float z, float theta_deg);

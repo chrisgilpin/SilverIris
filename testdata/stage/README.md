@@ -28,7 +28,14 @@ to prove SETTEX → TMEM → TRI4 sampling.
 `checker.rare.bin` is the same 8×8 I8 checker in the Rare *non-zlib*
 bank container (`uzllllll` + format4/w8/h8/method4 uncompressed).
 `checker.zbank.bin` is an 8×8 CI4 checker (red/green 5551) in the Rare
-*zlib* bank container (`z=1`, palette, 1172-wrapped indices). Neither
-file is ROM-derived. Retail Facility banks are the same *container*,
-but their payloads are unproven here (no retail texels in git).
+*zlib* bank container (`z=1`, palette, 1172-wrapped indices).
+`floor.ia8.bin` / `floor.ia4.bin` are 8×8 IA8 (I4A4) and IA4 (I3A1)
+floor-like checkers in the same non-zlib container. None of these files
+are ROM-derived. G1 also proves two SETTEX ids in one DL (per-tri tile
+cache, not last-wins), a near-plane clip of a floor tri that crosses
+the camera, and walking `pSecMappingBin` after the primary GDL.
 
+Retail Facility banks use the same *container*. Chris's 0b83df6 hallway
+showed repeating wall tiles with black floors/ceilings — IA / second
+SETTEX / secondary GDL / near-plane discard, not "texOk unproven".
+HUD `texOk` / `texMiss` stay honest. Do not commit retail texels.

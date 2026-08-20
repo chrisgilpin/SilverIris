@@ -89,8 +89,11 @@ and `game.wasm` (256 MB initial heap, growth to 1 GB). `port_api_init` checks
 `port_api_draw` uses the stage FB when a room GDL is drawable. The live
 shell blits that buffer and keeps the PORT overlay; a pack with no drawable
 rooms stays on the placeholder mesh. Retail-shaped rooms also inflate the
-vertex table onto segment 14 and look-at from the player so TRI4s can paint
-grey. Flags `netplay`/`campaign` stay off. Title is still later.
+vertex table onto segment 14 and look-at from the player so TRI4s can paint.
+SETTEX binds pack tiles (including IA4/IA8 floor-like banks) onto a per-tri
+cache; the secondary room GDL is walked; floor tris that cross the camera
+are clipped instead of dropped. Flags `netplay`/`campaign` stay off. Title
+is still later.
 
 ## Audio stub (PR-10)
 

@@ -9,23 +9,26 @@ typedef struct {
     uint8_t fmt;
     uint8_t w, h;
     uint8_t cms, cmt;
+    uint8_t tlut_ia;
     uint16_t id;
     uint8_t texels[G1_TMEM_BYTES];
     size_t ntex;
     uint16_t tlut[256];
     unsigned ntlut;
+    float ss, st;
+    unsigned stamp;
 } Tile;
 
-static Tile g_tile;
-static int g_bound;
+static Tile g_slots[G1_TEX_SLOTS];
+static int g_cur = -1;
 static float g_ss = 1.f, g_st = 1.f;
 static const C0Pack *g_pack;
-static unsigned g_settex_n, g_ok_n, g_miss_n;
+static unsigned g_settex_n, g_ok_n, g_miss_n, g_use;
 static uint16_t g_last_id;
 
 void g1_tex_begin_dl(void)
 {
-    g_bound = 0;
+    g_cur = -1;
     g_ss = 1.f;
     g_st = 1.f;
     g_settex_n = 0;
@@ -44,8 +47,9 @@ void g1_tex_set_scale(float s, float t)
 
 void g1_tex_unload(void)
 {
-    memset(&g_tile, 0, sizeof g_tile);
-    g_bound = 0;
+    memset(g_slots, 0, sizeof g_slots);
+    g_cur = -1;
+    g_use = 0;
 }
 
 static uint32_t rd_be32(const uint8_t *p)
@@ -57,47 +61,109 @@ static uint16_t rd_be16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]
 
 static int fmt_ok(uint8_t fmt)
 {
-    return fmt == G1_TEX_I4 || fmt == G1_TEX_I8 || fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8 ||
-           fmt == G1_TEX_RGBA16;
+    return fmt <= G1_TEX_IA16_CI4;
 }
 
 static size_t texel_need(uint8_t fmt, unsigned w, unsigned h)
 {
     unsigned n = w * h;
-    if (fmt == G1_TEX_I4 || fmt == G1_TEX_CI4)
+    switch (fmt) {
+    case G1_TEX_I4:
+    case G1_TEX_CI4:
+    case G1_TEX_IA4:
+    case G1_TEX_IA16_CI4:
         return (n + 1u) / 2u;
-    if (fmt == G1_TEX_I8 || fmt == G1_TEX_CI8)
+    case G1_TEX_I8:
+    case G1_TEX_CI8:
+    case G1_TEX_IA8:
+    case G1_TEX_IA16_CI8:
         return n;
-    if (fmt == G1_TEX_RGBA16)
+    case G1_TEX_RGBA16:
+    case G1_TEX_RGB15:
+    case G1_TEX_IA16:
         return n * 2u;
-    return 0;
+    case G1_TEX_RGB24:
+        return n * 3u;
+    case G1_TEX_RGBA32:
+        return n * 4u;
+    default:
+        return 0;
+    }
+}
+
+static int find_slot(unsigned id)
+{
+    int i;
+    for (i = 0; i < G1_TEX_SLOTS; i++) {
+        if (g_slots[i].loaded && g_slots[i].id == (uint16_t)id)
+            return i;
+    }
+    return -1;
+}
+
+static int alloc_slot(void)
+{
+    int i, best = 0;
+    unsigned oldest = 0xffffffffu;
+
+    for (i = 0; i < G1_TEX_SLOTS; i++) {
+        if (!g_slots[i].loaded)
+            return i;
+        if (g_slots[i].stamp < oldest) {
+            oldest = g_slots[i].stamp;
+            best = i;
+        }
+    }
+    return best;
 }
 
 int g1_tex_load_raw(unsigned id, uint8_t fmt, unsigned w, unsigned h, const uint8_t *texels,
                     size_t ntex, const uint16_t *tlut, unsigned ntlut)
 {
     size_t need;
+    int slot;
+    Tile *t;
+    uint8_t store = fmt;
+
     if (!texels || !w || !h || w > 64 || h > 64 || !fmt_ok(fmt))
         return -1;
     need = texel_need(fmt, w, h);
     if (!need || ntex < need || need > G1_TMEM_BYTES)
         return -1;
-    if ((fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8) && (!tlut || ntlut == 0))
+    if ((fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8 || fmt == G1_TEX_IA16_CI4 ||
+         fmt == G1_TEX_IA16_CI8) &&
+        (!tlut || ntlut == 0))
         return -1;
-    memset(&g_tile, 0, sizeof g_tile);
-    g_tile.loaded = 1;
-    g_tile.fmt = fmt;
-    g_tile.w = (uint8_t)w;
-    g_tile.h = (uint8_t)h;
-    g_tile.id = (uint16_t)id;
-    g_tile.ntex = need;
-    memcpy(g_tile.texels, texels, need);
+
+    slot = find_slot(id);
+    if (slot < 0)
+        slot = alloc_slot();
+    t = &g_slots[slot];
+    memset(t, 0, sizeof *t);
+    t->loaded = 1;
+    if (fmt == G1_TEX_IA16_CI8) {
+        store = G1_TEX_CI8;
+        t->tlut_ia = 1;
+    } else if (fmt == G1_TEX_IA16_CI4) {
+        store = G1_TEX_CI4;
+        t->tlut_ia = 1;
+    }
+    t->fmt = store;
+    t->w = (uint8_t)w;
+    t->h = (uint8_t)h;
+    t->id = (uint16_t)id;
+    t->ntex = need;
+    t->ss = g_ss;
+    t->st = g_st;
+    t->stamp = ++g_use;
+    memcpy(t->texels, texels, need);
     if (tlut && ntlut) {
         if (ntlut > 256)
             ntlut = 256;
-        memcpy(g_tile.tlut, tlut, ntlut * sizeof(uint16_t));
-        g_tile.ntlut = ntlut;
+        memcpy(t->tlut, tlut, ntlut * sizeof(uint16_t));
+        t->ntlut = ntlut;
     }
+    g_cur = slot;
     return 0;
 }
 
@@ -120,7 +186,8 @@ int g1_tex_load_sitx(unsigned id, const uint8_t *bytes, size_t n)
         return -1;
     tex = bytes + 12;
     off = 12 + tbytes;
-    if (fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8) {
+    if (fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8 || fmt == G1_TEX_IA16_CI4 ||
+        fmt == G1_TEX_IA16_CI8) {
         uint32_t nc, i;
         if (off + 4 > n)
             return -1;
@@ -164,24 +231,38 @@ int g1_tex_settex(uint32_t w0, uint32_t w1)
     unsigned id = (unsigned)(w1 & 0xfffu);
     uint8_t cms = (uint8_t)((w0 >> 22) & 3u);
     uint8_t cmt = (uint8_t)((w0 >> 20) & 3u);
+    int slot;
 
     g_settex_n++;
     g_last_id = (uint16_t)id;
-    if (!(g_tile.loaded && g_tile.id == (uint16_t)id)) {
+    slot = find_slot(id);
+    if (slot < 0) {
         if (load_from_pack(id) != 0) {
-            g_bound = 0;
+            /* Miss unbinds only subsequent tris; already-emitted slots stay. */
+            g_cur = -1;
             g_miss_n++;
             return 0;
         }
+        slot = g_cur;
     }
-    g_tile.cms = cms;
-    g_tile.cmt = cmt;
-    g_bound = 1;
+    if (slot < 0) {
+        g_cur = -1;
+        g_miss_n++;
+        return 0;
+    }
+    g_slots[slot].cms = cms;
+    g_slots[slot].cmt = cmt;
+    g_slots[slot].ss = g_ss;
+    g_slots[slot].st = g_st;
+    g_slots[slot].stamp = ++g_use;
+    g_cur = slot;
     g_ok_n++;
     return 1;
 }
 
-int g1_tex_bound(void) { return g_bound && g_tile.loaded; }
+int g1_tex_bound(void) { return g_cur >= 0 && g_slots[g_cur].loaded; }
+
+int g1_tex_current_slot(void) { return g1_tex_bound() ? g_cur : -1; }
 
 unsigned g1_tex_settex_count(void) { return g_settex_n; }
 unsigned g1_tex_ok_count(void) { return g_ok_n; }
@@ -224,50 +305,97 @@ static void rgba5551(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
     *a = (c & 1) ? 255 : 0;
 }
 
-int g1_tex_sample(float s, float t, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
+int g1_tex_sample_slot(int slot, float s, float t, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
 {
+    Tile *tile;
     int x, y, idx;
     unsigned i;
     uint8_t pix;
 
-    if (!g1_tex_bound())
+    if (slot < 0 || slot >= G1_TEX_SLOTS || !g_slots[slot].loaded)
         return 0;
-    /* Vtx.tc is 10.5; gSPTexture scale is 0..1 (0xffff ~ 1). */
-    x = (int)(s * g_ss / 32.f);
-    y = (int)(t * g_st / 32.f);
-    x = wrap_coord(x, g_tile.w, g_tile.cms);
-    y = wrap_coord(y, g_tile.h, g_tile.cmt);
-    idx = y * (int)g_tile.w + x;
-    if (g_tile.fmt == G1_TEX_I8) {
-        pix = g_tile.texels[idx];
+    tile = &g_slots[slot];
+    /* Vtx.tc is 10.5; gSPTexture scale is 0..1 (0xffff ~ 1). Snapshot at SETTEX. */
+    x = (int)(s * tile->ss / 32.f);
+    y = (int)(t * tile->st / 32.f);
+    x = wrap_coord(x, tile->w, tile->cms);
+    y = wrap_coord(y, tile->h, tile->cmt);
+    idx = y * (int)tile->w + x;
+    if (tile->fmt == G1_TEX_I8) {
+        pix = tile->texels[idx];
         *r = *g = *b = pix;
         *a = 255;
         return 1;
     }
-    if (g_tile.fmt == G1_TEX_I4) {
-        pix = g_tile.texels[idx >> 1];
+    if (tile->fmt == G1_TEX_I4) {
+        pix = tile->texels[idx >> 1];
         pix = (idx & 1) ? (uint8_t)(pix & 0x0f) : (uint8_t)(pix >> 4);
         pix = (uint8_t)(pix * 17u);
         *r = *g = *b = pix;
         *a = 255;
         return 1;
     }
-    if (g_tile.fmt == G1_TEX_CI4 || g_tile.fmt == G1_TEX_CI8) {
-        if (g_tile.fmt == G1_TEX_CI8)
-            i = g_tile.texels[idx];
-        else {
-            pix = g_tile.texels[idx >> 1];
-            i = (idx & 1) ? (unsigned)(pix & 0x0f) : (unsigned)(pix >> 4);
-        }
-        if (i >= g_tile.ntlut)
-            i = 0;
-        rgba5551(g_tile.tlut[i], r, g, b, a);
+    if (tile->fmt == G1_TEX_IA8) {
+        pix = tile->texels[idx];
+        *r = *g = *b = (uint8_t)((pix >> 4) * 17u);
+        *a = (uint8_t)((pix & 0x0f) * 17u);
         return 1;
     }
-    if (g_tile.fmt == G1_TEX_RGBA16) {
-        uint16_t c = (uint16_t)((g_tile.texels[idx * 2] << 8) | g_tile.texels[idx * 2 + 1]);
+    if (tile->fmt == G1_TEX_IA4) {
+        pix = tile->texels[idx >> 1];
+        pix = (idx & 1) ? (uint8_t)(pix & 0x0f) : (uint8_t)(pix >> 4);
+        *r = *g = *b = (uint8_t)(((pix >> 1) * 255u) / 7u);
+        *a = (pix & 1) ? 255 : 0;
+        return 1;
+    }
+    if (tile->fmt == G1_TEX_IA16) {
+        *r = *g = *b = tile->texels[idx * 2];
+        *a = tile->texels[idx * 2 + 1];
+        return 1;
+    }
+    if (tile->fmt == G1_TEX_CI4 || tile->fmt == G1_TEX_CI8) {
+        if (tile->fmt == G1_TEX_CI8)
+            i = tile->texels[idx];
+        else {
+            pix = tile->texels[idx >> 1];
+            i = (idx & 1) ? (unsigned)(pix & 0x0f) : (unsigned)(pix >> 4);
+        }
+        if (i >= tile->ntlut)
+            i = 0;
+        if (tile->tlut_ia) {
+            uint16_t c = tile->tlut[i];
+            *r = *g = *b = (uint8_t)(c >> 8);
+            *a = (uint8_t)c;
+        } else {
+            rgba5551(tile->tlut[i], r, g, b, a);
+        }
+        return 1;
+    }
+    if (tile->fmt == G1_TEX_RGBA16 || tile->fmt == G1_TEX_RGB15) {
+        uint16_t c = (uint16_t)((tile->texels[idx * 2] << 8) | tile->texels[idx * 2 + 1]);
         rgba5551(c, r, g, b, a);
+        if (tile->fmt == G1_TEX_RGB15)
+            *a = 255;
+        return 1;
+    }
+    if (tile->fmt == G1_TEX_RGB24) {
+        *r = tile->texels[idx * 3];
+        *g = tile->texels[idx * 3 + 1];
+        *b = tile->texels[idx * 3 + 2];
+        *a = 255;
+        return 1;
+    }
+    if (tile->fmt == G1_TEX_RGBA32) {
+        *r = tile->texels[idx * 4];
+        *g = tile->texels[idx * 4 + 1];
+        *b = tile->texels[idx * 4 + 2];
+        *a = tile->texels[idx * 4 + 3];
         return 1;
     }
     return 0;
+}
+
+int g1_tex_sample(float s, float t, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
+{
+    return g1_tex_sample_slot(g_cur, s, t, r, g, b, a);
 }

@@ -239,6 +239,7 @@ static void emit_indexed_tri(uint32_t i0, uint32_t i1, uint32_t i2)
         c.u.tri.v[k].b = idx[k]->b;
         c.u.tri.v[k].a = idx[k]->a;
     }
+    c.u.tri.tex_slot = (int8_t)g1_tex_current_slot();
     emit(&c);
 }
 
@@ -522,19 +523,31 @@ int g1_interpret_dl(const Gfx *dl, uint32_t n_gfx)
     return 0;
 }
 
-int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx)
+static int interpret_be_common(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_t nb)
 {
     uintptr_t saved[16];
-    if (!bytes || n_gfx == 0)
+    if (!a || na == 0)
         return -1;
     memcpy(saved, g_seg, sizeof saved);
     reset_state();
     memcpy(g_seg, saved, sizeof saved);
     apply_stored_camera();
-    walk_be(bytes, n_gfx);
+    walk_be(a, na);
+    if (b && nb)
+        walk_be(b, nb);
     sw_raster_clear(0, 0, 0, 255);
     sw_raster_list(&g_ir);
     return 0;
+}
+
+int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx)
+{
+    return interpret_be_common(bytes, n_gfx, NULL, 0);
+}
+
+int g1_interpret_be_dl2(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_t nb)
+{
+    return interpret_be_common(a, na, b, nb);
 }
 
 int g1_interpret_task(OSTask *task)

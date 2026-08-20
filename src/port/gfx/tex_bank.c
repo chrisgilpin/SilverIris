@@ -51,19 +51,22 @@ static int bits_read(Bits *b, int n, uint32_t *out)
 static size_t tight_need(uint8_t fmt, unsigned w, unsigned h)
 {
     unsigned n = w * h;
-    if (fmt == G1_TEX_I4 || fmt == G1_TEX_CI4)
+    if (fmt == G1_TEX_I4 || fmt == G1_TEX_CI4 || fmt == G1_TEX_IA4 || fmt == G1_TEX_IA16_CI4)
         return (n + 1u) / 2u;
-    if (fmt == G1_TEX_I8 || fmt == G1_TEX_CI8)
+    if (fmt == G1_TEX_I8 || fmt == G1_TEX_CI8 || fmt == G1_TEX_IA8 || fmt == G1_TEX_IA16_CI8)
         return n;
-    if (fmt == G1_TEX_RGBA16)
+    if (fmt == G1_TEX_RGBA16 || fmt == G1_TEX_RGB15 || fmt == G1_TEX_IA16)
         return n * 2u;
+    if (fmt == G1_TEX_RGB24)
+        return n * 3u;
+    if (fmt == G1_TEX_RGBA32)
+        return n * 4u;
     return 0;
 }
 
 static int fmt_ok(uint8_t fmt)
 {
-    return fmt == G1_TEX_I4 || fmt == G1_TEX_I8 || fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8 ||
-           fmt == G1_TEX_RGBA16;
+    return fmt <= G1_TEX_IA16_CI4;
 }
 
 static int remain(const Bits *b)
@@ -114,13 +117,16 @@ static int decode_zlib(Bits *b, G1TexBankOut *out)
     h = (unsigned)v;
     if (!w || !h || w > 64 || h > 64)
         return -1;
-    /* Map IA16-CI to CI so TMEM samples the 16-bit palette. */
-    if (fmt == 0x0b)
-        fmt = G1_TEX_CI8;
-    if (fmt == 0x0c)
-        fmt = G1_TEX_CI4;
-    if (!fmt_ok(fmt) || (fmt != G1_TEX_CI4 && fmt != G1_TEX_CI8))
+    /* Keep IA16-CI ids so TMEM samples the 8.8 palette, not 5551. */
+    if (fmt == G1_TEX_IA16_CI8 || fmt == G1_TEX_IA16_CI4)
+        out->tlut_ia = 1;
+    if (!fmt_ok(fmt) || (fmt != G1_TEX_CI4 && fmt != G1_TEX_CI8 && fmt != G1_TEX_IA16_CI4 &&
+                         fmt != G1_TEX_IA16_CI8))
         return -1;
+    if (fmt == G1_TEX_IA16_CI8)
+        fmt = G1_TEX_CI8;
+    if (fmt == G1_TEX_IA16_CI4)
+        fmt = G1_TEX_CI4;
     /* Bitstream is byte-aligned after 8/16-bit fields. */
     if (b->bits != 0)
         return -1;
@@ -169,7 +175,7 @@ static int read_uncomp_tight(Bits *b, uint8_t fmt, unsigned w, unsigned h, uint8
         *ntex = ((size_t)w * h + 1u) / 2u;
         return 0;
     }
-    if (fmt == G1_TEX_RGBA16) {
+    if (fmt == G1_TEX_RGBA16 || fmt == G1_TEX_RGB15 || fmt == G1_TEX_IA16) {
         for (y = 0; y < h; y++) {
             for (x = 0; x < w; x++) {
                 if (bits_read(b, 16, &v) != 0)
@@ -179,6 +185,55 @@ static int read_uncomp_tight(Bits *b, uint8_t fmt, unsigned w, unsigned h, uint8
             }
         }
         *ntex = (size_t)w * h * 2u;
+        return 0;
+    }
+    if (fmt == G1_TEX_IA8) {
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                if (bits_read(b, 8, &v) != 0)
+                    return -1;
+                dst[i++] = (uint8_t)v;
+            }
+        }
+        *ntex = (size_t)w * h;
+        return 0;
+    }
+    if (fmt == G1_TEX_IA4) {
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x += 2) {
+                if (bits_read(b, 8, &v) != 0)
+                    return -1;
+                dst[i++] = (uint8_t)v;
+            }
+        }
+        *ntex = ((size_t)w * h + 1u) / 2u;
+        return 0;
+    }
+    if (fmt == G1_TEX_RGBA32) {
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                int k;
+                for (k = 0; k < 4; k++) {
+                    if (bits_read(b, 8, &v) != 0)
+                        return -1;
+                    dst[i++] = (uint8_t)v;
+                }
+            }
+        }
+        *ntex = (size_t)w * h * 4u;
+        return 0;
+    }
+    if (fmt == G1_TEX_RGB24) {
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                if (bits_read(b, 24, &v) != 0)
+                    return -1;
+                dst[i++] = (uint8_t)(v >> 16);
+                dst[i++] = (uint8_t)(v >> 8);
+                dst[i++] = (uint8_t)v;
+            }
+        }
+        *ntex = (size_t)w * h * 3u;
         return 0;
     }
     return -1;
@@ -386,6 +441,54 @@ static int chans_to_rgba16(const uint8_t *src, unsigned w, unsigned h, uint8_t *
     return (int)i;
 }
 
+static int chans_to_ia8(const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+{
+    unsigned n = w * h, i;
+    for (i = 0; i < n; i++)
+        dst[i] = (uint8_t)((src[i] << 4) | (src[n + i] & 0x0f));
+    return (int)n;
+}
+
+static int chans_to_ia16(const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+{
+    unsigned n = w * h, i;
+    for (i = 0; i < n; i++) {
+        dst[i * 2] = src[i];
+        dst[i * 2 + 1] = src[n + i];
+    }
+    return (int)(n * 2u);
+}
+
+static int chans_to_ia4(const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+{
+    unsigned x, y, i = 0, pos = 0, n = w * h;
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x += 2) {
+            uint8_t a0 = src[pos] & 7;
+            uint8_t a1 = (x + 1 < w) ? (src[pos + 1] & 7) : 0;
+            uint8_t al0 = src[n + pos] ? 1 : 0;
+            uint8_t al1 = (x + 1 < w && src[n + pos + 1]) ? 1 : 0;
+            dst[i++] = (uint8_t)((a0 << 5) | (al0 << 4) | (a1 << 1) | al1);
+            pos += 2;
+        }
+        if (w & 1)
+            pos--;
+    }
+    return (int)i;
+}
+
+static int chans_to_rgba32(const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+{
+    unsigned n = w * h, i;
+    for (i = 0; i < n; i++) {
+        dst[i * 4] = src[i];
+        dst[i * 4 + 1] = src[n + i];
+        dst[i * 4 + 2] = src[2 * n + i];
+        dst[i * 4 + 3] = src[3 * n + i];
+    }
+    return (int)(n * 4u);
+}
+
 static int bitsize(int n)
 {
     int c = 0;
@@ -418,17 +521,20 @@ static int inflate_lookup(Bits *b, unsigned w, unsigned h, uint8_t fmt, uint8_t 
         if (fmt == G1_TEX_RGBA16) {
             if (bits_read(b, 16, &v) != 0)
                 return -1;
-        } else if (fmt == G1_TEX_I8) {
+        } else if (fmt == G1_TEX_I8 || fmt == G1_TEX_IA8) {
             if (bits_read(b, 8, &v) != 0)
                 return -1;
-        } else if (fmt == G1_TEX_I4) {
+        } else if (fmt == G1_TEX_I4 || fmt == G1_TEX_IA4) {
             if (bits_read(b, 4, &v) != 0)
+                return -1;
+        } else if (fmt == G1_TEX_IA16) {
+            if (bits_read(b, 16, &v) != 0)
                 return -1;
         } else
             return -1;
         lut[i] = (uint16_t)v;
     }
-    if (fmt == G1_TEX_I8) {
+    if (fmt == G1_TEX_I8 || fmt == G1_TEX_IA8) {
         for (y = 0; y < h; y++)
             for (x = 0; x < w; x++) {
                 if (bits_read(b, bpc, &v) != 0)
@@ -440,7 +546,7 @@ static int inflate_lookup(Bits *b, unsigned w, unsigned h, uint8_t fmt, uint8_t 
         *ntex = o;
         return 0;
     }
-    if (fmt == G1_TEX_I4) {
+    if (fmt == G1_TEX_I4 || fmt == G1_TEX_IA4) {
         for (y = 0; y < h; y++) {
             for (x = 0; x < w; x += 2) {
                 uint8_t pix;
@@ -462,7 +568,7 @@ static int inflate_lookup(Bits *b, unsigned w, unsigned h, uint8_t fmt, uint8_t 
         *ntex = o;
         return 0;
     }
-    if (fmt == G1_TEX_RGBA16) {
+    if (fmt == G1_TEX_RGBA16 || fmt == G1_TEX_IA16) {
         for (y = 0; y < h; y++)
             for (x = 0; x < w; x++) {
                 if (bits_read(b, bpc, &v) != 0)
@@ -546,6 +652,14 @@ static int decode_rare(Bits *b, G1TexBankOut *out)
             nbytes = chans_to_i4(scratch, w, h, out->texels);
         else if (fmt == G1_TEX_RGBA16)
             nbytes = chans_to_rgba16(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA8)
+            nbytes = chans_to_ia8(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA16)
+            nbytes = chans_to_ia16(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA4)
+            nbytes = chans_to_ia4(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_RGBA32)
+            nbytes = chans_to_rgba32(scratch, w, h, out->texels);
         else
             return -1;
         if (nbytes <= 0)
@@ -569,6 +683,14 @@ static int decode_rare(Bits *b, G1TexBankOut *out)
             nbytes = chans_to_i4(scratch, w, h, out->texels);
         else if (fmt == G1_TEX_RGBA16)
             nbytes = chans_to_rgba16(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA8)
+            nbytes = chans_to_ia8(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA16)
+            nbytes = chans_to_ia16(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_IA4)
+            nbytes = chans_to_ia4(scratch, w, h, out->texels);
+        else if (fmt == G1_TEX_RGBA32)
+            nbytes = chans_to_rgba32(scratch, w, h, out->texels);
         else
             return -1;
         if (nbytes <= 0)
@@ -610,6 +732,12 @@ int g1_tex_load_bank(unsigned id, const uint8_t *bytes, size_t n)
     G1TexBankOut d;
     if (g1_tex_bank_decode(bytes, n, &d) != G1_TEX_BANK_OK)
         return -1;
+    if (d.tlut_ia) {
+        if (d.fmt == G1_TEX_CI8)
+            d.fmt = G1_TEX_IA16_CI8;
+        else if (d.fmt == G1_TEX_CI4)
+            d.fmt = G1_TEX_IA16_CI4;
+    }
     return g1_tex_load_raw(id, d.fmt, d.w, d.h, d.texels, d.ntex,
                            d.ntlut ? d.tlut : NULL, d.ntlut);
 }

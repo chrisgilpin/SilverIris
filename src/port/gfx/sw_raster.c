@@ -90,7 +90,7 @@ static int clip_to_screen(const GirVert *v, float *sx, float *sy)
     return 1;
 }
 
-static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2)
+static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
 {
     float x0, y0, x1, y1, x2, y2, area;
     int minx, maxx, miny, maxy, x, y;
@@ -149,14 +149,73 @@ static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2)
                 g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
                 bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
                 al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
-                if (g1_tex_bound()) {
+                if (tex_slot >= 0) {
                     float ss = a * v0->s + b * v1->s + c * v2->s;
                     float tt = a * v0->t + b * v1->t + c * v2->t;
-                    g1_tex_sample(ss, tt, &r, &g, &bl, &al);
+                    g1_tex_sample_slot(tex_slot, ss, tt, &r, &g, &bl, &al);
                 }
                 put_px(x, y, r, g, bl, al);
             }
         }
+    }
+}
+
+#define W_EPS 0.01f
+
+static GirVert lerp_vert(const GirVert *a, const GirVert *b, float t)
+{
+    GirVert o;
+    o.x = a->x + t * (b->x - a->x);
+    o.y = a->y + t * (b->y - a->y);
+    o.z = a->z + t * (b->z - a->z);
+    o.w = a->w + t * (b->w - a->w);
+    o.s = a->s + t * (b->s - a->s);
+    o.t = a->t + t * (b->t - a->t);
+    o.r = (uint8_t)(a->r + t * ((float)b->r - (float)a->r));
+    o.g = (uint8_t)(a->g + t * ((float)b->g - (float)a->g));
+    o.b = (uint8_t)(a->b + t * ((float)b->b - (float)a->b));
+    o.a = (uint8_t)(a->a + t * ((float)b->a - (float)a->a));
+    return o;
+}
+
+/* Clip against w=W_EPS so floor/ceiling quads that cross the camera still paint. */
+static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
+{
+    const GirVert *v[3];
+    GirVert out[4];
+    int in[3], nin = 0, nout = 0, i;
+
+    v[0] = v0;
+    v[1] = v1;
+    v[2] = v2;
+    for (i = 0; i < 3; i++) {
+        in[i] = v[i]->w > W_EPS;
+        nin += in[i];
+    }
+    if (nin == 3) {
+        draw_tri_raw(v0, v1, v2, tex_slot);
+        return;
+    }
+    if (nin == 0)
+        return;
+    for (i = 0; i < 3; i++) {
+        int j = (i + 1) % 3;
+        if (in[i]) {
+            out[nout++] = *v[i];
+            if (!in[j]) {
+                float t = (W_EPS - v[i]->w) / (v[j]->w - v[i]->w);
+                out[nout++] = lerp_vert(v[i], v[j], t);
+            }
+        } else if (in[j]) {
+            float t = (W_EPS - v[i]->w) / (v[j]->w - v[i]->w);
+            out[nout++] = lerp_vert(v[i], v[j], t);
+        }
+    }
+    if (nout == 3)
+        draw_tri_raw(&out[0], &out[1], &out[2], tex_slot);
+    else if (nout == 4) {
+        draw_tri_raw(&out[0], &out[1], &out[2], tex_slot);
+        draw_tri_raw(&out[0], &out[2], &out[3], tex_slot);
     }
 }
 
@@ -176,7 +235,7 @@ void sw_raster_list(const GirList *list)
             fill_rect(c->u.rect.ulx, c->u.rect.uly, c->u.rect.lrx, c->u.rect.lry,
                       c->u.rect.r, c->u.rect.g, c->u.rect.b, c->u.rect.a);
         } else if (c->op == GIR_DRAW_TRIS) {
-            draw_tri(&c->u.tri.v[0], &c->u.tri.v[1], &c->u.tri.v[2]);
+            draw_tri(&c->u.tri.v[0], &c->u.tri.v[1], &c->u.tri.v[2], c->u.tri.tex_slot);
         }
     }
 }
