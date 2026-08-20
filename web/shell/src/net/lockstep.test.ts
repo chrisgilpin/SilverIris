@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ckEqual,
+  ICE_CONNECT_MS,
+  ICE_FAIL_OVERLAY,
   LOCKSTEP_DROP_MS,
   LOCKSTEP_STALL_MS,
   LockstepSession,
@@ -60,6 +62,7 @@ describe("LockstepSession", () => {
       { tick: 0, seat: 1, nseats: 2, delay: 1, pad: idle, simCrc: 0 },
       { tick: 1, seat: 1, nseats: 2, delay: 1, pad: idle, simCrc: 0 },
     ]);
+    expect(a.meshLinked).toBe(true);
     const ev1 = a.step(50, walk);
     expect(ev1).toEqual([expect.objectContaining({ t: "ran", tick: 0 })]);
     expect(eng.ticks).toEqual([0]);
@@ -67,17 +70,50 @@ describe("LockstepSession", () => {
     expect(a.nextTick).toBe(1);
   });
 
-  it("stalls at 350ms and drops at 10s", () => {
+  it("ICE fail / never-open channel is not P2 left", () => {
     const a = new LockstepSession(0, 2, 1, fakeEngine());
     a.start(1);
     a.step(0, idle);
     const stall = a.step(LOCKSTEP_STALL_MS, idle);
     expect(stall.some((e) => e.t === "stall" && e.seat === 1)).toBe(true);
     expect(a.stalled).toBe(true);
+    expect(a.overlay).toBe("waiting for the other player");
+    expect(a.overlay).not.toMatch(/P2 left/);
+    const early = a.step(ICE_CONNECT_MS - 1, idle);
+    expect(early.some((e) => e.t === "drop")).toBe(false);
+    const drop = a.step(ICE_CONNECT_MS, idle);
+    expect(drop.some((e) => e.t === "drop")).toBe(true);
+    expect(a.dropped).toBe(true);
+    expect(a.overlay).toBe(ICE_FAIL_OVERLAY);
+    expect(a.overlay).not.toMatch(/P2 left/);
+    expect(a.overlay).not.toMatch(/Host disconnected/);
+  });
+
+  it("10s drop says P2 left only after inp has opened", () => {
+    const a = new LockstepSession(0, 2, 1, fakeEngine());
+    a.start(1);
+    a.markLinked();
+    a.step(0, idle);
+    const stall = a.step(LOCKSTEP_STALL_MS, idle);
+    expect(stall.some((e) => e.t === "stall" && e.seat === 1)).toBe(true);
     expect(a.overlay).toMatch(/waiting for P2/);
+    const mid = a.step(ICE_CONNECT_MS, idle);
+    expect(mid.some((e) => e.t === "drop")).toBe(false);
     const drop = a.step(LOCKSTEP_DROP_MS, idle);
     expect(drop.some((e) => e.t === "drop")).toBe(true);
     expect(a.dropped).toBe(true);
+    expect(a.overlay).toBe("P2 left. Match ended.");
+    expect(a.overlay).not.toBe(ICE_FAIL_OVERLAY);
+  });
+
+  it("channel closed before link is a connect timeout, not P2 left", () => {
+    const a = new LockstepSession(0, 2, 2, fakeEngine());
+    a.start(1);
+    a.step(0, idle);
+    a.endMatch(ICE_FAIL_OVERLAY, 1);
+    expect(a.overlay).toBe(ICE_FAIL_OVERLAY);
+    expect(a.overlay).not.toMatch(/P2 left/);
+    expect(a.halted).toBe(true);
   });
 
   it("DESYNC when remote checksum disagrees", () => {
@@ -126,11 +162,13 @@ describe("LockstepSession", () => {
   it("host disconnect ends the match immediately", () => {
     const a = new LockstepSession(1, 3, 2, fakeEngine());
     a.start(1);
+    a.markLinked();
     const ev = a.endMatch("Host disconnected. Match ended.", 0);
     expect(ev).toEqual({ t: "drop", seat: 0 });
     expect(a.dropped).toBe(true);
     expect(a.halted).toBe(true);
     expect(a.overlay).toMatch(/Host disconnected/);
+    expect(a.overlay).not.toBe(ICE_FAIL_OVERLAY);
     expect(a.step(50, idle)).toEqual([]);
   });
 });

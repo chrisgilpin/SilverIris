@@ -12,6 +12,7 @@ export type LobbyHandlers = {
   onStart(cfgHash: string): void;
   onSdp(from: number, to: number, desc: { type: "offer" | "answer"; sdp: string }): void;
   onIce(from: number, to: number, cand: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): void;
+  onRelay(from: number, kind: "inp" | "ctl", data: string): void;
 };
 
 export function defaultSignalUrl(): string {
@@ -120,5 +121,7 @@ export class SignalClient {
       this.handlers.onSdp(msg.from, msg.to, msg.desc);
     else if (msg.t === "ice")
       this.handlers.onIce(msg.from, msg.to, msg.cand);
+    else if (msg.t === "relay")
+      this.handlers.onRelay(msg.from, msg.kind, msg.data);
   }
 }

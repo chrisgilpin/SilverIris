@@ -4,7 +4,9 @@ import { INPUT_REDUNDANCY, type InputBlock, type PortPad } from "./datagram.ts";
 
 export const LOCKSTEP_STALL_MS = 350;
 export const LOCKSTEP_DROP_MS = 10000;
+export const ICE_CONNECT_MS = 8000;
 export const LOCKSTEP_RING = 64;
+export const ICE_FAIL_OVERLAY = "Could not connect (WebRTC). Match ended.";
 
 export type CkSnap = {
   tick: number;
@@ -58,6 +60,8 @@ export class LockstepSession {
   dropped = false;
   desynced = false;
   overlay = "";
+  /** True once a remote inp datagram arrived (DataChannel or wsRelay). */
+  meshLinked = false;
   history: InputBlock[] = [];
   readonly localCk = new Map<number, CkSnap>();
   readonly remoteCk = new Map<number, CkSnap>();
@@ -75,6 +79,10 @@ export class LockstepSession {
 
   get halted(): boolean {
     return this.dropped || this.desynced;
+  }
+
+  markLinked(): void {
+    this.meshLinked = true;
   }
 
   endMatch(reason: string, seat = 0): LockstepEvent {
@@ -123,6 +131,7 @@ export class LockstepSession {
       if (b.nseats !== this.nseats)
         continue;
       this.submit(b.tick, b.seat, b.pad, b.simCrc);
+      this.meshLinked = true;
     }
   }
 
@@ -193,6 +202,18 @@ export class LockstepSession {
     if (this.waitSince == null)
       this.waitSince = now;
     const waited = now - this.waitSince;
+    if (!this.meshLinked) {
+      if (waited >= ICE_CONNECT_MS) {
+        this.dropped = true;
+        this.overlay = ICE_FAIL_OVERLAY;
+        events.push({ t: "drop", seat: miss });
+      } else if (waited >= LOCKSTEP_STALL_MS) {
+        this.stalled = true;
+        this.overlay = "waiting for the other player";
+        events.push({ t: "stall", seat: miss, ms: waited });
+      }
+      return events;
+    }
     if (waited >= LOCKSTEP_DROP_MS) {
       this.dropped = true;
       this.overlay = `P${miss + 1} left. Match ended.`;

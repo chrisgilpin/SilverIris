@@ -116,3 +116,62 @@ test("host disconnect during match ends the room", () => {
   assert.match(guest.inbox.at(-1).msg, /host/i);
   assert.equal(st.health().rooms, 0);
 });
+
+test("relay before start is rejected; after start is forwarded", () => {
+  const st = createStore();
+  const host = client();
+  const guest = client();
+  st.onMessage(host, JSON.stringify({ v: 1, t: "create", nick: "H", packHash: HASH, region: "U", buildId: BUILD }));
+  const code = host.inbox.find((m) => m.t === "created").code;
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "join", code, nick: "G", packHash: HASH, region: "U", buildId: BUILD }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: "aa" }));
+  assert.equal(host.inbox.at(-1).code, "BAD_CFG");
+  const good = Buffer.alloc(160);
+  good.writeUInt16LE(1, 0);
+  good[3] = 2;
+  good[4] = 2;
+  good[5] = 3;
+  const cfgHex = good.toString("hex");
+  const cfgHash = createHash("sha256").update(good).digest("hex");
+  st.onMessage(host, JSON.stringify({ v: 1, t: "cfg", cfg: cfgHex, cfgHash }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "start", cfgHash }));
+  guest.inbox.length = 0;
+  st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: "aabb" }));
+  const rel = guest.inbox.find((m) => m.t === "relay");
+  assert.equal(rel.kind, "inp");
+  assert.equal(rel.data, "aabb");
+  assert.equal(rel.from, 0);
+  host.inbox.length = 0;
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "relay", kind: "ctl", data: '{"t":"bye"}' }));
+  const bye = host.inbox.find((m) => m.t === "relay");
+  assert.equal(bye.kind, "ctl");
+  assert.equal(bye.from, 1);
+});
+
+test("relay rate-limit is 64KB/s per room", () => {
+  const st = createStore();
+  const host = client();
+  const guest = client();
+  st.onMessage(host, JSON.stringify({ v: 1, t: "create", nick: "H", packHash: HASH, region: "U", buildId: BUILD }));
+  const code = host.inbox.find((m) => m.t === "created").code;
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "join", code, nick: "G", packHash: HASH, region: "U", buildId: BUILD }));
+  const good = Buffer.alloc(160);
+  good.writeUInt16LE(1, 0);
+  good[3] = 2;
+  good[4] = 2;
+  good[5] = 3;
+  const cfgHex = good.toString("hex");
+  const cfgHash = createHash("sha256").update(good).digest("hex");
+  st.onMessage(host, JSON.stringify({ v: 1, t: "cfg", cfg: cfgHex, cfgHash }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "start", cfgHash }));
+  const payload = "ab".repeat(400);
+  let limited = false;
+  for (let i = 0; i < 120; i++) {
+    st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: payload }));
+    if (host.inbox.at(-1)?.code === "RATE_LIMIT") {
+      limited = true;
+      break;
+    }
+  }
+  assert.equal(limited, true);
+});

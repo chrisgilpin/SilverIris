@@ -30,6 +30,7 @@ export class PeerMesh {
   private pcs = new Map<number, RTCPeerConnection>();
   private inp = new Map<number, RTCDataChannel>();
   private ctl = new Map<number, RTCDataChannel>();
+  private inpOpenedOnce = new Set<number>();
   rttMs = new Map<number, number>();
   onInp: ((from: number, data: Uint8Array) => void) | null = null;
   onCtlMsg: ((from: number, msg: CtlMsg) => void) | null = null;
@@ -57,6 +58,7 @@ export class PeerMesh {
     pc.onconnectionstatechange = () => {
       const st = pc!.connectionState;
       this.onLog(`P${remote} ${st}`);
+      /* connecting / checking / disconnected are not "player left". */
       if (st === "failed" || st === "closed")
         this.onPeerLost?.(remote, st);
     };
@@ -86,8 +88,10 @@ export class PeerMesh {
     }
     ch.onopen = () => {
       this.onLog(`${ch.label} open → P${remote}`);
-      if (ch.label === "inp")
+      if (ch.label === "inp") {
+        this.inpOpenedOnce.add(remote);
         this.onInpOpen?.();
+      }
     };
   }
 
@@ -207,6 +211,25 @@ export class PeerMesh {
         return true;
     }
     return false;
+  }
+
+  ctlOpen(): boolean {
+    for (const ch of this.ctl.values()) {
+      if (ch.readyState === "open")
+        return true;
+    }
+    return false;
+  }
+
+  inpEverOpened(seat?: number): boolean {
+    if (seat == null)
+      return this.inpOpenedOnce.size > 0;
+    return this.inpOpenedOnce.has(seat);
+  }
+
+  meshFullyUp(): boolean {
+    const need = this.expectedDataChannelCount();
+    return need > 0 && this.openDataChannelCount() >= need;
   }
 
   rttLine(): string {

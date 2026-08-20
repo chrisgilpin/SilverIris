@@ -12,6 +12,7 @@ export type SignalMsg =
   | { v: 1; t: "start"; cfgHash: string }
   | { v: 1; t: "sdp"; from: number; to: number; desc: { type: "offer" | "answer"; sdp: string } }
   | { v: 1; t: "ice"; from: number; to: number; cand: { candidate: string; sdpMid?: string; sdpMLineIndex?: number } }
+  | { v: 1; t: "relay"; from: number; to?: number; kind: "inp" | "ctl"; data: string }
   | { v: 1; t: "error"; code: ErrorCode; msg: string };
 
 export interface RosterSeat {
@@ -66,6 +67,17 @@ export function validateIce(cand: { candidate?: string }): boolean {
   if (typeof cand.candidate !== "string" || cand.candidate.length > ICE_MAX)
     return false;
   return cand.candidate.startsWith("candidate:");
+}
+
+
+export function validateRelay(kind: string, data: string): boolean {
+  if (kind !== "inp" && kind !== "ctl")
+    return false;
+  if (typeof data !== "string")
+    return false;
+  if (kind === "inp")
+    return data.length <= 1024 && data.length % 2 === 0 && /^[0-9a-f]*$/i.test(data);
+  return data.length >= 2 && data.length <= 2048;
 }
 
 export function nickOk(nick: string): boolean {

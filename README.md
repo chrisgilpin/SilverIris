@@ -82,8 +82,15 @@ Remote clients render a **full-frame Hor+** camera for their seat via
 `port_set_view_seat` / `currentPlayerSetScreenSize` — not leftover split-screen
 viewports. Local couch split-screen (keys 1-4 on one machine) is unchanged.
 
-If the host disconnects, the match ends. A guest that goes silent stalls for
-350 ms, then the match ends after 10 s (v1 does not drop to 3 mid-sim).
+If the host disconnects, the match ends. A guest that goes silent after the
+mesh (or the signal WebSocket relay) has carried input stalls for 350 ms,
+then the match ends after 10 s (v1 does not drop to 3 mid-sim). If WebRTC
+never opens, the overlay says the peers could not connect — not that someone
+left. Same-origin `/ws` relays `inp`/`ctl` after Start so Chrome+Safari or
+two tabs on one Mac still lockstep when ICE is blocked (Safari private,
+no TURN). Two Chrome tabs is the reliable same-machine test; Safari private
+often shows an Apple privacy banner and gathers only `.local` host
+candidates that Chrome will not resolve.
 
 **Keep the game tab visible.** Browsers throttle hidden timers to about 1 Hz.
 The shell sends STALL and overlays "tab must stay visible." A silent

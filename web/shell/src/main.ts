@@ -8,10 +8,10 @@ import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, type PortChr, type Port
 import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
 import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
 import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
-import { LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
-import { bytesFromHex, decodeMatchConfig } from "./net/match_config.ts";
+import { ICE_FAIL_OVERLAY, LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
+import { bytesFromHex, decodeMatchConfig, hexBytes } from "./net/match_config.ts";
 import { releaseMatchHold, startMatchHold } from "./net/hold_tab.ts";
-import { dataChannelsPerPeer, meshOfferTargets, PeerMesh } from "./net/rtc.ts";
+import { dataChannelsPerPeer, meshOfferTargets, PeerMesh, type CtlMsg } from "./net/rtc.ts";
 import { buildPack } from "./pack.ts";
 import { pickRomFile, romFromDrop } from "./rom/pick.ts";
 import { verifyRom } from "./rom/verify.ts";
@@ -225,8 +225,8 @@ function paint(now: number): void {
       const evs = netLock.step(now, padP1(), typeof document !== "undefined" && document.hidden);
       for (const ev of evs)
         onLockEvent(ev);
-      if (mesh?.inpOpen() && netLock.history.length)
-        mesh.sendInp(encodeInputDatagram(mySeat, netLock.history));
+      if (netLock.history.length)
+        sendInpAll(encodeInputDatagram(mySeat, netLock.history));
       if (rttEl && mesh)
         rttEl.textContent = `${mesh.rttLine()}  lock t=${netLock.nextTick} d=${netLock.delay}${netLock.stalled ? " STALL" : ""}`;
     } else {
@@ -470,6 +470,70 @@ window.addEventListener("keyup", (ev) => {
   held.delete(ev.code);
 });
 
+
+function meshNeedsRelay(): boolean {
+  return !mesh || !mesh.meshFullyUp();
+}
+
+function sendInpAll(buf: Uint8Array): void {
+  if (mesh)
+    mesh.sendInp(buf);
+  if (meshNeedsRelay())
+    signal?.send({ v: 1, t: "relay", from: mySeat, kind: "inp", data: hexBytes(buf) });
+}
+
+function sendCtlAll(msg: CtlMsg): void {
+  if (mesh)
+    mesh.sendCtl(msg);
+  if (meshNeedsRelay())
+    signal?.send({ v: 1, t: "relay", from: mySeat, kind: "ctl", data: JSON.stringify(msg) });
+}
+
+function handleCtl(from: number, msg: CtlMsg): void {
+  if (!netLock)
+    return;
+  if (msg.t === "ck") {
+    const ev = netLock.acceptRemoteCk(msg);
+    if (ev)
+      onLockEvent(ev);
+  } else if (msg.t === "nack") {
+    if (netLock.history.length)
+      sendInpAll(encodeInputDatagram(mySeat, netLock.history));
+  } else if (msg.t === "bye") {
+    if (netLock.halted)
+      return;
+    if (!netLock.meshLinked)
+      onLockEvent(netLock.endMatch(ICE_FAIL_OVERLAY, from));
+    else if (from === 0)
+      onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
+    else
+      onLockEvent(netLock.endMatch(`P${from + 1} left. Match ended.`, from));
+  } else if (msg.t === "desync") {
+    netLock.desynced = true;
+    netLock.overlay = `DESYNC at tick ${msg.tick}`;
+    onLockEvent({
+      t: "desync",
+      tick: msg.tick,
+      local: netLock.localCk.get(msg.tick) ?? {
+        tick: msg.tick,
+        rng_lo: 0,
+        chr_rng_lo: 0,
+        crc_players: 0,
+        crc_chrs: 0,
+        crc_objectives: 0,
+      },
+      remote: {
+        tick: msg.tick,
+        rng_lo: 0,
+        chr_rng_lo: 0,
+        crc_players: 0,
+        crc_chrs: 0,
+        crc_objectives: 0,
+      },
+    });
+  }
+}
+
 function ensureSignal(): SignalClient {
   if (signal)
     return signal;
@@ -539,6 +603,21 @@ function ensureSignal(): SignalClient {
         void mesh.handleIce(from, cand);
       else
         pendingIce.push({ from, cand });
+    },
+    onRelay(from, kind, data) {
+      if (from === mySeat)
+        return;
+      if (kind === "inp") {
+        const dg = decodeInputDatagram(bytesFromHex(data));
+        if (dg)
+          netLock?.ingest(dg.blocks);
+        return;
+      }
+      try {
+        handleCtl(from, JSON.parse(data) as CtlMsg);
+      } catch {
+        /* ignore bad ctl */
+      }
     },
   });
   signal.connect(defaultSignalUrl());
@@ -621,50 +700,22 @@ async function beginMesh(): Promise<void> {
     if (dg)
       netLock?.ingest(dg.blocks);
   };
-  mesh.onCtlMsg = (_from, msg) => {
-    if (!netLock)
-      return;
-    if (msg.t === "ck") {
-      const ev = netLock.acceptRemoteCk(msg);
-      if (ev)
-        onLockEvent(ev);
-    } else if (msg.t === "nack") {
-      mesh?.sendInp(encodeInputDatagram(mySeat, netLock.history));
-    } else if (msg.t === "bye") {
-      if (netLock && !netLock.halted && _from === 0)
-        onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
-    } else if (msg.t === "desync") {
-      netLock.desynced = true;
-      netLock.overlay = `DESYNC at tick ${msg.tick}`;
-      onLockEvent({
-        t: "desync",
-        tick: msg.tick,
-        local: netLock.localCk.get(msg.tick) ?? {
-          tick: msg.tick,
-          rng_lo: 0,
-          chr_rng_lo: 0,
-          crc_players: 0,
-          crc_chrs: 0,
-          crc_objectives: 0,
-        },
-        remote: {
-          tick: msg.tick,
-          rng_lo: 0,
-          chr_rng_lo: 0,
-          crc_players: 0,
-          crc_chrs: 0,
-          crc_objectives: 0,
-        },
-      });
-    }
-  };
+  mesh.onCtlMsg = (from, msg) => handleCtl(from, msg);
   mesh.onInpOpen = () => {
-    if (mesh && netLock?.history.length)
-      mesh.sendInp(encodeInputDatagram(mySeat, netLock.history));
+    if (netLock)
+      netLock.markLinked();
+    if (netLock?.history.length)
+      sendInpAll(encodeInputDatagram(mySeat, netLock.history));
   };
-  mesh.onPeerLost = (seat) => {
+  mesh.onPeerLost = (seat, state) => {
     if (!netLock || netLock.halted)
       return;
+    /* ICE connecting/checking/failed before inp opened is not "player left". */
+    if (!mesh?.inpEverOpened(seat)) {
+      if (rttEl)
+        rttEl.textContent = `P${seat + 1} WebRTC ${state}`;
+      return;
+    }
     if (seat === 0)
       onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
   };
@@ -678,6 +729,8 @@ async function beginMesh(): Promise<void> {
   pendingIce.length = 0;
   mesh.startPing();
   startLockstep();
+  if (netLock?.history.length)
+    sendInpAll(encodeInputDatagram(mySeat, netLock.history));
   if (lobbyStatus)
     lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2} (${dataChannelsPerPeer(netLock?.nseats ?? 2)} DataChannels). WASD+Z is this seat. Keep tab visible.`;
 }
@@ -769,7 +822,7 @@ function onLockEvent(ev: LockstepEvent): void {
     });
     if (checksumLog.length > 32)
       checksumLog.splice(0, checksumLog.length - 32);
-    mesh?.sendCtl({
+    sendCtlAll({
       t: "ck",
       tick: ev.ck.tick,
       rng_lo: ev.ck.rng_lo,
@@ -781,29 +834,29 @@ function onLockEvent(ev: LockstepEvent): void {
     if (lobbyStatus && (lobbyStatus.textContent || "").includes("waiting"))
       lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2}. WASD+Z is this seat.`;
   } else if (ev.t === "stall") {
-    mesh?.sendCtl({ t: "stall", seat: ev.seat });
+    sendCtlAll({ t: "stall", seat: ev.seat });
     const t = performance.now();
     if (t - lastNackAt > 200) {
       lastNackAt = t;
-      mesh?.sendNack(netLock?.nextTick ?? 0, netLock?.nextTick ?? 0);
+      sendCtlAll({ t: "nack", fromTick: netLock?.nextTick ?? 0, toTick: netLock?.nextTick ?? 0 });
     }
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
   } else if (ev.t === "drop") {
     void releaseMatchHold();
-    mesh?.sendCtl({ t: "bye" });
+    sendCtlAll({ t: "bye" });
     mesh?.close();
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
     setStatus("err", netLock?.overlay ?? "peer dropped");
   } else if (ev.t === "desync") {
     void releaseMatchHold();
-    mesh?.sendCtl({ t: "desync", tick: ev.tick });
+    sendCtlAll({ t: "desync", tick: ev.tick });
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "";
     setStatus("err", `${netLock?.overlay ?? "DESYNC"}. Copy the debug report (no ROM).`);
   } else if (ev.t === "hidden") {
-    mesh?.sendCtl({ t: "stall", seat: mySeat });
+    sendCtlAll({ t: "stall", seat: mySeat });
     if (lobbyStatus)
       lobbyStatus.textContent = netLock?.overlay ?? "tab must stay visible.";
   }

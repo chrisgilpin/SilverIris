@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nickOk, packHashOk, parseSignalFrame, validateIce, validateSdp } from "./wire.ts";
+import { nickOk, packHashOk, parseSignalFrame, validateIce, validateRelay, validateSdp } from "./wire.ts";
 
 describe("signal wire", () => {
   it("accepts offer SDP starting with v=", () => {
@@ -23,5 +23,15 @@ describe("signal wire", () => {
   it("parses v:1 frames", () => {
     const m = parseSignalFrame(JSON.stringify({ v: 1, t: "hello", proto: 1 }));
     expect(m.t).toBe("hello");
+  });
+
+  it("accepts room-scoped relay inp hex and ctl json", () => {
+    expect(validateRelay("inp", "00")).toBe(true);
+    expect(validateRelay("inp", "0")).toBe(false);
+    expect(validateRelay("inp", "zz")).toBe(false);
+    expect(validateRelay("ctl", '{"t":"bye"}')).toBe(true);
+    expect(validateRelay("foo", "00")).toBe(false);
+    const m = parseSignalFrame(JSON.stringify({ v: 1, t: "relay", from: 0, kind: "inp", data: "aa" }));
+    expect(m.t).toBe("relay");
   });
 });

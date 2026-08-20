@@ -30,7 +30,7 @@ export function createStore() {
   const creates = new Map();
   /** @type {Map<string, number[]>} */
   const joins = new Map();
-  const counters = { creates: 0, joins: 0, errors: 0 };
+  const counters = { creates: 0, joins: 0, errors: 0, relays: 0 };
 
   function pruneHits(map, ip) {
     const t = now();
@@ -88,6 +88,30 @@ export function createStore() {
   function validateIce(cand) {
     return cand && typeof cand.candidate === "string" && cand.candidate.length <= 1024
       && cand.candidate.startsWith("candidate:");
+  }
+
+  const RELAY_BPS = 64 * 1024;
+
+  function allowRelay(room, n) {
+    const t = now();
+    if (!room.relayWin || t - room.relayWin > 1000) {
+      room.relayWin = t;
+      room.relayBytes = 0;
+    }
+    if (room.relayBytes + n > RELAY_BPS)
+      return false;
+    room.relayBytes += n;
+    return true;
+  }
+
+  function validateRelay(kind, data) {
+    if (kind !== "inp" && kind !== "ctl")
+      return false;
+    if (typeof data !== "string")
+      return false;
+    if (kind === "inp")
+      return data.length <= 1024 && data.length % 2 === 0 && /^[0-9a-f]*$/i.test(data);
+    return data.length >= 2 && data.length <= 2048;
   }
 
   function onMessage(client, raw) {
@@ -252,6 +276,32 @@ export function createStore() {
       const dest = room.seats[msg.to | 0];
       if (dest?.client)
         send(dest.client, { v: 1, t: "ice", from: client.seat, to: msg.to | 0, cand: msg.cand });
+      return;
+    }
+
+    if (msg.t === "relay") {
+      if (!room.inProgress)
+        return err(client, "BAD_CFG", "relay before start");
+      if (!validateRelay(msg.kind, msg.data))
+        return err(client, "BAD_CFG", "relay");
+      if (!allowRelay(room, raw.length))
+        return err(client, "RATE_LIMIT", "relay");
+      room.ice_fail = true;
+      counters.relays = (counters.relays || 0) + 1;
+      const out = { v: 1, t: "relay", from: client.seat, kind: msg.kind, data: msg.data };
+      const destSeat = msg.to;
+      if (destSeat != null) {
+        const dest = room.seats[destSeat | 0];
+        if (dest?.client && (destSeat | 0) !== client.seat)
+          send(dest.client, out);
+        return;
+      }
+      for (let i = 0; i < room.seats.length; i++) {
+        if (i === client.seat)
+          continue;
+        if (room.seats[i]?.client)
+          send(room.seats[i].client, out);
+      }
       return;
     }
   }
