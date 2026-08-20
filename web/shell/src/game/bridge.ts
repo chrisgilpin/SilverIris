@@ -14,8 +14,15 @@ export function formatStageDebug(opts: {
   rooms: number;
   gdlC0: boolean;
   fbNonzero: number;
+  settex?: number;
+  texOk?: number;
+  texMiss?: number;
 }): string {
-  return `last_draw ${lastDrawLabel(opts.lastDraw)}  rooms ${opts.rooms}  gdlC0 ${opts.gdlC0 ? 1 : 0}  fbNonzero ${opts.fbNonzero}`;
+  let s = `last_draw ${lastDrawLabel(opts.lastDraw)}  rooms ${opts.rooms}  gdlC0 ${opts.gdlC0 ? 1 : 0}  fbNonzero ${opts.fbNonzero}`;
+  if (opts.settex !== undefined) {
+    s += `  settex ${opts.settex}  texOk ${opts.texOk ?? 0}  texMiss ${opts.texMiss ?? 0}`;
+  }
+  return s;
 }
 
 /** Live canvas blits G1 only when the pack produced a drawable room GDL. */
@@ -48,6 +55,9 @@ export type GameModule = {
   _port_api_gdl_c0: () => number;
   _port_api_gdl_vtx?: () => number;
   _port_api_fb_nonzero?: () => number;
+  _port_api_settex?: () => number;
+  _port_api_tex_ok?: () => number;
+  _port_api_tex_miss?: () => number;
   _port_api_pack_files: () => number;
   _port_api_set_pad: (seat: number, x: number, y: number, buttons: number) => void;
   _port_api_set_player_count: (n: number) => void;
@@ -117,6 +127,9 @@ export type GameBridge = {
   gdlC0(): boolean;
   gdlVtx(): boolean;
   fbNonzero(): number;
+  settex(): number;
+  texOk(): number;
+  texMiss(): number;
   lastDrawName(): string;
   packFiles(): number;
   lastError(): string;
@@ -328,6 +341,15 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     fbNonzero(): number {
       return alive && M._port_api_fb_nonzero ? M._port_api_fb_nonzero() : 0;
+    },
+    settex(): number {
+      return alive && M._port_api_settex ? M._port_api_settex() : 0;
+    },
+    texOk(): number {
+      return alive && M._port_api_tex_ok ? M._port_api_tex_ok() : 0;
+    },
+    texMiss(): number {
+      return alive && M._port_api_tex_miss ? M._port_api_tex_miss() : 0;
     },
     lastDrawName(): string {
       return lastDrawLabel(this.lastDraw());

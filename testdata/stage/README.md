@@ -8,7 +8,7 @@ Do not replace with a dump from a retail pack.
   greyscale FB must match `testdata/g1/synthetic.fb.sha256`.
 - Rare-shaped header (`word0 == 0`) plus a 1172-compressed C0 GDL
   (`G_SETTEX` + `G_TRI4`). Runtime `bgDecompress` inflates it; G1 must
-  match the same greyscale hash. A junk Rare header without `0x11 0x72`
+  match the same greyscale hash when no SITX bank is bound. A junk Rare header without `0x11 0x72`
   still walks rooms and refuses to draw.
 
 `port_api_draw` after a drawable load reports `PORT_DRAW_STAGE`
@@ -19,3 +19,9 @@ A retail-shaped C0 pack (no `G_MTX` in the GDL) 1172-compresses a 3-vertex
 table at `pPointTableBin` and a `G_SETTEX` + unresolved `G_DL` + unknown
 opcode + `G_VTX` (segment 14) + `G_TRI4` GDL. Identity camera stays black;
 player look-at paints. `port_api_fb_nonzero` counts painted pixels.
+
+`checker.sitx` is an 8×8 I8 checker (0x20/0xE0) in the PORT SITX header
+(magic `SITX`, TEXFORMAT_I8). It is not a Rare image bank and is not
+ROM-derived. `test_stage` loads it via pack path `image7.bin` / `COPYICON.bin`
+to prove SETTEX → TMEM → TRI4 sampling.
+

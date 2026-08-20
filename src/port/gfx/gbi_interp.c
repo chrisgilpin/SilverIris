@@ -2,6 +2,7 @@
 
 #include "gfx/gbi_trace.h"
 #include "gfx/sw_raster.h"
+#include "gfx/tmem.h"
 
 #include <math.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 
 typedef struct {
     float clip[4];
+    float s, t;
     uint8_t r, g, b, a;
 } Slot;
 
@@ -142,6 +144,8 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
         s->clip[1] = g_mvp[1][0] * x + g_mvp[1][1] * y + g_mvp[1][2] * z + g_mvp[1][3];
         s->clip[2] = g_mvp[2][0] * x + g_mvp[2][1] * y + g_mvp[2][2] * z + g_mvp[2][3];
         s->clip[3] = g_mvp[3][0] * x + g_mvp[3][1] * y + g_mvp[3][2] * z + g_mvp[3][3];
+        s->s = (float)v->tc[0];
+        s->t = (float)v->tc[1];
         if (!v->cn[0] && !v->cn[1] && !v->cn[2]) {
             /* Untextured grey so a black Vtx.cn still paints. */
             s->r = 180;
@@ -179,6 +183,8 @@ static const Vtx *vtx_from_be(const uint8_t *p, uint32_t n)
         g_vtx_host[i].v.ob[0] = (s16)rd_be16(s);
         g_vtx_host[i].v.ob[1] = (s16)rd_be16(s + 2);
         g_vtx_host[i].v.ob[2] = (s16)rd_be16(s + 4);
+        g_vtx_host[i].v.tc[0] = (s16)rd_be16(s + 8);
+        g_vtx_host[i].v.tc[1] = (s16)rd_be16(s + 10);
         g_vtx_host[i].v.cn[0] = s[12];
         g_vtx_host[i].v.cn[1] = s[13];
         g_vtx_host[i].v.cn[2] = s[14];
@@ -226,6 +232,8 @@ static void emit_indexed_tri(uint32_t i0, uint32_t i1, uint32_t i2)
         c.u.tri.v[k].y = idx[k]->clip[1];
         c.u.tri.v[k].z = idx[k]->clip[2];
         c.u.tri.v[k].w = idx[k]->clip[3];
+        c.u.tri.v[k].s = idx[k]->s;
+        c.u.tri.v[k].t = idx[k]->t;
         c.u.tri.v[k].r = idx[k]->r;
         c.u.tri.v[k].g = idx[k]->g;
         c.u.tri.v[k].b = idx[k]->b;
@@ -273,6 +281,7 @@ static void reset_state(void)
     memset(&g_ir, 0, sizeof g_ir);
     memset(g_seg, 0, sizeof g_seg);
     memset(g_slot, 0, sizeof g_slot);
+    g1_tex_begin_dl();
     mtx_ident(g_mv);
     mtx_ident(g_proj);
     rebuild_mvp();
@@ -331,7 +340,13 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_SETTEX) {
-        /* Rare C0 texture-from-bank. TMEM / bank ids are not this slice. */
+        g1_tex_settex(w0, w1);
+        return 0;
+    }
+    if (cmd == (uint8_t)G_TEXTURE) {
+        float ss = (float)((w1 >> 16) & 0xffff) / 65536.f;
+        float st = (float)(w1 & 0xffff) / 65536.f;
+        g1_tex_set_scale(ss, st);
         return 0;
     }
     if (cmd == G_SETFILLCOLOR) {

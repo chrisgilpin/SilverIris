@@ -1,6 +1,7 @@
 #include "gfx/sw_raster.h"
 
 #include "fs/sha256.h"
+#include "gfx/tmem.h"
 
 #include <string.h>
 
@@ -143,10 +144,16 @@ static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2)
                 inside = (w0 <= 0 && w1 <= 0 && w2 <= 0);
             if (inside) {
                 float a = w0 / area, b = w1 / area, c = w2 / area;
-                uint8_t r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
-                uint8_t g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
-                uint8_t bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
-                uint8_t al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
+                uint8_t r, g, bl, al;
+                r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
+                g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
+                bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
+                al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
+                if (g1_tex_bound()) {
+                    float ss = a * v0->s + b * v1->s + c * v2->s;
+                    float tt = a * v0->t + b * v1->t + c * v2->t;
+                    g1_tex_sample(ss, tt, &r, &g, &bl, &al);
+                }
                 put_px(x, y, r, g, bl, al);
             }
         }

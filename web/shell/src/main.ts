@@ -168,7 +168,7 @@ function drawHud(): void {
     );
   }
   ctx.fillText(
-    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}`,
+    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}  settex ${game.settex()}  texOk ${game.texOk()}  texMiss ${game.texMiss()}`,
     8,
     56,
   );
@@ -387,7 +387,7 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
       lastStageNote = game.gdlRaw()
         ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 + vtx table (seg 14) + player look-at. last_draw=${game.lastDraw()} rooms=${game.bgRooms()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. Untextured grey if verts land in front of the stub spawn camera. Not a textured retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
+        ? `Inflated 1172 C0 + vtx table (seg 14) + player look-at + G_SETTEX. last_draw=${game.lastDraw()} rooms=${game.bgRooms()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. Retail image banks are not SITX — walls stay untextured grey. HUD settex/texOk/texMiss show binds. Not a textured Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
         : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;

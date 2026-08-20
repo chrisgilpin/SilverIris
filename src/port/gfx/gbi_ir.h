@@ -22,6 +22,7 @@ typedef enum {
 
 typedef struct {
     float x, y, z, w;
+    float s, t;
     uint8_t r, g, b, a;
 } GirVert;
 

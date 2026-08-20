@@ -4,6 +4,7 @@
 #include "fs/pack_dma.h"
 #include "fs/stage.h"
 #include "gfx/gbi_interp.h"
+#include "gfx/tmem.h"
 #include "gfx/sw_raster.h"
 #include "overrides/lv_clock.h"
 #include "chr/patrol.h"
@@ -167,6 +168,10 @@ PORT_KEEP int port_api_gdl_c0(void) { return port_stage_gdl_c0(); }
 PORT_KEEP int port_api_gdl_vtx(void) { return port_stage_gdl_vtx(); }
 
 PORT_KEEP unsigned port_api_fb_nonzero(void) { return g1_fb_nonzero(); }
+
+PORT_KEEP unsigned port_api_settex(void) { return g1_tex_settex_count(); }
+PORT_KEEP unsigned port_api_tex_ok(void) { return g1_tex_ok_count(); }
+PORT_KEEP unsigned port_api_tex_miss(void) { return g1_tex_miss_count(); }
 
 PORT_KEEP int port_api_pack_files(void) { return (int)port_pack_file_count(); }
 

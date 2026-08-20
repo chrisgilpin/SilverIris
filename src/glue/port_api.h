@@ -47,6 +47,9 @@ PORT_KEEP int port_api_gdl_raw(void);
 PORT_KEEP int port_api_gdl_c0(void);
 PORT_KEEP int port_api_gdl_vtx(void);
 PORT_KEEP unsigned port_api_fb_nonzero(void);
+PORT_KEEP unsigned port_api_settex(void);
+PORT_KEEP unsigned port_api_tex_ok(void);
+PORT_KEEP unsigned port_api_tex_miss(void);
 PORT_KEEP int port_api_pack_files(void);
 
 PORT_KEEP void port_api_set_pad(int seat, int x, int y, int buttons);

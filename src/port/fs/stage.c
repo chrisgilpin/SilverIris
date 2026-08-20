@@ -1,6 +1,7 @@
 #include "stage.h"
 
 #include "c0pack.h"
+#include "gfx/tmem.h"
 #include "inflate1172.h"
 #include "pack_dma.h"
 #include "rng/random.h"
@@ -272,6 +273,8 @@ static int fixup_stan(uint8_t *stan, size_t n)
 
 void port_stage_unload(void)
 {
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
     free(g_bg);
     free(g_stan);
     g_bg = NULL;
@@ -394,6 +397,7 @@ int port_stage_load(int level_id)
     g_stan_len = stan_len;
     g_level = level_id;
     g_CurrentStageToLoad = st->files_id;
+    g1_tex_set_pack(port_pack());
     port_rng_on_stage_load();
     port_player_spawn();
     return PORT_STAGE_OK;

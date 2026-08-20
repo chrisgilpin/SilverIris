@@ -34,10 +34,15 @@ not black-screen. A retail-shaped C0 room now also inflates `pPointTableBin`
 (the vertex table), binds RSP segment 14 (`SPSEGMENT_BG_VTX`), skips
 unknown opcodes / unresolved `G_DL`, and applies a player look-at (theta=0
 faces -Z) so world-space `G_TRI4`s can land on the G1 FB as untextured
-grey. Native tests prove identity MVP or a missing vertex segment leaves
-the FB black, and that look-at + seg 14 paints. A real Facility picture
-still needs textures, lighting, and a spawn pad in world space — do not
-claim textured Facility is on screen. Campaign is not v1. Title boot is
+grey. G1 now decodes Rare `G_SETTEX` (0xC0): `texture_id = w1 & 0xfff`
+looks up `assets/images/split/<images.def name>.bin` (or `imageN.bin`)
+in the user pack and samples I4/I8/CI4/CI8/RGBA16 **SITX** tiles through
+a 4 KiB TMEM. Native tests prove a synthetic 8×8 I8/I4/CI4 checker
+changes the picture. Retail image banks are Rare-compressed (zlib /
+non-zlib), not SITX — Facility corridors stay grey after a hard refresh
+until that inflater lands. HUD `settex` / `texOk` / `texMiss` report
+whether SETTEX fired and whether a SITX tile bound. Do not claim
+textured Facility is on screen. Campaign is not v1. Title boot is
 not in this build.
 
 Design:

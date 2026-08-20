@@ -83,5 +83,8 @@ describe("stage debug line", () => {
     expect(
       formatStageDebug({ lastDraw: PORT_DRAW_STAGE, rooms: 12, gdlC0: true, fbNonzero: 10712 }),
     ).toBe("last_draw STAGE  rooms 12  gdlC0 1  fbNonzero 10712");
+    expect(
+      formatStageDebug({ lastDraw: PORT_DRAW_STAGE, rooms: 78, gdlC0: true, fbNonzero: 4880, settex: 4, texOk: 0, texMiss: 4 }),
+    ).toBe("last_draw STAGE  rooms 78  gdlC0 1  fbNonzero 4880  settex 4  texOk 0  texMiss 4");
   });
 });

@@ -10,6 +10,7 @@
 #include "fs/sha256.h"
 #include "fs/stage.h"
 #include "gfx/gbi_interp.h"
+#include "gfx/tmem.h"
 #include "gfx/gbi_trace.h"
 #include "gfx/sw_raster.h"
 #include "overrides/lv_clock.h"
@@ -64,8 +65,8 @@ static void wr_be_vtx(uint8_t *dst, const Vtx *v)
     wr_be16(dst + 2, (uint16_t)v->v.ob[1]);
     wr_be16(dst + 4, (uint16_t)v->v.ob[2]);
     wr_be16(dst + 6, 0);
-    wr_be16(dst + 8, 0);
-    wr_be16(dst + 10, 0);
+    wr_be16(dst + 8, (uint16_t)v->v.tc[0]);
+    wr_be16(dst + 10, (uint16_t)v->v.tc[1]);
     dst[12] = v->v.cn[0];
     dst[13] = v->v.cn[1];
     dst[14] = v->v.cn[2];
@@ -458,6 +459,286 @@ static int test_seg14_camera(void)
     return 0;
 }
 
+
+static void fill_i8_checker(uint8_t *dst, int w, int h, uint8_t a, uint8_t b)
+{
+    int y, x;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            dst[y * w + x] = ((x ^ y) & 1) ? b : a;
+}
+
+static void fill_i4_checker(uint8_t *dst, int w, int h, uint8_t a, uint8_t b)
+{
+    int y, x, i = 0;
+    memset(dst, 0, (size_t)((w * h + 1) / 2));
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            uint8_t v = ((x ^ y) & 1) ? b : a;
+            if ((i & 1) == 0)
+                dst[i >> 1] = (uint8_t)(v << 4);
+            else
+                dst[i >> 1] |= v & 0x0f;
+            i++;
+        }
+    }
+}
+
+/* Identity-MVP TRI4 with UVs covering an 8x8 tile. SETTEX id in w1. */
+static uint32_t build_tex_tri4(uint8_t *gdl, uint8_t *vtx_be, uint16_t tex_id)
+{
+    static Vtx vtx[3];
+    static Mtx mv, proj;
+    float id[4][4];
+    int i, j, ngfx;
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[0].v.tc[0] = 0;
+    vtx[0].v.tc[1] = 0;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.tc[0] = 256;
+    vtx[1].v.tc[1] = 0;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.tc[0] = 0;
+    vtx[2].v.tc[1] = 256;
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(gdl + ngfx * 8 + 4,
+                  GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+                  ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+                  ((uint32_t)(uint8_t)G_MTX << 24) |
+                      ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000000u + 0x200u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+                  ((uint32_t)(uint8_t)G_MTX << 24) |
+                      ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000000u + 0x240u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000000u + 0x280u);
+    ngfx++;
+    /* G_SETTEX: type TILE, texture_id */
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, (uint32_t)tex_id);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    /* Host buffers for MTX + VTX behind segment 0xF. Caller must map them. */
+    (void)mv;
+    (void)proj;
+    return (uint32_t)ngfx;
+}
+
+static int count_tone(int lo, int hi)
+{
+    const uint8_t *fb = g1_fb_rgba();
+    unsigned i, n = (unsigned)G1_FB_W * (unsigned)G1_FB_H, c = 0;
+    if (!fb)
+        return 0;
+    for (i = 0; i < n; i++) {
+        unsigned r = fb[i * 4];
+        if (r >= (unsigned)lo && r <= (unsigned)hi)
+            c++;
+    }
+    return (int)c;
+}
+
+static int run_tex_dl(uint16_t tex_id, const uint8_t *vtx_be)
+{
+    uint8_t gdl[80];
+    uint8_t host[0x300];
+    static Mtx mv, proj;
+    float id[4][4];
+    int i, j;
+    uint32_t ngfx;
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+
+    ngfx = build_tex_tri4(gdl, (uint8_t *)vtx_be, tex_id);
+    memcpy(host + 0x280, vtx_be, 48);
+
+    g1_clear_lookat();
+    g1_set_segment(0xF, (uintptr_t)host);
+    if (g1_interpret_be_dl(gdl, ngfx) != 0)
+        return -1;
+    return 0;
+}
+
+static int test_settex_formats(void)
+{
+    uint8_t i8[64], i4[32], ci4[32], vtx_be[48];
+    uint16_t tlut[2];
+    int dark, lit;
+
+    fill_i8_checker(i8, 8, 8, 0x20, 0xE0);
+    if (g1_tex_load_raw(1, G1_TEX_I8, 8, 8, i8, 64, NULL, 0) != 0)
+        return fail("load i8");
+    if (run_tex_dl(1, vtx_be) != 0)
+        return fail("i8 dl");
+    if (g1_tex_settex_count() < 1 || g1_tex_ok_count() < 1)
+        return fail("i8 settex not ok");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("i8 checker not both tones");
+    printf("settex I8 checker dark=%d lit=%d settex=%u ok=%u\n", dark, lit, g1_tex_settex_count(),
+           g1_tex_ok_count());
+
+    fill_i4_checker(i4, 8, 8, 0x2, 0xE);
+    if (g1_tex_load_raw(2, G1_TEX_I4, 8, 8, i4, 32, NULL, 0) != 0)
+        return fail("load i4");
+    if (run_tex_dl(2, vtx_be) != 0)
+        return fail("i4 dl");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("i4 checker not both tones");
+    printf("settex I4 checker dark=%d lit=%d\n", dark, lit);
+
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    tlut[0] = 0xF801; /* red */
+    tlut[1] = 0x07C1; /* green */
+    if (g1_tex_load_raw(3, G1_TEX_CI4, 8, 8, ci4, 32, tlut, 2) != 0)
+        return fail("load ci4");
+    if (run_tex_dl(3, vtx_be) != 0)
+        return fail("ci4 dl");
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned i, n = (unsigned)G1_FB_W * (unsigned)G1_FB_H, red = 0, grn = 0;
+        for (i = 0; i < n; i++) {
+            if (fb[i * 4] > 160 && fb[i * 4 + 1] < 80)
+                red++;
+            if (fb[i * 4 + 1] > 160 && fb[i * 4] < 80)
+                grn++;
+        }
+        if (red < 200 || grn < 200)
+            return fail("ci4 tlut not red+green");
+        printf("settex CI4 tlut red=%u green=%u\n", red, grn);
+    }
+    g1_tex_unload();
+    return 0;
+}
+
+static int test_settex_pack_lookup(void)
+{
+    uint8_t sitx[76];
+    uint8_t vtx_be[48];
+    C0File files[1];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    C0Pack opened;
+    int dark, lit;
+    FILE *f;
+    size_t nread;
+
+    f = fopen("testdata/stage/checker.sitx", "rb");
+    if (!f)
+        f = fopen("/home/grok/GoldenEye/testdata/stage/checker.sitx", "rb");
+    if (!f)
+        return fail("open checker.sitx");
+    nread = fread(sitx, 1, sizeof sitx, f);
+    fclose(f);
+    if (nread != sizeof sitx || memcmp(sitx, "SITX", 4) != 0)
+        return fail("checker.sitx bytes");
+
+    files[0].path = "assets/images/split/image7.bin";
+    files[0].bytes = sitx;
+    files[0].size = sizeof sitx;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("sitx pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("sitx pack open");
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(7, vtx_be) != 0)
+        return fail("pack settex dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("pack SETTEX id 7 did not load SITX");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("pack SITX checker not sampled");
+    printf("settex pack image7.bin SITX dark=%d lit=%d ok=%u\n", dark, lit, g1_tex_ok_count());
+
+    /* Named bank path: id 0 is COPYICON in images.def. */
+    files[0].path = "assets/images/split/COPYICON.bin";
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    pack = NULL;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("name pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("name pack open");
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(0, vtx_be) != 0)
+        return fail("name settex dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("named COPYICON SETTEX miss");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("named SITX not sampled");
+    printf("settex pack COPYICON.bin (id 0) dark=%d lit=%d\n", dark, lit);
+
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    return 0;
+}
+
+static int test_settex_miss_stays_grey(void)
+{
+    uint8_t vtx_be[48];
+    unsigned grey;
+
+    g1_tex_unload();
+    g1_tex_set_pack(NULL);
+    if (run_tex_dl(99, vtx_be) != 0)
+        return fail("miss dl");
+    if (g1_tex_ok_count() != 0)
+        return fail("missing bank must not bind");
+    if (g1_tex_miss_count() < 1)
+        return fail("missing bank must count miss");
+    grey = (unsigned)count_tone(160, 200);
+    if (grey < 1000)
+        return fail("unbound SETTEX should stay vertex grey");
+    printf("settex miss stays grey pixels=%u miss=%u\n", grey, g1_tex_miss_count());
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -686,5 +967,12 @@ int main(int argc, char **argv)
     printf("port_api_draw rare last_draw=%d (fallback)\n", port_api_last_draw());
     port_api_shutdown();
     free(pack);
+
+    if (test_settex_formats() != 0)
+        return 1;
+    if (test_settex_pack_lookup() != 0)
+        return 1;
+    if (test_settex_miss_stays_grey() != 0)
+        return 1;
     return 0;
 }

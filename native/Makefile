@@ -35,7 +35,7 @@ PORT_OS_OBJS := \
 	$(BUILD)/src/port/cont/playback.o \
 	$(BUILD)/src/port/gfx/gbi_trace.o \
 	$(BUILD)/src/port/gfx/gbi_interp.o \
-	$(BUILD)/src/port/gfx/sw_raster.o \
+	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
 	$(BUILD)/src/port/fs/sha256.o \
 	$(BUILD)/src/port/audio/mixer.o \
 	$(BUILD)/src/port/audio/ai.o
@@ -67,7 +67,17 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 
 all: port_stub silveriris
 
-overlay:
+IMAGE_NAMES_C := $(ROOT)/build/overlay/image_names.c
+IMAGE_NAMES_O := $(BUILD)/overlay/image_names.o
+
+$(IMAGE_NAMES_C): $(DECOMP)/assets/images.def $(ROOT)/tools/pack/gen_image_names.py
+	python3 $(ROOT)/tools/pack/gen_image_names.py $< $@
+
+$(IMAGE_NAMES_O): $(IMAGE_NAMES_C)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+overlay: $(IMAGE_NAMES_C)
 	python3 $(ROOT)/native/gen_overlay.py
 
 $(BUILD)/%.o: $(DECOMP)/%.c | overlay
@@ -258,13 +268,13 @@ $(BUILD)/test_joy_playback: $(ROOT)/tools/det/test_joy_playback.c \
 joy-playback: overlay $(BUILD)/test_joy_playback
 	$(BUILD)/test_joy_playback
 
-G1_GFX := $(PORT)/gfx/gbi_trace.c $(PORT)/gfx/gbi_interp.c $(PORT)/gfx/sw_raster.c
+G1_GFX := $(PORT)/gfx/gbi_trace.c $(PORT)/gfx/gbi_interp.c $(PORT)/gfx/sw_raster.c $(PORT)/gfx/tmem.c $(IMAGE_NAMES_C)
 
 $(BUILD)/test_g0: $(ROOT)/tools/det/test_g0.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o | overlay
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(ROOT)/tools/det/test_g0.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o -lm
 
 g0-test: overlay $(BUILD)/test_g0
 	$(BUILD)/test_g0 $(BUILD)/synthetic.g0
@@ -272,10 +282,10 @@ g0-test: overlay $(BUILD)/test_g0
 		$(ROOT)/testdata/g0/synthetic.words.sha256 $(BUILD)/synthetic.g0
 
 $(BUILD)/test_g1: $(ROOT)/tools/det/test_g1.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o | overlay
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(ROOT)/tools/det/test_g1.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o -lm
 
 g1-test: overlay $(BUILD)/test_g1
 	$(BUILD)/test_g1 $$(cat $(ROOT)/testdata/g1/synthetic.fb.sha256)
@@ -297,7 +307,7 @@ $(BUILD)/src/glue/port_api.o: $(ROOT)/src/glue/port_api.c | overlay
 $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
 		$(PORT_PACK_OBJS) $(PORT_STAGE_OBJS) $(BUILD)/src/port/fs/sha256.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/os/mesg.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
@@ -308,7 +318,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
 		$(PORT_PACK_OBJS) $(PORT_STAGE_OBJS) $(BUILD)/src/port/fs/sha256.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/os/mesg.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
@@ -340,7 +350,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/vi/wait_override.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -I$(ROOT)/src/glue -o $@ $(ROOT)/tools/det/test_stage.c \
@@ -351,7 +361,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/vi/wait_override.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
 
 stage-test: overlay $(BUILD)/test_stage
@@ -543,6 +553,8 @@ WASM_SRCS := \
 	$(PORT)/gfx/gbi_trace.c \
 	$(PORT)/gfx/gbi_interp.c \
 	$(PORT)/gfx/sw_raster.c \
+	$(PORT)/gfx/tmem.c \
+	$(IMAGE_NAMES_C) \
 	$(PORT)/os/mesg.c \
 	$(PORT)/os/count.c \
 	$(PORT)/os/ultra_stubs.c \
@@ -565,7 +577,7 @@ $(BUILD)/wasm/frametiming.o: $(DECOMP)/src/game/frametiming.c | overlay
 	@mkdir -p $(dir $@)
 	$(EMCC) $(WASM_CFLAGS) -DwaitForNextFrame=waitForNextFrame_hw -c $< -o $@
 
-wasm: overlay $(BUILD)/wasm/frametiming.o
+wasm: overlay $(IMAGE_NAMES_C) $(BUILD)/wasm/frametiming.o
 	@if [ ! -x "$(EMCC)" ]; then echo "emcc not found at $(EMCC); install emsdk"; exit 1; fi
 	@mkdir -p $(WASM_OUT)
 	$(EMCC) $(WASM_CFLAGS) -O2 $(WASM_SRCS) $(BUILD)/wasm/frametiming.o -o $(WASM_OUT)/game.js \
@@ -573,7 +585,7 @@ wasm: overlay $(BUILD)/wasm/frametiming.o
 		-sENVIRONMENT=web \
 		-sINITIAL_MEMORY=268435456 -sALLOW_MEMORY_GROWTH=1 \
 		-sMAXIMUM_MEMORY=1073741824 \
-		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_bg_rooms","_port_api_gdl_raw","_port_api_gdl_c0","_port_api_gdl_vtx","_port_api_fb_nonzero","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_port_api_set_view_seat","_port_api_view_seat","_port_api_view_unsplit","_port_api_set_screen_size","_port_api_set_screen_position","_port_api_set_perspective","_port_api_view_hfov","_malloc","_free"]' \
+		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_bg_rooms","_port_api_gdl_raw","_port_api_gdl_c0","_port_api_gdl_vtx","_port_api_fb_nonzero","_port_api_settex","_port_api_tex_ok","_port_api_tex_miss","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_port_api_set_view_seat","_port_api_view_seat","_port_api_view_unsplit","_port_api_set_screen_size","_port_api_set_screen_position","_port_api_set_perspective","_port_api_view_hfov","_malloc","_free"]' \
 		-sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP16","UTF8ToString"]' \
 		-sNO_EXIT_RUNTIME=1
 	@echo "wrote $(WASM_OUT)/game.js $(WASM_OUT)/game.wasm"
