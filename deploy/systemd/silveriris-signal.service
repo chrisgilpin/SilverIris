@@ -1,0 +1,24 @@
+[Unit]
+Description=SilverIris signal server (007.goodhouseinc.com /ws /api)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=grok
+Group=grok
+WorkingDirectory=/home/grok/GoldenEye/services/signal
+Environment=HOME=/home/grok
+Environment=HOST=127.0.0.1
+Environment=PORT=18787
+# Bind localhost only — nginx proxies /ws and /api here. Do not use 0.0.0.0.
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=silveriris-signal
+
+[Install]
+WantedBy=multi-user.target

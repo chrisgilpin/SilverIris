@@ -1,0 +1,23 @@
+[Unit]
+Description=SilverIris Vite dev server (007.goodhouseinc.com)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=grok
+Group=grok
+WorkingDirectory=/home/grok/GoldenEye/web/shell
+Environment=HOME=/home/grok
+Environment=NODE_ENV=development
+# Bind localhost only — nginx terminates TLS and proxies here. Do not use 0.0.0.0.
+ExecStart=/usr/bin/node ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=silveriris-vite
+
+[Install]
+WantedBy=multi-user.target

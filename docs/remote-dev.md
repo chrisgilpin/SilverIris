@@ -1,8 +1,7 @@
 # Remote testing on 007.goodhouseinc.com
 
 This Hetzner box already terminates TLS with **nginx + Certbot** (same pattern as
-`trackeditor.goodhouseinc.com`). Do not bind Vite to `0.0.0.0`. Nginx proxies
-to `127.0.0.1:5173`.
+`trackeditor.goodhouseinc.com`). Do not bind Vite to `0.0.0.0`. Nginx proxies `/` to `127.0.0.1:5173` and `/ws` + `/api` to `127.0.0.1:18787`.
 
 The ROM file is selected in *your* browser. It is never uploaded through nginx.
 
@@ -34,20 +33,20 @@ sudo certbot --nginx -d 007.goodhouseinc.com
 
 Firewall already allows HTTP/HTTPS (`Nginx Full`).
 
-## 3. Run the shell (localhost only)
+## 3. Persistent Vite + signal (systemd)
 
-```bash
-cd /home/grok/GoldenEye/web/shell
-npm ci
-npm run dev
-```
+Vite and signal run as systemd units so they survive reboot and SSH disconnect.
+Repo copies: `deploy/systemd/`. Installed: `/etc/systemd/system/`. Both
+`User=grok`, `Restart=always`, localhost only (not 0.0.0.0).
 
-Vite listens on `127.0.0.1:5173`. Then open:
+- `silveriris-vite.service` — cwd `/home/grok/GoldenEye/web/shell`, bind `127.0.0.1:5173`
+  `node ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort`
+- `silveriris-signal.service` — cwd `/home/grok/GoldenEye/services/signal`, bind `127.0.0.1:18787`
+  `HOST=127.0.0.1 PORT=18787 node src/server.js`
 
-https://007.goodhouseinc.com/
-
-Stop Vite and the public site goes 502 until you start it again. For a
-longer-lived process, use `tmux` or `systemd`.
+Enable: sudo systemctl enable --now silveriris-vite silveriris-signal
+Restart: sudo systemctl restart silveriris-vite silveriris-signal
+Nginx still proxies / to 5173 and /ws /api to 18787.
 
 ## 4. Production build instead of Vite HMR
 
