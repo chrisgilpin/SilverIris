@@ -608,3 +608,35 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     g_drawn = k;
     return k;
 }
+
+int port_prop_door_count(void)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type == PDEF_DOOR)
+            n++;
+    }
+    return n;
+}
+
+int port_prop_door_xz(int want, float *x, float *z, float *lx, float *lz)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_DOOR)
+            continue;
+        if (n == want) {
+            if (x)
+                *x = g_prop[i].pos[0];
+            if (z)
+                *z = g_prop[i].pos[2];
+            if (lx)
+                *lx = g_prop[i].look[0];
+            if (lz)
+                *lz = g_prop[i].look[2];
+            return 0;
+        }
+        n++;
+    }
+    return -1;
+}

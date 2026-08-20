@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,6 +10,8 @@
 #include "fs/pack_dma.h"
 #include "fs/sha256.h"
 #include "fs/stage.h"
+#include "player/move.h"
+#include "player/stan_walk.h"
 #include "gfx/gbi_interp.h"
 #include "gfx/tmem.h"
 #include "gfx/tex_bank.h"
@@ -2574,6 +2577,105 @@ static int test_intro_spawn_bound(void)
 }
 
 
+
+static void wr_s16_st(uint8_t *p, int v)
+{
+    wr_be16(p, (uint16_t)(int16_t)v);
+}
+
+static void build_corridor_stan_stage(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16_st(s + 0x88 + 0, 0);
+    wr_s16_st(s + 0x88 + 2, 50);
+    wr_s16_st(s + 0x88 + 4, -50);
+    wr_s16_st(s + 0x90 + 0, 400);
+    wr_s16_st(s + 0x90 + 2, 50);
+    wr_s16_st(s + 0x90 + 4, -50);
+    wr_s16_st(s + 0x98 + 0, 400);
+    wr_s16_st(s + 0x98 + 2, 50);
+    wr_s16_st(s + 0x98 + 4, 50);
+    wr_s16_st(s + 0xA0 + 0, 0);
+    wr_s16_st(s + 0xA0 + 2, 50);
+    wr_s16_st(s + 0xA0 + 4, 50);
+}
+
+static int test_stan_floor_walk(void)
+{
+    uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE];
+    C0File files[3];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y, x0, x1, z1;
+    int i;
+    const float want_y = 50.0f + PORT_EYE_HEIGHT;
+
+    build_g1dl_bg(bg);
+    build_corridor_stan_stage(stan, sizeof stan);
+    /* Intro pad on the tile, look -Z. Door far away so the slab does not
+     * sit on the corridor. */
+    build_intro_door_setup(setup, 0, 200.f, 50.f, 0.f, 0.f, -1.f, 2000.f, 50.f,
+                           0.f);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    if (c0pack_build(files, 3, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("stan walk pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("stan walk init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("stan walk load");
+    if (port_stan_tile_count() != 1)
+        return fail("stan walk tiles");
+    y = port_api_player_y();
+    if (fabsf(y - want_y) > 0.05f) {
+        fprintf(stderr, "stage eye y=%g want %g\n", (double)y, (double)want_y);
+        return 1;
+    }
+    if (fabsf(port_api_player_x() - 200.f) > INTRO_EPS_XZ ||
+        fabsf(port_api_player_z() - 0.f) > INTRO_EPS_XZ)
+        return fail("stan walk spawn xz");
+
+    x0 = port_api_player_x();
+    port_api_set_pad(0, 0, -70, 0);
+    port_player_set_pose(200.f, y, 0.f, 90.f);
+    for (i = 0; i < 20; i++) {
+        if (port_api_sim_tick((uint32_t)i) != 0)
+            return fail("stan walk corridor tick");
+    }
+    x1 = port_api_player_x();
+    if (!(x1 > x0 + 40.f))
+        return fail("stan walk corridor");
+
+    port_player_set_pose(200.f, y, 0.f, 0.f);
+    port_api_set_pad(0, 0, 70, 0);
+    for (i = 0; i < 80; i++) {
+        if (port_api_sim_tick((uint32_t)(100 + i)) != 0)
+            return fail("stan walk wall tick");
+    }
+    z1 = port_api_player_z();
+    if (z1 > 50.01f) {
+        fprintf(stderr, "stage wall z=%g\n", (double)z1);
+        return fail("stan walk wall");
+    }
+    printf("stan_floor_walk y=%.1f x1=%.1f z_wall=%.1f tiles=%d\n", (double)y,
+           (double)x1, (double)z1, port_stan_tile_count());
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -2856,6 +2958,8 @@ int main(int argc, char **argv)
     if (test_intro_spawn_pad() != 0)
         return 1;
     if (test_intro_spawn_bound() != 0)
+        return 1;
+    if (test_stan_floor_walk() != 0)
         return 1;
     return 0;
 }

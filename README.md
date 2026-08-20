@@ -69,8 +69,7 @@ tree, far-pad cull, and empty-setup hash stability. The player now
 spawns at the setup intro pad (first INTROTYPE_SPAWN with demo=0;
 10000+ remaps onto boundpads) so the first frame is that corridor,
 not room-1 origin. Proof: player x/z/θ match the pad (0.01 / 0.1°)
-and a nearby door still draws. No door
-open/close, no guards, no weapons. No retail texels in git. Campaign
+and a nearby door still draws. G1 look-at Y is Rare eye height (185*perspective-10 = 175) above the stan floor tile under the player (Facility pack file `Tbg_ark_all_p_stanZ.bin`, inflated 1172). WASD dest must stay inside a stan tile and must not cross a closed PROPDEF_DOOR pad slab, so a corridor wall or a shut door stops the step. Empty synthetic stan keeps pad Y so G1 greyscale / intro tests stay bit-identical. No door open/close, no volume radius, no guards, no weapons. No retail texels in git. Campaign
 is not v1. Title boot is not in this build.
 
 Design:

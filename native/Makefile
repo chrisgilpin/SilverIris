@@ -47,7 +47,7 @@ PORT_STAGE_OBJS := \
 	$(BUILD)/tools/extractor/puff.o \
 	$(BUILD)/src/port/fs/stage.o \
 	$(BUILD)/src/port/fs/prop.o \
-	$(BUILD)/src/port/player/move.o \
+	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o \
 	$(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o \
 	$(BUILD)/src/port/mp/score.o \
@@ -150,6 +150,10 @@ $(BUILD)/tools/extractor/puff.o: $(DECOMP)/tools/extractor/puff.c
 	$(CC) -std=c99 -O2 -c $< -o $@
 
 $(BUILD)/src/port/player/move.o: $(PORT)/player/move.c
+	@mkdir -p $(dir $@)
+	$(CC) -std=c11 -I$(PORT) -I$(ROOT)/src -c $< -o $@
+
+$(BUILD)/src/port/player/stan_walk.o: $(PORT)/player/stan_walk.c
 	@mkdir -p $(dir $@)
 	$(CC) -std=c11 -I$(PORT) -I$(ROOT)/src -c $< -o $@
 
@@ -377,7 +381,7 @@ stage-test: overlay $(BUILD)/test_stage
 	$(BUILD)/test_stage $$(cat $(ROOT)/testdata/g1/synthetic.fb.sha256)
 
 $(BUILD)/test_player: $(ROOT)/tools/det/test_player.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o \
@@ -386,7 +390,7 @@ $(BUILD)/test_player: $(ROOT)/tools/det/test_player.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_player.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -397,7 +401,7 @@ player-test: overlay $(BUILD)/test_player
 	$(BUILD)/test_player
 
 $(BUILD)/test_gun: $(ROOT)/tools/det/test_gun.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -405,7 +409,7 @@ $(BUILD)/test_gun: $(ROOT)/tools/det/test_gun.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_gun.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -416,7 +420,7 @@ gun-test: overlay $(BUILD)/test_gun
 	$(BUILD)/test_gun
 
 $(BUILD)/test_chr: $(ROOT)/tools/det/test_chr.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -424,7 +428,7 @@ $(BUILD)/test_chr: $(ROOT)/tools/det/test_chr.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_chr.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -435,7 +439,7 @@ chr-test: overlay $(BUILD)/test_chr
 	$(BUILD)/test_chr
 
 $(BUILD)/test_score: $(ROOT)/tools/det/test_score.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -443,7 +447,7 @@ $(BUILD)/test_score: $(ROOT)/tools/det/test_score.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_score.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -454,7 +458,7 @@ score-test: overlay $(BUILD)/test_score
 	$(BUILD)/test_score
 
 $(BUILD)/test_split: $(ROOT)/tools/det/test_split.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -462,7 +466,7 @@ $(BUILD)/test_split: $(ROOT)/tools/det/test_split.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_split.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -473,7 +477,7 @@ split-test: overlay $(BUILD)/test_split
 	$(BUILD)/test_split
 
 $(BUILD)/test_view_seat: $(ROOT)/tools/det/test_view_seat.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o \
@@ -482,7 +486,7 @@ $(BUILD)/test_view_seat: $(ROOT)/tools/det/test_view_seat.c \
 		$(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_view_seat.c \
-		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 		$(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
@@ -493,7 +497,7 @@ view-seat-test: overlay $(BUILD)/test_view_seat
 	$(BUILD)/test_view_seat
 
 TAPE_OBJS := \
-	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 	$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/tape.o \
 	$(BUILD)/src/overrides/lv_clock.o \
@@ -526,7 +530,7 @@ match-config: $(BUILD)/test_match_config
 
 LOCKSTEP_OBJS := \
 	$(BUILD)/src/port/net/lockstep.o \
-	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
 	$(BUILD)/src/port/det/checksum.o \
 	$(BUILD)/src/overrides/lv_clock.o \
@@ -578,6 +582,7 @@ WASM_SRCS := \
 	$(PORT)/fs/stage.c \
 	$(PORT)/fs/prop.c \
 	$(PORT)/player/move.c \
+	$(PORT)/player/stan_walk.c \
 	$(PORT)/player/gun.c \
 	$(PORT)/chr/patrol.c \
 	$(PORT)/mp/score.c \

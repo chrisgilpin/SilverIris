@@ -1,5 +1,7 @@
 #include "move.h"
 
+#include "stan_walk.h"
+
 #include "chr/patrol.h"
 #include "gun.h"
 #include "mp/score.h"
@@ -297,8 +299,20 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
         p->theta -= 360.0f;
 
     rad = p->theta * (PI_F / 180.0f);
-    p->x += fwd * -sinf(rad) * dt;
-    p->z += fwd * cosf(rad) * dt;
+    {
+        float ox = p->x, oz = p->z, nx, nz, ny;
+        p->x += fwd * -sinf(rad) * dt;
+        p->z += fwd * cosf(rad) * dt;
+        if (port_stan_ready()) {
+            nx = p->x;
+            nz = p->z;
+            ny = p->y;
+            port_stan_clip_step(ox, oz, &nx, &nz, &ny);
+            p->x = nx;
+            p->z = nz;
+            p->y = ny;
+        }
+    }
 }
 
 int port_player_spawned(void) { return g_p[g_cur].spawned; }

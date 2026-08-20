@@ -8,6 +8,7 @@
 #include "player/move.h"
 #include "gfx/gbi_interp.h"
 #include "prop.h"
+#include "player/stan_walk.h"
 
 #include "../../overrides/lv_clock.h"
 
@@ -358,6 +359,7 @@ void port_stage_unload(void)
     g1_tex_set_pack(NULL);
     g1_tex_unload();
     clear_rooms();
+    port_stan_unload();
     free(g_bg);
     free(g_stan);
     g_bg = NULL;
@@ -401,7 +403,7 @@ int port_stage_load(int level_id)
     const StageFiles *st = find_stage(level_id);
     uint8_t *bg = NULL, *stan = NULL;
     size_t bg_len = 0, stan_len = 0;
-    int rc, i;
+    int rc, i, stan_1172 = 0;
 
     if (!st) {
         set_stage_err("unknown level id");
@@ -420,6 +422,16 @@ int port_stage_load(int level_id)
         free(bg);
         set_stage_err("missing stan (pack has no Tbg_*_stanZ blob — re-extract DMA files)");
         return rc;
+    }
+    if (stan_len >= 2 && stan[0] == 0x11 && stan[1] == 0x72) {
+        uint8_t *exp = NULL;
+        size_t elen = 0;
+        if (inflate_blob(stan, stan_len, &exp, &elen) == 0) {
+            free(stan);
+            stan = exp;
+            stan_len = elen;
+            stan_1172 = 1;
+        }
     }
     rc = fixup_bg(bg, bg_len);
     if (rc != PORT_STAGE_OK) {
@@ -475,8 +487,32 @@ int port_stage_load(int level_id)
     g_CurrentStageToLoad = st->files_id;
     g1_tex_set_pack(port_pack());
     port_rng_on_stage_load();
+    {
+        float sc = 1.0f;
+        /* Retail 1172 tiles are s16 in level-scale space (bg.c). Synthetic
+         * uncompressed stans in tests are already world units. */
+        if (stan_1172) {
+            if (level_id == PORT_LEVEL_FACILITY || level_id == PORT_LEVEL_FACILITY_MP)
+                sc = 1.20648f;
+            else if (level_id == PORT_LEVEL_COMPLEX)
+                sc = 0.94285715f;
+        }
+        port_stan_set_scale(sc);
+        if (g_bg_rooms >= 1)
+            port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1], g_rm[1].pos[2]);
+        port_stan_load(stan, stan_len);
+    }
     port_player_spawn();
     port_prop_load(level_id);
+    port_stan_clear_doors();
+    {
+        int i, nd = port_prop_door_count();
+        for (i = 0; i < nd; i++) {
+            float dx, dz, lx, lz;
+            if (port_prop_door_xz(i, &dx, &dz, &lx, &lz) == 0)
+                port_stan_add_door(dx, dz, lx, lz);
+        }
+    }
     {
         float pos[3], look[3];
         if (g_bg_rooms >= 1 && port_prop_intro(pos, look, NULL) == 0) {
@@ -484,6 +520,7 @@ int port_stage_load(int level_id)
             float x = pos[0] - g_rm[1].pos[0];
             float y = pos[1] - g_rm[1].pos[1];
             float z = pos[2] - g_rm[1].pos[2];
+            float ey;
             if (lx * lx + lz * lz < 1e-8f)
                 th = 0.f;
             else {
@@ -492,6 +529,13 @@ int port_stage_load(int level_id)
                 if (th < 0.f)
                     th += 360.f;
             }
+            /* Rare camera Y = stan floor + 175. Empty synthetic stan keeps
+             * pad Y so G1 greyscale / intro magenta tests stay put. Retail
+             * C0 with no parsed tiles still lifts the camera off the floor. */
+            if (port_stan_eye_y(x, z, &ey) == 0)
+                y = ey;
+            else if (g_gdl_c0)
+                y += PORT_EYE_HEIGHT;
             port_player_set_pose(x, y, z, th);
         }
     }
