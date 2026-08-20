@@ -1865,6 +1865,334 @@ static int test_settex_rgb15_lookup(void)
     return 0;
 }
 
+/* Rare Huffman tree (same min-find order as texInflateHuffman). */
+static int rare_huff_build(const uint16_t *freq_in, int chansize, int16_t nodes[2048][2], int *root_out)
+{
+    uint16_t freq[2048];
+    int i, rootindex = 0, done = 0;
+    uint16_t minfreq1, minfreq2;
+    int minindex1 = 0, minindex2 = 1, sum;
+
+    if (chansize <= 0 || chansize > 2048)
+        return -1;
+    for (i = 0; i < 2048; i++) {
+        freq[i] = (i < chansize) ? freq_in[i] : 0;
+        nodes[i][0] = -1;
+        nodes[i][1] = -1;
+    }
+    minfreq1 = 9999;
+    minfreq2 = 9999;
+    for (i = 0; i < chansize; i++) {
+        if (freq[i] < minfreq1) {
+            if (minfreq2 < minfreq1) {
+                minfreq1 = freq[i];
+                minindex1 = i;
+            } else {
+                minfreq2 = freq[i];
+                minindex2 = i;
+            }
+        } else if (freq[i] < minfreq2) {
+            minfreq2 = freq[i];
+            minindex2 = i;
+        }
+    }
+    while (!done) {
+        sum = (int)freq[minindex1] + (int)freq[minindex2];
+        if (sum == 0)
+            sum = 1;
+        freq[minindex1] = 9999;
+        freq[minindex2] = 9999;
+        if (nodes[minindex1][0] < 0 && nodes[minindex1][1] < 0) {
+            nodes[minindex1][0] = (int16_t)(minindex1 + 10000);
+            rootindex = minindex1;
+            freq[minindex1] = (uint16_t)sum;
+            if (nodes[minindex2][0] < 0 && nodes[minindex2][1] < 0)
+                nodes[minindex1][1] = (int16_t)(minindex2 + 10000);
+            else
+                nodes[minindex1][1] = (int16_t)minindex2;
+        } else if (nodes[minindex2][0] < 0 && nodes[minindex2][1] < 0) {
+            nodes[minindex2][0] = (int16_t)(minindex2 + 10000);
+            rootindex = minindex2;
+            freq[minindex2] = (uint16_t)sum;
+            if (nodes[minindex1][0] < 0 && nodes[minindex1][1] < 0)
+                nodes[minindex2][1] = (int16_t)(minindex1 + 10000);
+            else
+                nodes[minindex2][1] = (int16_t)minindex1;
+        } else {
+            for (rootindex = 0; rootindex < 2048; rootindex++) {
+                if (nodes[rootindex][0] < 0 && nodes[rootindex][1] < 0 &&
+                    freq[rootindex] >= 9999)
+                    break;
+            }
+            if (rootindex >= 2048)
+                return -1;
+            freq[rootindex] = (uint16_t)sum;
+            nodes[rootindex][0] = (int16_t)minindex1;
+            nodes[rootindex][1] = (int16_t)minindex2;
+        }
+        minfreq1 = 9999;
+        minfreq2 = 9999;
+        for (i = 0; i < chansize; i++) {
+            if (freq[i] < minfreq1) {
+                if (minfreq1 > minfreq2) {
+                    minfreq1 = freq[i];
+                    minindex1 = i;
+                } else {
+                    minfreq2 = freq[i];
+                    minindex2 = i;
+                }
+            } else if (freq[i] < minfreq2) {
+                minfreq2 = freq[i];
+                minindex2 = i;
+            }
+        }
+        if (minfreq1 == 9999 || minfreq2 == 9999)
+            done = 1;
+    }
+    *root_out = rootindex;
+    return 0;
+}
+
+static int rare_huff_path(int16_t nodes[2048][2], int idx, int symbol, uint8_t *bits, int *nbits)
+{
+    if (idx >= 10000) {
+        *nbits = 0;
+        return (idx - 10000) == symbol ? 0 : -1;
+    }
+    if (idx < 0 || idx >= 2048)
+        return -1;
+    {
+        uint8_t tmp[256];
+        int n = 0;
+        if (rare_huff_path(nodes, nodes[idx][0], symbol, tmp, &n) == 0) {
+            if (n + 1 > 255)
+                return -1;
+            bits[0] = 0;
+            memcpy(bits + 1, tmp, (size_t)n);
+            *nbits = n + 1;
+            return 0;
+        }
+        if (rare_huff_path(nodes, nodes[idx][1], symbol, tmp, &n) == 0) {
+            if (n + 1 > 255)
+                return -1;
+            bits[0] = 1;
+            memcpy(bits + 1, tmp, (size_t)n);
+            *nbits = n + 1;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static void wr_huff_sym(uint8_t *dst, size_t *bitpos, int16_t nodes[2048][2], int root, int symbol)
+{
+    uint8_t path[256];
+    int n = 0, i;
+    if (rare_huff_path(nodes, root, symbol, path, &n) != 0)
+        return;
+    for (i = 0; i < n; i++)
+        wr_bits(dst, bitpos, 1, path[i]);
+}
+
+static size_t build_rare_huffman_i8(uint8_t *dst, size_t cap, unsigned w, unsigned h, uint8_t a, uint8_t b)
+{
+    uint16_t freq[256];
+    int16_t nodes[2048][2];
+    int root = 0;
+    unsigned x, y, i;
+    size_t bitpos = 0;
+
+    memset(dst, 0, cap);
+    memset(freq, 0, sizeof freq);
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            freq[((x ^ y) & 1) ? b : a]++;
+    for (i = 0; i < 256; i++)
+        if (freq[i] > 255)
+            freq[i] = 255;
+    if (rare_huff_build(freq, 256, nodes, &root) != 0)
+        return 0;
+    wr_bits(dst, &bitpos, 8, 0x01);
+    wr_bits(dst, &bitpos, 4, G1_TEX_I8);
+    wr_bits(dst, &bitpos, 8, w);
+    wr_bits(dst, &bitpos, 8, h);
+    wr_bits(dst, &bitpos, 4, G1_TEXCOMP_HUFFMAN);
+    for (i = 0; i < 256; i++)
+        wr_bits(dst, &bitpos, 8, freq[i]);
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            wr_huff_sym(dst, &bitpos, nodes, root, ((x ^ y) & 1) ? b : a);
+    return (bitpos + 7u) / 8u;
+}
+
+static size_t build_rare_huffman_lookup_i8(uint8_t *dst, size_t cap, unsigned w, unsigned h, uint8_t a,
+                                           uint8_t b)
+{
+    uint16_t freq[4];
+    int16_t nodes[2048][2];
+    int root = 0;
+    unsigned x, y, i;
+    size_t bitpos = 0;
+
+    memset(dst, 0, cap);
+    memset(freq, 0, sizeof freq);
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            freq[((x ^ y) & 1) ? 1 : 0]++;
+    for (i = 0; i < 2; i++)
+        if (freq[i] > 255)
+            freq[i] = 255;
+    if (rare_huff_build(freq, 2, nodes, &root) != 0)
+        return 0;
+    wr_bits(dst, &bitpos, 8, 0x01);
+    wr_bits(dst, &bitpos, 4, G1_TEX_I8);
+    wr_bits(dst, &bitpos, 8, w);
+    wr_bits(dst, &bitpos, 8, h);
+    wr_bits(dst, &bitpos, 4, G1_TEXCOMP_HUFFMANLOOKUP);
+    wr_bits(dst, &bitpos, 11, 2);
+    wr_bits(dst, &bitpos, 8, a);
+    wr_bits(dst, &bitpos, 8, b);
+    for (i = 0; i < 2; i++)
+        wr_bits(dst, &bitpos, 8, freq[i]);
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            wr_huff_sym(dst, &bitpos, nodes, root, ((x ^ y) & 1) ? 1 : 0);
+    return (bitpos + 7u) / 8u;
+}
+
+static int run_pack_tex_id(unsigned id, const uint8_t *bank, size_t n, const char *path)
+{
+    C0File files[1];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    C0Pack opened;
+    uint8_t vtx_be[48];
+    int rc = -1;
+
+    files[0].path = path;
+    files[0].bytes = bank;
+    files[0].size = n;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return -1;
+    if (c0pack_open(pack, pack_len, &opened) != 0) {
+        free(pack);
+        return -1;
+    }
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    rc = run_tex_dl((uint16_t)id, vtx_be);
+    g1_tex_set_pack(NULL);
+    c0pack_close(&opened);
+    free(pack);
+    return rc;
+}
+
+static int test_settex_huffman_i8(void)
+{
+    uint8_t bank[1024];
+    size_t n;
+    unsigned dark = 0, lit = 0;
+
+    n = build_rare_huffman_i8(bank, sizeof bank, 8, 8, 0x20, 0xE0);
+    if (!n)
+        return fail("huffman i8 bank");
+    if (run_pack_tex_id(23, bank, n, "assets/images/split/image23.bin") != 0)
+        return fail("huffman i8 dl");
+    if (g1_tex_ok_count() < 1 || g1_tex_miss_count() != 0)
+        return fail("huffman i8 SETTEX must bind");
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned i, np = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+        for (i = 0; i < np; i++) {
+            if (fb[i * 4] < 80)
+                dark++;
+            if (fb[i * 4] > 160)
+                lit++;
+        }
+    }
+    if (dark < 200 || lit < 200)
+        return fail("huffman i8 not sampled");
+    printf("settex pack image23.bin HUFFMAN-I8 dark=%u lit=%u ok=%u miss=%u\n", dark, lit,
+           g1_tex_ok_count(), g1_tex_miss_count());
+    g1_tex_unload();
+    return 0;
+}
+
+static int test_settex_huffman_lookup(void)
+{
+    uint8_t bank[256];
+    size_t n;
+    unsigned dark = 0, lit = 0;
+
+    n = build_rare_huffman_lookup_i8(bank, sizeof bank, 8, 8, 0x20, 0xE0);
+    if (!n)
+        return fail("huffman-lookup bank");
+    if (run_pack_tex_id(24, bank, n, "assets/images/split/image24.bin") != 0)
+        return fail("huffman-lookup dl");
+    if (g1_tex_ok_count() < 1 || g1_tex_miss_count() != 0)
+        return fail("huffman-lookup SETTEX must bind");
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned i, np = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+        for (i = 0; i < np; i++) {
+            if (fb[i * 4] < 80)
+                dark++;
+            if (fb[i * 4] > 160)
+                lit++;
+        }
+    }
+    if (dark < 200 || lit < 200)
+        return fail("huffman-lookup not sampled");
+    printf("settex pack image24.bin HUFFMANLOOKUP-I8 dark=%u lit=%u ok=%u miss=%u\n", dark, lit,
+           g1_tex_ok_count(), g1_tex_miss_count());
+    g1_tex_unload();
+    return 0;
+}
+
+/* 72x64 Huffman-lookup is niter=4608; the old 4096 cap rejected it as a miss. */
+static int test_settex_huffman_over_4k(void)
+{
+    static uint8_t bank[2048];
+    size_t n;
+
+    n = build_rare_huffman_lookup_i8(bank, sizeof bank, 72, 64, 0x20, 0xE0);
+    if (!n)
+        return fail("huffman over-4k bank");
+    if (run_pack_tex_id(25, bank, n, "assets/images/split/image25.bin") != 0)
+        return fail("huffman over-4k dl");
+    if (g1_tex_ok_count() < 1 || g1_tex_miss_count() != 0)
+        return fail("huffman over-4k SETTEX must bind (was niter>4096 miss)");
+    printf("settex pack image25.bin HUFFMANLOOKUP-I8-72x64 ok=%u miss=%u n=%zu\n",
+           g1_tex_ok_count(), g1_tex_miss_count(), n);
+    g1_tex_unload();
+    return 0;
+}
+
+static int test_settex_miss_reasons(void)
+{
+    uint8_t junk[8] = {0x01, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00};
+    uint8_t vtx_be[48];
+
+    if (run_pack_tex_id(99, junk, sizeof junk, "assets/images/split/image50.bin") != 0)
+        return fail("miss-reason absent dl");
+    if (g1_tex_miss_count() < 1 || g1_tex_miss_absent_count() < 1)
+        return fail("id 99 not in pack must be absent miss");
+    printf("settex miss reasons absent id=99 miss=%u abs=%u dec=%u\n", g1_tex_miss_count(),
+           g1_tex_miss_absent_count(), g1_tex_miss_decode_count());
+
+    if (run_pack_tex_id(50, junk, sizeof junk, "assets/images/split/image50.bin") != 0)
+        return fail("miss-reason decode dl");
+    if (g1_tex_miss_decode_count() < 1)
+        return fail("junk bank in pack must be decode miss");
+    printf("settex miss reasons decode id=50 miss=%u abs=%u dec=%u\n", g1_tex_miss_count(),
+           g1_tex_miss_absent_count(), g1_tex_miss_decode_count());
+    (void)vtx_be;
+    g1_tex_unload();
+    return 0;
+}
+
+
 static int test_neighbor_no_portal(void)
 {
     /* Two rooms, no portal: only room 1 is walked; magenta marker stays off-screen. */
@@ -2133,6 +2461,14 @@ int main(int argc, char **argv)
     if (test_settex_rgba16_64() != 0)
         return 1;
     if (test_settex_rgb15_lookup() != 0)
+        return 1;
+    if (test_settex_huffman_i8() != 0)
+        return 1;
+    if (test_settex_huffman_lookup() != 0)
+        return 1;
+    if (test_settex_huffman_over_4k() != 0)
+        return 1;
+    if (test_settex_miss_reasons() != 0)
         return 1;
     if (test_neighbor_no_portal() != 0)
         return 1;

@@ -41,5 +41,6 @@ Retail Facility banks use the same *container*. After 3550dc9 a w-only
 clip could project a black screen-space sliver over brick and the gun.
 HUD `texOk` / `texMiss` stay honest. A 64x64 RGBA16 bank and an 8x8
 RGB15 lookup bank now bind and sample (they used to miss: 4KB tile
-cap, lookup RGB15 rejected). Huffman-lookup / RLE-lookup / blur
-inflate for remaining retail walls. Do not commit retail texels.
+cap, lookup RGB15 rejected). Huffman (Rare tree) and Huffman-lookup
+bind, including niter>4096. texMiss abs vs dec is honest. Facility
+GDLs have no DETAIL second SETTEX. Do not commit retail texels.

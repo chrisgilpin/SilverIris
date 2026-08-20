@@ -23,7 +23,8 @@ static Tile g_slots[G1_TEX_SLOTS];
 static int g_cur = -1;
 static float g_ss = 1.f, g_st = 1.f;
 static const C0Pack *g_pack;
-static unsigned g_settex_n, g_ok_n, g_miss_n, g_use;
+static unsigned g_settex_n, g_ok_n, g_miss_n, g_miss_abs, g_miss_dec, g_use;
+static uint8_t g_last_miss_why;
 static uint16_t g_last_id;
 
 void g1_tex_begin_dl(void)
@@ -34,7 +35,10 @@ void g1_tex_begin_dl(void)
     g_settex_n = 0;
     g_ok_n = 0;
     g_miss_n = 0;
+    g_miss_abs = 0;
+    g_miss_dec = 0;
     g_last_id = 0;
+    g_last_miss_why = 0;
 }
 
 void g1_tex_set_pack(const C0Pack *pack) { g_pack = pack; }
@@ -223,7 +227,9 @@ static int load_from_pack(unsigned id)
         return -1;
     if (g1_tex_load_sitx(id, e->bytes, e->size) == 0)
         return 0;
-    return g1_tex_load_bank(id, e->bytes, e->size);
+    if (g1_tex_load_bank(id, e->bytes, e->size) == 0)
+        return 0;
+    return -2; /* in pack, decode failed */
 }
 
 int g1_tex_settex(uint32_t w0, uint32_t w1)
@@ -237,11 +243,21 @@ int g1_tex_settex(uint32_t w0, uint32_t w1)
     g_last_id = (uint16_t)id;
     slot = find_slot(id);
     if (slot < 0) {
-        if (load_from_pack(id) != 0) {
-            /* Miss unbinds only subsequent tris; already-emitted slots stay. */
-            g_cur = -1;
-            g_miss_n++;
-            return 0;
+        {
+            int rc = load_from_pack(id);
+            if (rc != 0) {
+                /* Miss unbinds only subsequent tris; already-emitted slots stay. */
+                g_cur = -1;
+                g_miss_n++;
+                if (rc == -2) {
+                    g_miss_dec++;
+                    g_last_miss_why = G1_TEX_MISS_DECODE;
+                } else {
+                    g_miss_abs++;
+                    g_last_miss_why = G1_TEX_MISS_ABSENT;
+                }
+                return 0;
+            }
         }
         slot = g_cur;
     }
@@ -267,7 +283,10 @@ int g1_tex_current_slot(void) { return g1_tex_bound() ? g_cur : -1; }
 unsigned g1_tex_settex_count(void) { return g_settex_n; }
 unsigned g1_tex_ok_count(void) { return g_ok_n; }
 unsigned g1_tex_miss_count(void) { return g_miss_n; }
+unsigned g1_tex_miss_absent_count(void) { return g_miss_abs; }
+unsigned g1_tex_miss_decode_count(void) { return g_miss_dec; }
 uint16_t g1_tex_last_id(void) { return g_last_id; }
+uint8_t g1_tex_last_miss_why(void) { return g_last_miss_why; }
 
 static int wrap_coord(int x, int size, int mode)
 {

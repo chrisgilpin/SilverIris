@@ -56,6 +56,13 @@ int g1_tex_sample_slot(int slot, float s, float t, uint8_t *r, uint8_t *g, uint8
 unsigned g1_tex_settex_count(void);
 unsigned g1_tex_ok_count(void);
 unsigned g1_tex_miss_count(void);
+unsigned g1_tex_miss_absent_count(void);
+unsigned g1_tex_miss_decode_count(void);
 uint16_t g1_tex_last_id(void);
+uint8_t g1_tex_last_miss_why(void);
+
+#define G1_TEX_MISS_NONE 0
+#define G1_TEX_MISS_ABSENT 1
+#define G1_TEX_MISS_DECODE 2
 
 #endif

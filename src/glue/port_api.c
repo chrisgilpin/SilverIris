@@ -176,6 +176,8 @@ PORT_KEEP unsigned port_api_fb_nonzero(void) { return g1_fb_nonzero(); }
 PORT_KEEP unsigned port_api_settex(void) { return g1_tex_settex_count(); }
 PORT_KEEP unsigned port_api_tex_ok(void) { return g1_tex_ok_count(); }
 PORT_KEEP unsigned port_api_tex_miss(void) { return g1_tex_miss_count(); }
+PORT_KEEP unsigned port_api_tex_miss_absent(void) { return g1_tex_miss_absent_count(); }
+PORT_KEEP unsigned port_api_tex_miss_decode(void) { return g1_tex_miss_decode_count(); }
 
 PORT_KEEP int port_api_pack_files(void) { return (int)port_pack_file_count(); }
 

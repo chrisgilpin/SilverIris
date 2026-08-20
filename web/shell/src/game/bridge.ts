@@ -66,6 +66,8 @@ export type GameModule = {
   _port_api_settex?: () => number;
   _port_api_tex_ok?: () => number;
   _port_api_tex_miss?: () => number;
+  _port_api_tex_miss_absent?: () => number;
+  _port_api_tex_miss_decode?: () => number;
   _port_api_pack_files: () => number;
   _port_api_set_pad: (seat: number, x: number, y: number, buttons: number) => void;
   _port_api_set_player_count: (n: number) => void;
@@ -141,6 +143,8 @@ export type GameBridge = {
   settex(): number;
   texOk(): number;
   texMiss(): number;
+  texMissAbsent(): number;
+  texMissDecode(): number;
   lastDrawName(): string;
   packFiles(): number;
   lastError(): string;
@@ -370,6 +374,12 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     texMiss(): number {
       return alive && M._port_api_tex_miss ? M._port_api_tex_miss() : 0;
+    },
+    texMissAbsent(): number {
+      return alive && M._port_api_tex_miss_absent ? M._port_api_tex_miss_absent() : 0;
+    },
+    texMissDecode(): number {
+      return alive && M._port_api_tex_miss_decode ? M._port_api_tex_miss_decode() : 0;
     },
     lastDrawName(): string {
       return lastDrawLabel(this.lastDraw());

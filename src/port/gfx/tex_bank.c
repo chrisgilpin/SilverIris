@@ -252,15 +252,17 @@ static int read_uncomp_tight(Bits *b, uint8_t fmt, unsigned w, unsigned h, uint8
     return -1;
 }
 
-/* Decomp texInflateHuffman — frequencies then canonical tree walk. */
+/* Decomp texInflateHuffman. First min-find uses minf2<minf1; later finds use minf1>minf2. */
 static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
 {
     uint16_t freq[2048];
     int16_t nodes[2048][2];
-    int i, root = 0, done = 0;
+    int i, rootindex = 0, done = 0;
     uint32_t v;
+    uint16_t minfreq1, minfreq2;
+    int minindex1 = 0, minindex2 = 1, sum;
 
-    if (chansize <= 0 || chansize > 2048 || niter <= 0 || niter > 4096)
+    if (chansize <= 0 || chansize > 2048 || niter <= 0 || niter > 16384)
         return -1;
     for (i = 0; i < chansize; i++) {
         if (bits_read(b, 8, &v) != 0)
@@ -273,82 +275,81 @@ static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
         nodes[i][0] = -1;
         nodes[i][1] = -1;
     }
-    while (!done) {
-        uint16_t minf1 = 9999, minf2 = 9999;
-        int mini1 = 0, mini2 = 1, sum, r;
 
-        for (i = 0; i < chansize; i++) {
-            if (freq[i] < minf1) {
-                if (minf2 < minf1) {
-                    minf1 = freq[i];
-                    mini1 = i;
-                } else {
-                    minf2 = freq[i];
-                    mini2 = i;
-                }
-            } else if (freq[i] < minf2) {
-                minf2 = freq[i];
-                mini2 = i;
+    minfreq1 = 9999;
+    minfreq2 = 9999;
+    for (i = 0; i < chansize; i++) {
+        if (freq[i] < minfreq1) {
+            if (minfreq2 < minfreq1) {
+                minfreq1 = freq[i];
+                minindex1 = i;
+            } else {
+                minfreq2 = freq[i];
+                minindex2 = i;
             }
+        } else if (freq[i] < minfreq2) {
+            minfreq2 = freq[i];
+            minindex2 = i;
         }
-        if (minf1 == 9999 || minf2 == 9999) {
-            done = 1;
-            break;
-        }
-        sum = (int)freq[mini1] + (int)freq[mini2];
+    }
+
+    while (!done) {
+        sum = (int)freq[minindex1] + (int)freq[minindex2];
         if (sum == 0)
             sum = 1;
-        freq[mini1] = 9999;
-        freq[mini2] = 9999;
-        if (nodes[mini1][0] < 0 && nodes[mini1][1] < 0) {
-            nodes[mini1][0] = (int16_t)(mini1 + 10000);
-            root = mini1;
-            freq[mini1] = (uint16_t)sum;
-            if (nodes[mini2][0] < 0 && nodes[mini2][1] < 0)
-                nodes[mini1][1] = (int16_t)(mini2 + 10000);
+        freq[minindex1] = 9999;
+        freq[minindex2] = 9999;
+        if (nodes[minindex1][0] < 0 && nodes[minindex1][1] < 0) {
+            nodes[minindex1][0] = (int16_t)(minindex1 + 10000);
+            rootindex = minindex1;
+            freq[minindex1] = (uint16_t)sum;
+            if (nodes[minindex2][0] < 0 && nodes[minindex2][1] < 0)
+                nodes[minindex1][1] = (int16_t)(minindex2 + 10000);
             else
-                nodes[mini1][1] = (int16_t)mini2;
-        } else if (nodes[mini2][0] < 0 && nodes[mini2][1] < 0) {
-            nodes[mini2][0] = (int16_t)(mini2 + 10000);
-            root = mini2;
-            freq[mini2] = (uint16_t)sum;
-            if (nodes[mini1][0] < 0 && nodes[mini1][1] < 0)
-                nodes[mini2][1] = (int16_t)(mini1 + 10000);
+                nodes[minindex1][1] = (int16_t)minindex2;
+        } else if (nodes[minindex2][0] < 0 && nodes[minindex2][1] < 0) {
+            nodes[minindex2][0] = (int16_t)(minindex2 + 10000);
+            rootindex = minindex2;
+            freq[minindex2] = (uint16_t)sum;
+            if (nodes[minindex1][0] < 0 && nodes[minindex1][1] < 0)
+                nodes[minindex2][1] = (int16_t)(minindex1 + 10000);
             else
-                nodes[mini2][1] = (int16_t)mini1;
+                nodes[minindex2][1] = (int16_t)minindex1;
         } else {
-            for (r = 0; r < 2048; r++) {
-                if (nodes[r][0] < 0 && nodes[r][1] < 0 && freq[r] >= 9999)
+            for (rootindex = 0; rootindex < 2048; rootindex++) {
+                if (nodes[rootindex][0] < 0 && nodes[rootindex][1] < 0 &&
+                    freq[rootindex] >= 9999)
                     break;
             }
-            if (r >= 2048)
+            if (rootindex >= 2048)
                 return -1;
-            root = r;
-            freq[r] = (uint16_t)sum;
-            nodes[r][0] = (int16_t)mini1;
-            nodes[r][1] = (int16_t)mini2;
+            freq[rootindex] = (uint16_t)sum;
+            nodes[rootindex][0] = (int16_t)minindex1;
+            nodes[rootindex][1] = (int16_t)minindex2;
         }
-        minf1 = 9999;
-        minf2 = 9999;
+
+        minfreq1 = 9999;
+        minfreq2 = 9999;
         for (i = 0; i < chansize; i++) {
-            if (freq[i] < minf1) {
-                if (minf1 > minf2) {
-                    minf1 = freq[i];
-                    mini1 = i;
+            if (freq[i] < minfreq1) {
+                if (minfreq1 > minfreq2) {
+                    minfreq1 = freq[i];
+                    minindex1 = i;
                 } else {
-                    minf2 = freq[i];
-                    mini2 = i;
+                    minfreq2 = freq[i];
+                    minindex2 = i;
                 }
-            } else if (freq[i] < minf2) {
-                minf2 = freq[i];
-                mini2 = i;
+            } else if (freq[i] < minfreq2) {
+                minfreq2 = freq[i];
+                minindex2 = i;
             }
         }
-        if (minf1 == 9999 || minf2 == 9999)
+        if (minfreq1 == 9999 || minfreq2 == 9999)
             done = 1;
     }
+
     for (i = 0; i < niter; i++) {
-        int idx = root;
+        int idx = rootindex;
         while (idx < 10000) {
             if (bits_read(b, 1, &v) != 0)
                 return -1;
@@ -365,7 +366,6 @@ static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
     }
     return 0;
 }
-
 static int inflate_rle(Bits *b, uint8_t *dst, int total)
 {
     uint32_t v;
@@ -380,7 +380,7 @@ static int inflate_rle(Bits *b, uint8_t *dst, int total)
     if (bits_read(b, 4, &v) != 0)
         return -1;
     bs = (int)v;
-    if (bs <= 0 || bs > 8 || total <= 0 || total > 4096)
+    if (bs <= 0 || bs > 8 || total <= 0 || total > 16384)
         return -1;
     cost = bt + rl + bs + 1;
     fudge = 0;

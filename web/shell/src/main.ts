@@ -168,7 +168,7 @@ function drawHud(): void {
     );
   }
   ctx.fillText(
-    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  walked ${game.roomsWalked()}  cur ${game.currentRoom()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}  settex ${game.settex()}  texOk ${game.texOk()}  texMiss ${game.texMiss()}`,
+    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  walked ${game.roomsWalked()}  cur ${game.currentRoom()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}  settex ${game.settex()}  texOk ${game.texOk()}  texMiss ${game.texMiss()} abs ${game.texMissAbsent()} dec ${game.texMissDecode()}`,
     8,
     56,
   );

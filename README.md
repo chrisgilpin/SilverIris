@@ -54,7 +54,10 @@ paints vertex grey. G1 now walks the current room plus Rare portal
 neighbors (depth 2, cap 12) so a doorway shows the next room's GDL
 instead of a hole. SETTEX now binds 64x64 RGBA16/RGB15 (the 4KB TMEM
 cap used to reject them as misses) and inflates Rare lookup /
-Huffman-lookup / RLE-lookup / blur methods plus RGB15. HUD walked/cur report that walk. Native tests
+Huffman / Huffman-lookup / RLE-lookup / blur methods plus RGB15.
+Huffman uses Rare's tree and accepts niter up to 16KB. Facility
+room GDLs are MIPMAP/TILE_PRESWAPPED only (no DETAIL second id).
+HUD walked/cur report that walk; texMiss splits abs vs dec. Native tests
 prove synthetic IA8/IA4, two SETTEX ids, a near-plane floor that
 must not wipe a distant marker, a close black portal that must not
 wipe a distant green wall, pSec, and a two-room pack whose neighbor
