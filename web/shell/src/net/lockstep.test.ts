@@ -106,4 +106,31 @@ describe("LockstepSession", () => {
     expect(eng.ticks).toEqual([]);
     expect(a.overlay).toMatch(/visible/);
   });
+
+  it("4P lockstep runs when every seat is present", () => {
+    const eng = fakeEngine();
+    const a = new LockstepSession(0, 4, 1, eng);
+    a.start(7);
+    expect(eng.nseats).toBe(4);
+    for (const seat of [1, 2, 3]) {
+      a.ingest([
+        { tick: 0, seat, nseats: 4, delay: 1, pad: idle, simCrc: 0 },
+        { tick: 1, seat, nseats: 4, delay: 1, pad: idle, simCrc: 0 },
+      ]);
+    }
+    const ev = a.step(0, idle);
+    expect(ev.some((e) => e.t === "ran" && e.tick === 0)).toBe(true);
+    expect(eng.pads[0]).toHaveLength(4);
+  });
+
+  it("host disconnect ends the match immediately", () => {
+    const a = new LockstepSession(1, 3, 2, fakeEngine());
+    a.start(1);
+    const ev = a.endMatch("Host disconnected. Match ended.", 0);
+    expect(ev).toEqual({ t: "drop", seat: 0 });
+    expect(a.dropped).toBe(true);
+    expect(a.halted).toBe(true);
+    expect(a.overlay).toMatch(/Host disconnected/);
+    expect(a.step(50, idle)).toEqual([]);
+  });
 });

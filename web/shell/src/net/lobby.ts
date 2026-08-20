@@ -33,15 +33,21 @@ function buildIdBytes(): Uint8Array {
   return b;
 }
 
-export function packedLobbyCfg(packHashHex: string, nseats = 2): { cfg: string; cfgHash: string } {
+export function packedLobbyCfg(
+  packHashHex: string,
+  nseats = 2,
+  delayTicks = 2,
+): { cfg: string; cfgHash: string } {
+  const n = Math.max(2, Math.min(4, nseats | 0));
+  const delay = Math.max(1, Math.min(3, delayTicks | 0));
   const packHash = new Uint8Array(32);
   for (let i = 0; i < 32; i++)
     packHash[i] = parseInt(packHashHex.slice(i * 2, i * 2 + 2), 16) || 0;
   const packed = encodeMatchConfig({
     protocol: 1,
     region: MATCH_CONFIG_REGION_U,
-    nseats,
-    delayTicks: 2,
+    nseats: n,
+    delayTicks: delay,
     speedgraphframes: 3,
     aimSight: 0,
     autoAim: 1,
@@ -53,7 +59,7 @@ export function packedLobbyCfg(packHashHex: string, nseats = 2): { cfg: string; 
     stage: 34,
     scenario: 0,
     gameLength: 2,
-    chars: [1, 2, 0, 0],
+    chars: [1, 2, 3, 4],
     handicaps: [0, 0, 0, 0],
     favWeapons: [
       [0, 0],

@@ -9,10 +9,15 @@ describe("readFlags", () => {
     expect(f.wsRelay).toBe(false);
     expect(f.widescreen).toBe(true);
     expect(f.campaign).toBe(false);
+    expect(f.lan).toBe(false);
   });
 
   it("honours ?ff_netplay=1", () => {
     expect(readFlags("?ff_netplay=1").netplay).toBe(true);
     expect(readFlags("?ff_netplay=0").netplay).toBe(false);
+  });
+
+  it("honours ?ff_lan=1 for delay-1 LAN", () => {
+    expect(readFlags("?ff_lan=1").lan).toBe(true);
   });
 });

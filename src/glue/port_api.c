@@ -282,3 +282,38 @@ PORT_KEEP void port_api_begin_match(int nseats, uint32_t rng_seed)
     port_set_player_count(nseats);
     port_player_spawn();
 }
+
+PORT_KEEP void port_api_set_view_seat(int seat)
+{
+    port_set_view_seat(seat);
+}
+
+PORT_KEEP int port_api_view_seat(void)
+{
+    return port_view_seat();
+}
+
+PORT_KEEP int port_api_view_unsplit(void)
+{
+    return port_view_unsplit();
+}
+
+PORT_KEEP void port_api_set_screen_size(float width, float height)
+{
+    currentPlayerSetScreenSize(width, height);
+}
+
+PORT_KEEP void port_api_set_screen_position(float left, float top)
+{
+    currentPlayerSetScreenPosition(left, top);
+}
+
+PORT_KEEP void port_api_set_perspective(float near, float fovy, float aspect)
+{
+    currentPlayerSetPerspective(near, fovy, aspect);
+}
+
+PORT_KEEP float port_api_view_hfov(void)
+{
+    return port_view_hfov();
+}

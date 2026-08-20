@@ -60,7 +60,7 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 	-DPORT_FILELIST_DEFAULT=\"$(FILELIST_U)\"
 
 .PHONY: all overlay ge_sim port_stub rng-test tick-test joy-playback rom-dma \
-	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test tape-test replay-synth match-config lockstep-test wasm silveriris silveriris_bringup \
+	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test wasm silveriris silveriris_bringup \
 	product-no-rom-dma clean trial
 
 all: port_stub silveriris
@@ -289,7 +289,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
-		$(BUILD)/src/game/frametiming.o | overlay
+		$(BUILD)/src/game/frametiming.o $(BUILD)/src/port/os/count.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -I$(ROOT)/src/glue -o $@ \
 		$(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
@@ -430,6 +430,21 @@ $(BUILD)/test_split: $(ROOT)/tools/det/test_split.c \
 split-test: overlay $(BUILD)/test_split
 	$(BUILD)/test_split
 
+$(BUILD)/test_view_seat: $(ROOT)/tools/det/test_view_seat.c \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
+		$(BUILD)/src/overrides/lv_clock.o $(BUILD)/src/port/rng/random.o \
+		$(BUILD)/src/game/frametiming.o | overlay
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_view_seat.c \
+		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
+		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
+		$(BUILD)/src/overrides/lv_clock.o $(BUILD)/src/port/rng/random.o \
+		$(BUILD)/src/game/frametiming.o $(BUILD)/src/port/os/count.o -lm
+
+view-seat-test: overlay $(BUILD)/test_view_seat
+	$(BUILD)/test_view_seat
+
 TAPE_OBJS := \
 	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
@@ -527,7 +542,7 @@ wasm: overlay $(BUILD)/wasm/frametiming.o
 		-sENVIRONMENT=web \
 		-sINITIAL_MEMORY=268435456 -sALLOW_MEMORY_GROWTH=1 \
 		-sMAXIMUM_MEMORY=1073741824 \
-		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_malloc","_free"]' \
+		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_port_api_set_view_seat","_port_api_view_seat","_port_api_view_unsplit","_port_api_set_screen_size","_port_api_set_screen_position","_port_api_set_perspective","_port_api_view_hfov","_malloc","_free"]' \
 		-sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP16","UTF8ToString"]' \
 		-sNO_EXIT_RUNTIME=1
 	@echo "wrote $(WASM_OUT)/game.js $(WASM_OUT)/game.wasm"

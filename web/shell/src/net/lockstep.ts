@@ -77,6 +77,12 @@ export class LockstepSession {
     return this.dropped || this.desynced;
   }
 
+  endMatch(reason: string, seat = 0): LockstepEvent {
+    this.dropped = true;
+    this.overlay = reason;
+    return { t: "drop", seat };
+  }
+
   start(seed: number): void {
     this.engine.beginMatch(this.nseats, seed);
     for (let t = 0; t < this.delay; t++) {

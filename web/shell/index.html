@@ -25,7 +25,7 @@
       <canvas id="view" class="view" width="320" height="240" hidden></canvas>
       <section id="lobby" class="lobby" hidden>
         <h2>Lobby</h2>
-        <p class="hint">Netplay flag is on. Host Start opens WebRTC and 2P lockstep (delay 1 LAN / 2 Internet). WASD+Z is this seat. WebRTC can reveal your IP to peers.</p>
+        <p class="hint">Netplay flag is on. Host Start opens a 2-4P WebRTC mesh (6 DataChannels at 4P). Delay 1 with ?ff_lan=1, else 2 (Internet STUN). Each remote client gets a full-frame Hor+ camera for its seat. Keep this tab visible. Host disconnect ends the match. WASD+Z is this seat. WebRTC can reveal your IP to peers.</p>
         <label>Nick <input id="nick" maxlength="16" value="Player" /></label>
         <button type="button" id="create-room">Create room</button>
         <label>Code <input id="join-code" maxlength="5" spellcheck="false" /></label>

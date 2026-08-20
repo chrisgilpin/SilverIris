@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lookDir, PORT_WALL_Z, projectWorld, wallHitscan } from "./view.ts";
+import { horPlusHfovDeg, lookDir, PORT_NATIVE_FOVY, PORT_WALL_Z, projectWorld, wallHitscan } from "./view.ts";
 
 describe("port view", () => {
   it("theta 0 look dir is -Z", () => {
@@ -24,5 +24,15 @@ describe("port view", () => {
 
   it("looking away from the wall has no hitscan", () => {
     expect(wallHitscan({ x: 0, z: 0, theta: 180 })).toBeNull();
+  });
+
+  it("Hor+ widens hfov at 16:9 vs 4:3 with fixed vfov", () => {
+    const a = horPlusHfovDeg(PORT_NATIVE_FOVY, 4 / 3);
+    const b = horPlusHfovDeg(PORT_NATIVE_FOVY, 16 / 9);
+    expect(a).toBeGreaterThan(74);
+    expect(a).toBeLessThan(76);
+    expect(b).toBeGreaterThan(90);
+    expect(b).toBeLessThan(93);
+    expect(b).toBeGreaterThan(a);
   });
 });

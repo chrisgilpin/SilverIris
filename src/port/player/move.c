@@ -44,6 +44,15 @@ typedef struct {
 static PortPly g_p[PORT_MAX_PLAYERS];
 static int g_nplayers = 1;
 static int g_cur;
+static int g_view_seat;
+static int g_view_unsplit;
+static float g_screen_w = (float)PORT_VP_FULL_W;
+static float g_screen_h = (float)PORT_VP_1P_H;
+static float g_screen_left;
+static float g_screen_top;
+static float g_persp_near = 30.0f;
+static float g_persp_fovy = 60.0f; /* native vi fovy; Hor+ keeps this */
+static float g_persp_aspect = 320.0f / 240.0f;
 
 static int analog_deadzone(int v)
 {
@@ -98,12 +107,94 @@ void port_set_cur_player(int seat)
 
 int port_cur_player(void) { return g_cur; }
 
+void currentPlayerSetScreenSize(float width, float height)
+{
+    if (width < 1.0f)
+        width = 1.0f;
+    if (height < 1.0f)
+        height = 1.0f;
+    g_screen_w = width;
+    g_screen_h = height;
+    if (g_screen_h > 0.0f)
+        g_persp_aspect = g_screen_w / g_screen_h;
+}
+
+void currentPlayerSetScreenPosition(float left, float top)
+{
+    g_screen_left = left;
+    g_screen_top = top;
+}
+
+void currentPlayerSetPerspective(float near, float fovy, float aspect)
+{
+    if (near < 0.01f)
+        near = 0.01f;
+    if (fovy < 1.0f)
+        fovy = 1.0f;
+    if (aspect < 0.05f)
+        aspect = 0.05f;
+    g_persp_near = near;
+    g_persp_fovy = fovy;
+    g_persp_aspect = aspect;
+}
+
+float port_screen_width(void) { return g_screen_w; }
+float port_screen_height(void) { return g_screen_h; }
+float port_screen_left(void) { return g_screen_left; }
+float port_screen_top(void) { return g_screen_top; }
+float port_persp_near(void) { return g_persp_near; }
+float port_persp_fovy(void) { return g_persp_fovy; }
+float port_persp_aspect(void) { return g_persp_aspect; }
+
+float port_view_hfov(void)
+{
+    float half = g_persp_fovy * (PI_F / 180.0f) * 0.5f;
+    return 2.0f * atanf(tanf(half) * g_persp_aspect) * (180.0f / PI_F);
+}
+
+void port_set_view_seat(int seat)
+{
+    if (seat < 0) {
+        g_view_unsplit = 0;
+        g_view_seat = 0;
+        return;
+    }
+    if (seat >= g_nplayers)
+        seat = g_nplayers > 0 ? g_nplayers - 1 : 0;
+    g_view_seat = seat;
+    g_view_unsplit = 1;
+    port_set_cur_player(seat);
+}
+
+int port_view_seat(void) { return g_view_seat; }
+
+int port_view_unsplit(void) { return g_view_unsplit; }
+
 void port_viewport(int seat, int *left, int *top, int *width, int *height)
 {
     int l = 0, t = PORT_VP_ULY_1P, w = PORT_VP_FULL_W, h = PORT_VP_1P_H;
 
     if (seat < 0)
         seat = 0;
+    if (g_view_unsplit && seat == g_view_seat) {
+        l = (int)g_screen_left;
+        t = (int)g_screen_top;
+        w = (int)g_screen_w;
+        h = (int)g_screen_h;
+        if (w < 1)
+            w = 1;
+        if (h < 1)
+            h = 1;
+        if (left)
+            *left = l;
+        if (top)
+            *top = t;
+        if (width)
+            *width = w;
+        if (height)
+            *height = h;
+        return;
+    }
     if (g_nplayers == 2) {
         w = PORT_VP_FULL_W;
         h = PORT_VP_SPLIT_H;
@@ -131,6 +222,8 @@ void port_player_spawn(void)
     if (g_nplayers < 1)
         g_nplayers = 1;
     g_cur = 0;
+    g_view_seat = 0;
+    g_view_unsplit = 0;
     for (i = 0; i < PORT_MAX_PLAYERS; i++) {
         g_p[i].x = k_spawn_x[i];
         g_p[i].y = 0.0f;

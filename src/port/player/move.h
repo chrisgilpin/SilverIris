@@ -23,6 +23,22 @@ void port_set_cur_player(int seat);
 int port_cur_player(void);
 void port_viewport(int seat, int *left, int *top, int *width, int *height);
 
+/* Remote presenter: full-frame Hor+ for one seat. Local split-screen does not use this. */
+void port_set_view_seat(int seat);
+int port_view_seat(void);
+int port_view_unsplit(void);
+void currentPlayerSetScreenSize(float width, float height);
+void currentPlayerSetScreenPosition(float left, float top);
+void currentPlayerSetPerspective(float near, float fovy, float aspect);
+float port_screen_width(void);
+float port_screen_height(void);
+float port_screen_left(void);
+float port_screen_top(void);
+float port_persp_near(void);
+float port_persp_fovy(void);
+float port_persp_aspect(void);
+float port_view_hfov(void);
+
 int port_player_spawned(void);
 float port_player_x(void);
 float port_player_y(void);

@@ -4,13 +4,13 @@ import { AudioPlayer, lastAudioError, unlockAudio } from "./audio/player.ts";
 import { buildReport, encodeTapeExcerpt } from "./det/report.ts";
 import { flags } from "./flags.ts";
 import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
-import { drawPortView, type PortChr, type PortHit } from "./game/view.ts";
+import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, type PortChr, type PortHit } from "./game/view.ts";
 import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
 import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
 import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
 import { LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
 import { bytesFromHex, decodeMatchConfig } from "./net/match_config.ts";
-import { PeerMesh } from "./net/rtc.ts";
+import { dataChannelsPerPeer, meshOfferTargets, PeerMesh } from "./net/rtc.ts";
 import { buildPack } from "./pack.ts";
 import { pickRomFile, romFromDrop } from "./rom/pick.ts";
 import { verifyRom } from "./rom/verify.ts";
@@ -143,7 +143,7 @@ function drawHud(): void {
   if (!game?.ready()) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  if (game.playerCount() > 1) return;
+  if (game.playerCount() > 1 && !netLock) return;
   const x = game.playerX();
   const z = game.playerZ();
   const th = game.playerTheta();
@@ -257,13 +257,19 @@ function paint(now: number): void {
       game.chrCount() > 0
         ? [{ x: game.chrX(), z: game.chrZ(), theta: game.chrTheta(), dead: game.chrAction() === 5 }]
         : [];
-    for (let seat = 0; seat < n; seat++) {
-      const box = {
-        x: game.vpLeft(seat),
-        y: game.vpTop(seat),
-        w: game.vpWidth(seat),
-        h: game.vpHeight(seat),
-      };
+    const seats = netLock ? [mySeat] : Array.from({ length: n }, (_, i) => i);
+    const hfov = netLock
+      ? (horPlusHfovDeg(PORT_NATIVE_FOVY, canvas.width / canvas.height) * Math.PI) / 180
+      : undefined;
+    for (const seat of seats) {
+      const box = netLock
+        ? { x: 0, y: 0, w: canvas.width, h: canvas.height }
+        : {
+            x: game.vpLeft(seat),
+            y: game.vpTop(seat),
+            w: game.vpWidth(seat),
+            h: game.vpHeight(seat),
+          };
       const peers: PortChr[] = [];
       for (let j = 0; j < n; j++) {
         if (j === seat) continue;
@@ -277,9 +283,10 @@ function paint(now: number): void {
       drawPortView(
         ctx,
         { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat) },
-        seat === 0 ? hitMarks : [],
+        seat === mySeat ? hitMarks : [],
         guard.concat(peers),
         box,
+        hfov,
       );
       ctx.fillStyle = "rgba(18,20,24,0.72)";
       ctx.fillRect(box.x, box.y, box.w, 14);
@@ -472,6 +479,7 @@ function ensureSignal(): SignalClient {
     },
     onCode(code, seat) {
       mySeat = seat;
+      lastRosterSeats = [seat];
       if (lobbyStatus)
         lobbyStatus.textContent = `Room ${code} seat ${seat}`;
       if (joinCodeEl)
@@ -480,15 +488,15 @@ function ensureSignal(): SignalClient {
         readyBtn.hidden = false;
       if (startBtn)
         startBtn.hidden = seat !== 0;
-      if (seat === 0 && lastPackHash) {
-        const packed = packedLobbyCfg(lastPackHash);
-        lastCfgHash = packed.cfgHash;
-        lastCfgHex = packed.cfg;
-        signal?.send({ v: 1, t: "cfg", cfg: packed.cfg, cfgHash: packed.cfgHash });
-      }
+      if (seat === 0 && lastPackHash)
+        publishLobbyCfg(Math.max(2, lastRosterSeats.length || 2));
     },
     onRoster(seats) {
       lastRosterSeats = seats.map((s) => s.seat);
+      if (mySeat === 0 && lastPackHash && !netLock)
+        publishLobbyCfg(seats.length);
+      if (netLock && !seats.some((s) => s.seat === 0))
+        onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
       if (!rosterEl)
         return;
       rosterEl.replaceChildren();
@@ -502,6 +510,10 @@ function ensureSignal(): SignalClient {
       if (lobbyStatus) {
         lobbyStatus.className = "status err";
         lobbyStatus.textContent = `${code}: ${msg}`;
+      }
+      if (code === "EXPIRED" && netLock && !netLock.halted) {
+        const hostGone = /host/i.test(msg);
+        onLockEvent(netLock.endMatch(hostGone ? "Host disconnected. Match ended." : `${msg}. Match ended.`, 0));
       }
     },
     onCfg(cfg, cfgHash) {
@@ -562,10 +574,13 @@ startBtn?.addEventListener("click", () => {
     setStatus("err", "No MatchConfig yet.");
     return;
   }
-  if (lastRosterSeats.length < 2) {
-    setStatus("err", "Need two players before Start.");
+  const n = lastRosterSeats.length;
+  if (n < 2 || n > 4) {
+    setStatus("err", "Need 2–4 players before Start.");
     return;
   }
+  if (lastPackHash)
+    publishLobbyCfg(n);
   ensureSignal().send({ v: 1, t: "start", cfgHash: lastCfgHash });
 });
 
@@ -614,6 +629,9 @@ async function beginMesh(): Promise<void> {
         onLockEvent(ev);
     } else if (msg.t === "nack") {
       mesh?.sendInp(encodeInputDatagram(mySeat, netLock.history));
+    } else if (msg.t === "bye") {
+      if (netLock && !netLock.halted && _from === 0)
+        onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
     } else if (msg.t === "desync") {
       netLock.desynced = true;
       netLock.overlay = `DESYNC at tick ${msg.tick}`;
@@ -643,12 +661,14 @@ async function beginMesh(): Promise<void> {
     if (mesh && netLock?.history.length)
       mesh.sendInp(encodeInputDatagram(mySeat, netLock.history));
   };
-  if (mySeat === 0) {
-    for (const seat of lastRosterSeats) {
-      if (seat !== 0)
-        await mesh.offerTo(seat);
-    }
-  }
+  mesh.onPeerLost = (seat) => {
+    if (!netLock || netLock.halted)
+      return;
+    if (seat === 0)
+      onLockEvent(netLock.endMatch("Host disconnected. Match ended.", 0));
+  };
+  for (const seat of meshOfferTargets(mySeat, lastRosterSeats))
+    await mesh.offerTo(seat);
   for (const p of pendingSdp)
     await mesh.handleSdp(p.from, p.desc);
   pendingSdp.length = 0;
@@ -658,7 +678,34 @@ async function beginMesh(): Promise<void> {
   mesh.startPing();
   startLockstep();
   if (lobbyStatus)
-    lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2}. WASD+Z is this seat.`;
+    lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2} (${dataChannelsPerPeer(netLock?.nseats ?? 2)} DataChannels). WASD+Z is this seat. Keep tab visible.`;
+}
+
+function publishLobbyCfg(nseats: number): void {
+  if (!lastPackHash)
+    return;
+  const packed = packedLobbyCfg(lastPackHash, nseats, flags.lan ? 1 : 2);
+  lastCfgHash = packed.cfgHash;
+  lastCfgHex = packed.cfg;
+  signal?.send({ v: 1, t: "cfg", cfg: packed.cfg, cfgHash: packed.cfgHash });
+}
+
+function applyRemoteView(): void {
+  if (!game?.ready() || !netLock)
+    return;
+  if (flags.widescreen) {
+    canvas.width = 640;
+    canvas.height = 360;
+  } else {
+    canvas.width = 320;
+    canvas.height = 240;
+  }
+  const w = canvas.width;
+  const h = canvas.height;
+  game.setViewSeat(mySeat);
+  game.setScreenSize(w, h);
+  game.setScreenPosition(0, 0);
+  game.setPerspective(30, PORT_NATIVE_FOVY, w / h);
 }
 
 function lockEngine(): LockstepEngine {
@@ -701,7 +748,8 @@ function startLockstep(): void {
   seenHits = 0;
   hitMarks.length = 0;
   checksumLog.length = 0;
-  lastStageNote = `${nseats}P lockstep delay ${delay}. WASD+Z this seat (P${mySeat + 1}).`;
+  applyRemoteView();
+  lastStageNote = `${nseats}P lockstep delay ${delay} Hor+ seat ${mySeat}. WASD+Z this seat (P${mySeat + 1}). Keep tab visible.`;
   setStatus("ok", lastStageNote);
 }
 

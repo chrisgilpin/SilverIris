@@ -5,6 +5,7 @@ export type FlagName =
   | "turnForce"
   | "wsRelay"
   | "widescreen"
+  | "lan"
   | "campaign";
 
 const DEFAULTS: Record<FlagName, boolean> = {
@@ -12,6 +13,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   turnForce: false,
   wsRelay: false,
   widescreen: true,
+  lan: false,
   campaign: false,
 };
 

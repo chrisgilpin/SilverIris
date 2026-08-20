@@ -2,6 +2,14 @@
 
 export const PORT_WALL_Z = -50;
 export const PORT_VIEW_FOV = (70 * Math.PI) / 180;
+/** Native vi fovy (degrees). Hor+ keeps this and widens hfov with aspect. */
+export const PORT_NATIVE_FOVY = 60;
+
+export function horPlusHfovDeg(fovyDeg: number, aspect: number): number {
+  const a = aspect > 0.05 ? aspect : 0.05;
+  const half = (fovyDeg * Math.PI) / 180 / 2;
+  return (2 * Math.atan(Math.tan(half) * a) * 180) / Math.PI;
+}
 
 export type PortCam = { x: number; z: number; theta: number };
 export type PortHit = { x: number; y: number; z: number };
@@ -35,16 +43,17 @@ export function projectWorld(
   cam: PortCam,
   w: number,
   h: number,
+  hfov = PORT_VIEW_FOV,
 ): { sx: number; sy: number; dist: number } | null {
   const th = (cam.theta * Math.PI) / 180;
   const hitAng = Math.atan2(wx - cam.x, -(wz - cam.z));
   const dAng = wrapPi(hitAng - th);
-  if (Math.abs(dAng) > PORT_VIEW_FOV * 0.55) return null;
+  if (Math.abs(dAng) > hfov * 0.55) return null;
   const dx = wx - cam.x;
   const dz = wz - cam.z;
   const dist = dx * Math.sin(th) - dz * Math.cos(th);
   if (dist < 0.2) return null;
-  const sx = w / 2 + (dAng / PORT_VIEW_FOV) * w;
+  const sx = w / 2 + (dAng / hfov) * w;
   const sy = h / 2 - (wy / dist) * (h * 0.35);
   return { sx, sy, dist };
 }
@@ -126,6 +135,7 @@ export function drawPortView(
   hits: readonly PortHit[],
   chrs: readonly PortChr[] = [],
   box?: PortViewBox,
+  hfov = PORT_VIEW_FOV,
 ): void {
   const ox = box?.x ?? 0;
   const oy = box?.y ?? 0;
@@ -146,14 +156,14 @@ export function drawPortView(
   const th0 = (cam.theta * Math.PI) / 180;
   for (let col = 0; col < w; col++) {
     const ndc = (col + 0.5) / w - 0.5;
-    const ang = th0 + ndc * PORT_VIEW_FOV;
+    const ang = th0 + ndc * hfov;
     const dx = Math.sin(ang);
     const dz = -Math.cos(ang);
     if (Math.abs(dz) < 1e-5) continue;
     const t = (PORT_WALL_Z - cam.z) / dz;
     if (t < 0.2) continue;
     const hx = cam.x + dx * t;
-    const zcorr = t * Math.cos(ndc * PORT_VIEW_FOV);
+    const zcorr = t * Math.cos(ndc * hfov);
     if (zcorr < 0.2) continue;
     const sliceH = Math.min(h, (140 / zcorr) * (h * 0.5));
     const y0 = (h - sliceH) / 2;
@@ -165,16 +175,16 @@ export function drawPortView(
 
   ctx.lineWidth = 1;
   for (const chr of chrs) {
-    const feet = projectWorld(chr.x, 0, chr.z, cam, w, h);
+    const feet = projectWorld(chr.x, 0, chr.z, cam, w, h, hfov);
     const headY = chr.dead ? 8 : 80;
-    const head = projectWorld(chr.x, headY, chr.z, cam, w, h);
+    const head = projectWorld(chr.x, headY, chr.z, cam, w, h, hfov);
     if (!feet || !head) continue;
     const bw = Math.max(4, 220 / feet.dist);
     ctx.fillStyle = chr.peer ? "#5aa0b8" : chr.dead ? "#4a3030" : "#a04030";
     ctx.fillRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
   }
   for (const hit of hits) {
-    const p = projectWorld(hit.x, hit.y, hit.z, cam, w, h);
+    const p = projectWorld(hit.x, hit.y, hit.z, cam, w, h, hfov);
     if (!p) continue;
     const s = Math.max(2, 18 / p.dist);
     ctx.strokeStyle = "#e8c14a";

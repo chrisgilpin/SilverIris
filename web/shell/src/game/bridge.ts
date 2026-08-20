@@ -55,6 +55,13 @@ export type GameModule = {
   _port_api_rng_lo: () => number;
   _port_api_chr_rng_lo: () => number;
   _port_api_begin_match?: (nseats: number, rngSeed: number) => void;
+  _port_api_set_view_seat?: (seat: number) => void;
+  _port_api_view_seat?: () => number;
+  _port_api_view_unsplit?: () => number;
+  _port_api_set_screen_size?: (w: number, h: number) => void;
+  _port_api_set_screen_position?: (l: number, t: number) => void;
+  _port_api_set_perspective?: (near: number, fovy: number, aspect: number) => void;
+  _port_api_view_hfov?: () => number;
   HEAPU8: Uint8Array;
   HEAP16?: Int16Array;
   UTF8ToString?: (p: number) => string;
@@ -109,6 +116,13 @@ export type GameBridge = {
   rngLo(): number;
   chrRngLo(): number;
   beginMatch(nseats: number, rngSeed: number): void;
+  setViewSeat(seat: number): void;
+  viewSeat(): number;
+  viewUnsplit(): boolean;
+  setScreenSize(w: number, h: number): void;
+  setScreenPosition(l: number, t: number): void;
+  setPerspective(near: number, fovy: number, aspect: number): void;
+  viewHfov(): number;
 };
 
 type Factory = (opts?: Record<string, unknown>) => Promise<GameModule>;
@@ -362,6 +376,31 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
         M._port_api_begin_match(nseats, rngSeed >>> 0);
       else
         M._port_api_set_player_count(nseats);
+    },
+    setViewSeat(seat: number): void {
+      if (alive && M._port_api_set_view_seat)
+        M._port_api_set_view_seat(seat);
+    },
+    viewSeat(): number {
+      return alive && M._port_api_view_seat ? M._port_api_view_seat() : 0;
+    },
+    viewUnsplit(): boolean {
+      return !!(alive && M._port_api_view_unsplit && M._port_api_view_unsplit());
+    },
+    setScreenSize(w: number, h: number): void {
+      if (alive && M._port_api_set_screen_size)
+        M._port_api_set_screen_size(w, h);
+    },
+    setScreenPosition(l: number, t: number): void {
+      if (alive && M._port_api_set_screen_position)
+        M._port_api_set_screen_position(l, t);
+    },
+    setPerspective(near: number, fovy: number, aspect: number): void {
+      if (alive && M._port_api_set_perspective)
+        M._port_api_set_perspective(near, fovy, aspect);
+    },
+    viewHfov(): number {
+      return alive && M._port_api_view_hfov ? M._port_api_view_hfov() : 0;
     },
   };
 }

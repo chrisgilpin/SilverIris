@@ -71,6 +71,31 @@ npm run dev
 this Hetzner box and put nginx in front — see [`docs/remote-dev.md`](docs/remote-dev.md)
 (`007.goodhouseinc.com`).
 
+### Netplay (opt-in, `?ff_netplay=1`)
+
+Netplay stays **off** unless the query flag is set. Host creates a room; 2-4
+players join the same code, Ready, then host Start. Transport is a full-mesh
+of `inp` + `ctl` DataChannels (6 channels per client at 4P). Delay is 2
+ticks on Internet STUN, or 1 with `?ff_lan=1`.
+
+Remote clients render a **full-frame Hor+** camera for their seat via
+`port_set_view_seat` / `currentPlayerSetScreenSize` — not leftover split-screen
+viewports. Local couch split-screen (keys 1-4 on one machine) is unchanged.
+
+If the host disconnects, the match ends. A guest that goes silent stalls for
+350 ms, then the match ends after 10 s (v1 does not drop to 3 mid-sim).
+
+**Keep the game tab visible.** Browsers throttle hidden timers to about 1 Hz.
+The shell sends STALL and overlays "tab must stay visible." A silent
+AudioWorklet and navigator.wakeLock reduce throttle when they work; there
+is no good fix. Background-tab lockstep is unsupported.
+
+How to try 3-4P: open four tabs at
+`https://007.goodhouseinc.com/?ff_netplay=1` (or add `&ff_lan=1` on a LAN).
+Each tab loads the same NTSC-U ROM. Host Create room, others Join the code,
+Ready, host Start. Each tab is one seat with its own full-frame view.
+
+
 Drop or pick an NTSC-U dump. Unknown files and JP/EU matching hashes are
 rejected. The file stays in the tab. After verify, assets are extracted
 here, stored as a `.c0pack`, and the engine draws the G1 picture. Title

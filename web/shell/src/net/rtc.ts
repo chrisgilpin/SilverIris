@@ -1,6 +1,17 @@
 import { rtcConfiguration } from "./ice.ts";
 import { validateIce, validateSdp } from "./wire.ts";
 
+/** Lower seat offers to every higher seat: C(n,2) links, 2 channels each. */
+export function meshOfferTargets(mySeat: number, seats: readonly number[]): number[] {
+  return seats.filter((s) => s > mySeat).sort((a, b) => a - b);
+}
+
+/** inp + ctl per remote. 4P full mesh = 3 remotes × 2 = 6 DataChannels. */
+export function dataChannelsPerPeer(nseats: number): number {
+  const n = Math.max(0, (nseats | 0) - 1);
+  return n * 2;
+}
+
 export type CtlMsg =
   | { t: "ping"; t0: number }
   | { t: "pong"; t0: number }
@@ -23,6 +34,7 @@ export class PeerMesh {
   onInp: ((from: number, data: Uint8Array) => void) | null = null;
   onCtlMsg: ((from: number, msg: CtlMsg) => void) | null = null;
   onInpOpen: (() => void) | null = null;
+  onPeerLost: ((seat: number, state: string) => void) | null = null;
   private pingTimer = 0;
 
   constructor(
@@ -43,7 +55,10 @@ export class PeerMesh {
         this.signal.sendIce(remote, ev.candidate.toJSON());
     };
     pc.onconnectionstatechange = () => {
-      this.onLog(`P${remote} ${pc!.connectionState}`);
+      const st = pc!.connectionState;
+      this.onLog(`P${remote} ${st}`);
+      if (st === "failed" || st === "closed")
+        this.onPeerLost?.(remote, st);
     };
     pc.ondatachannel = (ev) => this.bindChan(remote, ev.channel);
     return pc;
@@ -163,6 +178,27 @@ export class PeerMesh {
       this.rttMs.set(from, performance.now() - msg.t0);
     else
       this.onCtlMsg?.(from, msg);
+  }
+
+  remoteSeats(): number[] {
+    return [...this.pcs.keys()].sort((a, b) => a - b);
+  }
+
+  openDataChannelCount(): number {
+    let n = 0;
+    for (const ch of this.inp.values()) {
+      if (ch.readyState === "open")
+        n += 1;
+    }
+    for (const ch of this.ctl.values()) {
+      if (ch.readyState === "open")
+        n += 1;
+    }
+    return n;
+  }
+
+  expectedDataChannelCount(): number {
+    return this.pcs.size * 2;
   }
 
   inpOpen(): boolean {
