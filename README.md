@@ -36,14 +36,16 @@ unknown opcodes / unresolved `G_DL`, and applies a player look-at (theta=0
 faces -Z) so world-space `G_TRI4`s can land on the G1 FB as untextured
 grey. G1 now decodes Rare `G_SETTEX` (0xC0): `texture_id = w1 & 0xfff`
 looks up `assets/images/split/<images.def name>.bin` (or `imageN.bin`)
-in the user pack and samples I4/I8/CI4/CI8/RGBA16 **SITX** tiles through
-a 4 KiB TMEM. Native tests prove a synthetic 8×8 I8/I4/CI4 checker
-changes the picture. Retail image banks are Rare-compressed (zlib /
-non-zlib), not SITX — Facility corridors stay grey after a hard refresh
-until that inflater lands. HUD `settex` / `texOk` / `texMiss` report
-whether SETTEX fired and whether a SITX tile bound. Do not claim
-textured Facility is on screen. Campaign is not v1. Title boot is
-not in this build.
+in the user pack. SITX tiles still bind. Pack blobs that use the Rare
+bank container (`uzllllll`: zlib/1172 paletted CI, or non-zlib
+uncompressed / Huffman / RLE / lookup I4/I8/RGBA16) inflate into the
+same 4 KiB TMEM. Native tests prove synthetic Rare I8 and 1172-wrapped
+CI4 checkers change the picture and increment `texOk`. Retail Facility
+banks use that container, but this tree has no ROM/extracted texels, so
+retail `texOk > 0` is **unproven** — corridors may stay grey. HUD
+`settex` / `texOk` / `texMiss` report binds. Do not claim textured
+Facility is on screen. Campaign is not v1. Title boot is not in this
+build.
 
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).

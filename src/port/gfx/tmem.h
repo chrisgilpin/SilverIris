@@ -29,6 +29,7 @@ int g1_tex_load_raw(unsigned id, uint8_t fmt, unsigned w, unsigned h,
                     const uint8_t *texels, size_t ntex, const uint16_t *tlut,
                     unsigned ntlut);
 int g1_tex_load_sitx(unsigned id, const uint8_t *bytes, size_t n);
+int g1_tex_load_bank(unsigned id, const uint8_t *bytes, size_t n);
 
 /* Decode gsSPUseTexture / G_SETTEX (0xC0). texture_id = w1 & 0xfff. */
 int g1_tex_settex(uint32_t w0, uint32_t w1);

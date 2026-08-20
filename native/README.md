@@ -16,7 +16,7 @@ make -C native g1-test            # software T&L + raster; greyscale FB hash
 make -C native pack-dma           # product DMA from synthetic .c0pack
 make -C native port-api           # glue init(pack,hash) + G1 hash
 make -C native audio-test         # silence + placeholder PCM hashes; no game RNG
-make -C native stage-test         # 1172 inflate + C0/TRI4 + seg14 look-at paints
+make -C native stage-test         # 1172 rooms + Rare bank I8/CI4 SETTEX paints
 make -C native player-test        # 10 s analog walk tape; |z| shows dt=3
 make -C native gun-test           # PP7 mag spend, wall hit, CRC32C ammo
 make -C native chr-test           # one guard on a looping pad path; crc_chrs

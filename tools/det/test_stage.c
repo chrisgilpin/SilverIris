@@ -11,6 +11,7 @@
 #include "fs/stage.h"
 #include "gfx/gbi_interp.h"
 #include "gfx/tmem.h"
+#include "gfx/tex_bank.h"
 #include "gfx/gbi_trace.h"
 #include "gfx/sw_raster.h"
 #include "overrides/lv_clock.h"
@@ -594,6 +595,177 @@ static int run_tex_dl(uint16_t tex_id, const uint8_t *vtx_be)
     return 0;
 }
 
+
+static size_t build_rare_i8(uint8_t *dst, const uint8_t *tex, unsigned w, unsigned h)
+{
+    /* flags=non-zlib lod1; format I8=7; method uncompressed. */
+    dst[0] = 0x01;
+    dst[1] = (uint8_t)((7u << 4) | ((w >> 4) & 0x0fu));
+    dst[2] = (uint8_t)((w << 4) | ((h >> 4) & 0x0fu));
+    dst[3] = (uint8_t)((h << 4) | 0u);
+    memcpy(dst + 4, tex, (size_t)w * h);
+    return 4u + (size_t)w * h;
+}
+
+static size_t build_zlib_ci4(uint8_t *dst, size_t cap, const uint8_t *idx, unsigned w,
+                             unsigned h, uint16_t c0, uint16_t c1)
+{
+    uint8_t pay[80];
+    size_t plen, n = 0;
+    if (cap < 16)
+        return 0;
+    dst[n++] = 0x41;
+    dst[n++] = G1_TEX_CI4;
+    dst[n++] = 0x01;
+    dst[n++] = (uint8_t)(c0 >> 8);
+    dst[n++] = (uint8_t)c0;
+    dst[n++] = (uint8_t)(c1 >> 8);
+    dst[n++] = (uint8_t)c1;
+    dst[n++] = (uint8_t)w;
+    dst[n++] = (uint8_t)h;
+    plen = wrap1172_stored(idx, (size_t)((w * h + 1u) / 2u), pay, sizeof pay);
+    if (!plen || n + plen > cap)
+        return 0;
+    memcpy(dst + n, pay, plen);
+    return n + plen;
+}
+
+static int test_tex_bank_synthetic(void)
+{
+    uint8_t i8[64], ci4[32], rare[80], zbank[80];
+    G1TexBankOut d;
+    size_t n;
+    unsigned i;
+
+    fill_i8_checker(i8, 8, 8, 0x20, 0xE0);
+    n = build_rare_i8(rare, i8, 8, 8);
+    if (!n || g1_tex_bank_decode(rare, n, &d) != G1_TEX_BANK_OK)
+        return fail("decode rare I8");
+    if (d.zlib || d.fmt != G1_TEX_I8 || d.w != 8 || d.h != 8 || d.ntex != 64)
+        return fail("rare I8 header");
+    if (memcmp(d.texels, i8, 64) != 0)
+        return fail("rare I8 texels");
+    printf("tex_bank rare I8 8x8 method=%d n=%zu\n", (int)d.method, d.ntex);
+
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    n = build_zlib_ci4(zbank, sizeof zbank, ci4, 8, 8, 0xF801, 0x07C1);
+    if (!n || g1_tex_bank_decode(zbank, n, &d) != G1_TEX_BANK_OK)
+        return fail("decode zlib CI4 1172");
+    if (!d.zlib || d.fmt != G1_TEX_CI4 || d.ntlut != 2 || d.ntex != 32)
+        return fail("zlib CI4 header");
+    if (d.tlut[0] != 0xF801 || d.tlut[1] != 0x07C1)
+        return fail("zlib CI4 tlut");
+    if (memcmp(d.texels, ci4, 32) != 0)
+        return fail("zlib CI4 indices");
+    printf("tex_bank zlib CI4 8x8 ncol=%u 1172 ok\n", d.ntlut);
+
+    /* Disk synthetic (real raw-deflate, not stored). */
+    {
+        uint8_t buf[128];
+        FILE *f = fopen("testdata/stage/checker.rare.bin", "rb");
+        size_t nr;
+        if (!f)
+            f = fopen("/home/grok/GoldenEye/testdata/stage/checker.rare.bin", "rb");
+        if (!f)
+            return fail("open checker.rare.bin");
+        nr = fread(buf, 1, sizeof buf, f);
+        fclose(f);
+        if (g1_tex_bank_decode(buf, nr, &d) != G1_TEX_BANK_OK)
+            return fail("disk rare I8");
+        if (d.fmt != G1_TEX_I8 || memcmp(d.texels, i8, 64) != 0)
+            return fail("disk rare texels");
+        f = fopen("testdata/stage/checker.zbank.bin", "rb");
+        if (!f)
+            f = fopen("/home/grok/GoldenEye/testdata/stage/checker.zbank.bin", "rb");
+        if (!f)
+            return fail("open checker.zbank.bin");
+        nr = fread(buf, 1, sizeof buf, f);
+        fclose(f);
+        if (g1_tex_bank_decode(buf, nr, &d) != G1_TEX_BANK_OK)
+            return fail("disk zlib CI4");
+        if (!d.zlib || d.fmt != G1_TEX_CI4 || d.ntex != 32)
+            return fail("disk zlib header");
+        for (i = 0; i < 32; i++) {
+            if (d.texels[i] != ci4[i])
+                return fail("disk zlib indices");
+        }
+        printf("tex_bank disk rare+zbank ok\n");
+    }
+    return 0;
+}
+
+static int test_settex_rare_bank_pack(void)
+{
+    uint8_t rare[80], zbank[80], i8[64], ci4[32], vtx_be[48];
+    C0File files[1];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0, n;
+    uint8_t hash[32];
+    C0Pack opened;
+    int dark, lit;
+
+    fill_i8_checker(i8, 8, 8, 0x20, 0xE0);
+    n = build_rare_i8(rare, i8, 8, 8);
+    files[0].path = "assets/images/split/image7.bin";
+    files[0].bytes = rare;
+    files[0].size = n;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("rare pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("rare pack open");
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(7, vtx_be) != 0)
+        return fail("rare pack dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("rare SETTEX id 7 texOk");
+    dark = count_tone(0, 80);
+    lit = count_tone(180, 255);
+    if (dark < 200 || lit < 200)
+        return fail("rare I8 not sampled");
+    printf("settex pack image7.bin RARE-I8 dark=%d lit=%d ok=%u\n", dark, lit, g1_tex_ok_count());
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    pack = NULL;
+
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    n = build_zlib_ci4(zbank, sizeof zbank, ci4, 8, 8, 0xF801, 0x07C1);
+    files[0].path = "assets/images/split/image9.bin";
+    files[0].bytes = zbank;
+    files[0].size = n;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("zbank pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("zbank pack open");
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(9, vtx_be) != 0)
+        return fail("zbank pack dl");
+    if (g1_tex_ok_count() < 1)
+        return fail("zlib SETTEX id 9 texOk");
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned i, np = (unsigned)G1_FB_W * (unsigned)G1_FB_H, red = 0, grn = 0;
+        for (i = 0; i < np; i++) {
+            if (fb[i * 4] > 160 && fb[i * 4 + 1] < 80)
+                red++;
+            if (fb[i * 4 + 1] > 160 && fb[i * 4] < 80)
+                grn++;
+        }
+        if (red < 200 || grn < 200)
+            return fail("zlib CI4 not red+green");
+        printf("settex pack image9.bin ZLIB-CI4 red=%u green=%u ok=%u\n", red, grn,
+               g1_tex_ok_count());
+    }
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    return 0;
+}
+
 static int test_settex_formats(void)
 {
     uint8_t i8[64], i4[32], ci4[32], vtx_be[48];
@@ -968,9 +1140,13 @@ int main(int argc, char **argv)
     port_api_shutdown();
     free(pack);
 
+    if (test_tex_bank_synthetic() != 0)
+        return 1;
     if (test_settex_formats() != 0)
         return 1;
     if (test_settex_pack_lookup() != 0)
+        return 1;
+    if (test_settex_rare_bank_pack() != 0)
         return 1;
     if (test_settex_miss_stays_grey() != 0)
         return 1;

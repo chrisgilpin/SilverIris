@@ -1,4 +1,5 @@
 #include "gfx/tmem.h"
+#include "gfx/tex_bank.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -153,8 +154,9 @@ static int load_from_pack(unsigned id)
     }
     if (!e || !e->bytes || e->size == 0)
         return -1;
-    /* Synthetic SITX only. Retail Rare blobs are zlib/non-zlib — not this slice. */
-    return g1_tex_load_sitx(id, e->bytes, e->size);
+    if (g1_tex_load_sitx(id, e->bytes, e->size) == 0)
+        return 0;
+    return g1_tex_load_bank(id, e->bytes, e->size);
 }
 
 int g1_tex_settex(uint32_t w0, uint32_t w1)

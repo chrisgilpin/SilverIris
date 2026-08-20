@@ -35,7 +35,7 @@ PORT_OS_OBJS := \
 	$(BUILD)/src/port/cont/playback.o \
 	$(BUILD)/src/port/gfx/gbi_trace.o \
 	$(BUILD)/src/port/gfx/gbi_interp.o \
-	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
+	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 	$(BUILD)/src/port/fs/sha256.o \
 	$(BUILD)/src/port/audio/mixer.o \
 	$(BUILD)/src/port/audio/ai.o
@@ -268,13 +268,15 @@ $(BUILD)/test_joy_playback: $(ROOT)/tools/det/test_joy_playback.c \
 joy-playback: overlay $(BUILD)/test_joy_playback
 	$(BUILD)/test_joy_playback
 
-G1_GFX := $(PORT)/gfx/gbi_trace.c $(PORT)/gfx/gbi_interp.c $(PORT)/gfx/sw_raster.c $(PORT)/gfx/tmem.c $(IMAGE_NAMES_C)
+G1_GFX := $(PORT)/gfx/gbi_trace.c $(PORT)/gfx/gbi_interp.c $(PORT)/gfx/sw_raster.c $(PORT)/gfx/tmem.c $(PORT)/gfx/tex_bank.c $(IMAGE_NAMES_C)
 
 $(BUILD)/test_g0: $(ROOT)/tools/det/test_g0.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o | overlay
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(ROOT)/tools/det/test_g0.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o -lm
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o -lm
 
 g0-test: overlay $(BUILD)/test_g0
 	$(BUILD)/test_g0 $(BUILD)/synthetic.g0
@@ -282,10 +284,12 @@ g0-test: overlay $(BUILD)/test_g0
 		$(ROOT)/testdata/g0/synthetic.words.sha256 $(BUILD)/synthetic.g0
 
 $(BUILD)/test_g1: $(ROOT)/tools/det/test_g1.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o | overlay
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(ROOT)/tools/det/test_g1.c $(G1_GFX) \
-		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o -lm
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o -lm
 
 g1-test: overlay $(BUILD)/test_g1
 	$(BUILD)/test_g1 $$(cat $(ROOT)/testdata/g1/synthetic.fb.sha256)
@@ -307,7 +311,7 @@ $(BUILD)/src/glue/port_api.o: $(ROOT)/src/glue/port_api.c | overlay
 $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
 		$(PORT_PACK_OBJS) $(PORT_STAGE_OBJS) $(BUILD)/src/port/fs/sha256.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
@@ -318,7 +322,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port_api.o \
 		$(PORT_PACK_OBJS) $(PORT_STAGE_OBJS) $(BUILD)/src/port/fs/sha256.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
@@ -350,7 +354,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/vi/wait_override.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -I$(ROOT)/src/glue -o $@ $(ROOT)/tools/det/test_stage.c \
@@ -361,7 +365,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/vi/wait_override.o \
 		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
-		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(IMAGE_NAMES_O) \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
 
 stage-test: overlay $(BUILD)/test_stage
@@ -554,6 +558,7 @@ WASM_SRCS := \
 	$(PORT)/gfx/gbi_interp.c \
 	$(PORT)/gfx/sw_raster.c \
 	$(PORT)/gfx/tmem.c \
+	$(PORT)/gfx/tex_bank.c \
 	$(IMAGE_NAMES_C) \
 	$(PORT)/os/mesg.c \
 	$(PORT)/os/count.c \

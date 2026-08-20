@@ -25,3 +25,10 @@ player look-at paints. `port_api_fb_nonzero` counts painted pixels.
 ROM-derived. `test_stage` loads it via pack path `image7.bin` / `COPYICON.bin`
 to prove SETTEX → TMEM → TRI4 sampling.
 
+`checker.rare.bin` is the same 8×8 I8 checker in the Rare *non-zlib*
+bank container (`uzllllll` + format4/w8/h8/method4 uncompressed).
+`checker.zbank.bin` is an 8×8 CI4 checker (red/green 5551) in the Rare
+*zlib* bank container (`z=1`, palette, 1172-wrapped indices). Neither
+file is ROM-derived. Retail Facility banks are the same *container*,
+but their payloads are unproven here (no retail texels in git).
+
