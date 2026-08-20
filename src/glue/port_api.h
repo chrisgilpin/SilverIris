@@ -26,6 +26,10 @@ PORT_KEEP const uint8_t *port_api_fb(void);
 PORT_KEEP int port_api_fb_width(void);
 PORT_KEEP int port_api_fb_height(void);
 PORT_KEEP void port_api_draw(void);
+#define PORT_DRAW_NONE 0
+#define PORT_DRAW_STAGE 1
+#define PORT_DRAW_FALLBACK 2
+PORT_KEEP int port_api_last_draw(void);
 PORT_KEEP const char *port_api_last_error(void);
 PORT_KEEP int port_api_ready(void);
 

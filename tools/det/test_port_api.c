@@ -55,6 +55,8 @@ int main(int argc, char **argv)
     if (!port_api_fb())
         return fail("fb ptr");
     port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_FALLBACK)
+        return fail("init-only draw is fallback synthetic");
     g1_fb_grey_sha256(grey);
     silveriris_sha256_hex(grey, hex);
     if (argc >= 2 && strcmp(hex, argv[1]) != 0) {

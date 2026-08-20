@@ -1,4 +1,14 @@
 import { hexToBytes } from "../pack.ts";
+import { blitRgbaToCanvas, stageHasDrawableRooms } from "./view.ts";
+
+export const PORT_DRAW_NONE = 0;
+export const PORT_DRAW_STAGE = 1;
+export const PORT_DRAW_FALLBACK = 2;
+
+/** Live canvas blits G1 only when the pack produced a drawable room GDL. */
+export function shouldBlitStageFb(info: { gdlRaw: boolean; gdlC0: boolean }): boolean {
+  return stageHasDrawableRooms(info);
+}
 
 export type GameModule = {
   _malloc: (n: number) => number;
@@ -9,6 +19,7 @@ export type GameModule = {
   _port_api_fb_width: () => number;
   _port_api_fb_height: () => number;
   _port_api_draw: () => void;
+  _port_api_last_draw?: () => number;
   _port_api_last_error: () => number;
   _port_api_ready: () => number;
   _port_api_audio_cb: (ptr: number, nframes: number) => void;
@@ -73,6 +84,10 @@ export type GameBridge = {
   init(pack: Uint8Array, packHash: Uint8Array): Promise<void>;
   shutdown(): void;
   draw(canvas: HTMLCanvasElement): void;
+  rasterStage(): void;
+  stageFb(): { rgba: Uint8Array; w: number; h: number } | null;
+  lastDraw(): number;
+  hasDrawableStage(): boolean;
   ready(): boolean;
   audioCb(out: Int16Array, nframes: number): void;
   audioPlayGun(): void;
@@ -206,18 +221,33 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     draw(canvas: HTMLCanvasElement): void {
       if (!alive || !M._port_api_ready()) return;
-      M._port_api_draw();
+      if (!this.hasDrawableStage()) return;
+      this.rasterStage();
+      const fb = this.stageFb();
+      const ctx = canvas.getContext("2d");
+      if (!fb || !ctx) return;
+      if (!canvas.width || !canvas.height) {
+        canvas.width = fb.w;
+        canvas.height = fb.h;
+      }
+      blitRgbaToCanvas(ctx, fb.rgba, fb.w, fb.h);
+    },
+    rasterStage(): void {
+      if (alive && M._port_api_ready()) M._port_api_draw();
+    },
+    stageFb(): { rgba: Uint8Array; w: number; h: number } | null {
+      if (!alive || !M._port_api_ready()) return null;
       const w = M._port_api_fb_width();
       const h = M._port_api_fb_height();
       const ptr = M._port_api_fb();
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const src = M.HEAPU8.subarray(ptr, ptr + w * h * 4);
-      const img = ctx.createImageData(w, h);
-      img.data.set(src);
-      ctx.putImageData(img, 0, 0);
+      if (!ptr || w <= 0 || h <= 0) return null;
+      return { rgba: M.HEAPU8.subarray(ptr, ptr + w * h * 4), w, h };
+    },
+    lastDraw(): number {
+      return alive && M._port_api_last_draw ? M._port_api_last_draw() : 0;
+    },
+    hasDrawableStage(): boolean {
+      return !!(alive && ((M._port_api_gdl_raw && M._port_api_gdl_raw()) || (M._port_api_gdl_c0 && M._port_api_gdl_c0())));
     },
     ready(): boolean {
       return alive && M._port_api_ready() !== 0;

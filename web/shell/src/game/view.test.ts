@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { horPlusHfovDeg, lookDir, PORT_NATIVE_FOVY, PORT_WALL_Z, projectWorld, wallHitscan } from "./view.ts";
+import {
+  blitRgbaToCanvas,
+  horPlusHfovDeg,
+  lookDir,
+  PORT_NATIVE_FOVY,
+  PORT_WALL_Z,
+  presentLiveView,
+  projectWorld,
+  stageHasDrawableRooms,
+  wallHitscan,
+} from "./view.ts";
 
 describe("port view", () => {
   it("theta 0 look dir is -Z", () => {
@@ -36,3 +46,96 @@ describe("port view", () => {
     expect(b).toBeGreaterThan(a);
   });
 });
+
+describe("stage G1 present", () => {
+  it("only treats raw Fast3D or inflated C0 as drawable", () => {
+    expect(stageHasDrawableRooms({ gdlRaw: false, gdlC0: false })).toBe(false);
+    expect(stageHasDrawableRooms({ gdlRaw: true, gdlC0: false })).toBe(true);
+    expect(stageHasDrawableRooms({ gdlRaw: false, gdlC0: true })).toBe(true);
+  });
+
+  it("blits the stage FB when a drawable GDL is present", () => {
+    const rec = mockCtx(320, 240);
+    const fb = new Uint8ClampedArray(320 * 240 * 4);
+    fb[0] = 12;
+    fb[1] = 28;
+    fb[2] = 48;
+    fb[3] = 255;
+    const used = presentLiveView(rec.ctx, {
+      gdlRaw: false,
+      gdlC0: true,
+      fb: { rgba: fb, w: 320, h: 240 },
+      cam: { x: 0, z: 0, theta: 0 },
+      hits: [],
+    });
+    expect(used).toBe("stage");
+    expect(rec.ops.some((o) => o.startsWith("putImageData"))).toBe(true);
+    expect(rec.lastImage![0]).toBe(12);
+    expect(rec.lastImage![1]).toBe(28);
+    expect(rec.lastImage![2]).toBe(48);
+    expect(rec.ops.some((o) => o.includes("#1a2430"))).toBe(false);
+  });
+
+  it("keeps the placeholder mesh when the pack has no drawable rooms", () => {
+    const rec = mockCtx(320, 240);
+    const fb = new Uint8ClampedArray(320 * 240 * 4);
+    fb.fill(9);
+    const used = presentLiveView(rec.ctx, {
+      gdlRaw: false,
+      gdlC0: false,
+      fb: { rgba: fb, w: 320, h: 240 },
+      cam: { x: 0, z: 0, theta: 0 },
+      hits: [],
+    });
+    expect(used).toBe("placeholder");
+    expect(rec.ops.some((o) => o.startsWith("putImageData"))).toBe(false);
+    expect(rec.ops.some((o) => o.includes("#1a2430"))).toBe(true);
+  });
+
+  it("copies FB bytes through blitRgbaToCanvas", () => {
+    const rec = mockCtx(8, 8);
+    const rgba = new Uint8ClampedArray(8 * 8 * 4);
+    rgba[4] = 200;
+    expect(blitRgbaToCanvas(rec.ctx, rgba, 8, 8)).toBe(true);
+    expect(rec.lastImage![4]).toBe(200);
+  });
+});
+
+function mockCtx(w: number, h: number) {
+  const ops: string[] = [];
+  let lastImage: Uint8ClampedArray | null = null;
+  const ctx = {
+    canvas: { width: w, height: h },
+    fillStyle: "",
+    strokeStyle: "",
+    lineWidth: 1,
+    font: "",
+    save() {},
+    restore() {},
+    beginPath() {},
+    closePath() {},
+    clip() {},
+    rect() {},
+    translate() {},
+    moveTo() {},
+    lineTo() {},
+    fill() {},
+    stroke() {},
+    strokeRect() {},
+    fillText() {},
+    drawImage() {
+      ops.push("drawImage");
+    },
+    fillRect(_x: number, _y: number, fw: number, fh: number) {
+      ops.push(`fillRect ${String(this.fillStyle)} ${fw}x${fh}`);
+    },
+    createImageData(iw: number, ih: number) {
+      return { width: iw, height: ih, data: new Uint8ClampedArray(iw * ih * 4) };
+    },
+    putImageData(img: { data: Uint8ClampedArray }, _x: number, _y: number) {
+      lastImage = new Uint8ClampedArray(img.data);
+      ops.push("putImageData");
+    },
+  };
+  return { ops, get lastImage() { return lastImage; }, ctx: ctx as unknown as CanvasRenderingContext2D };
+}

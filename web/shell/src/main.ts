@@ -4,7 +4,7 @@ import { AudioPlayer, lastAudioError, unlockAudio } from "./audio/player.ts";
 import { buildReport, encodeTapeExcerpt } from "./det/report.ts";
 import { flags } from "./flags.ts";
 import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
-import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, type PortChr, type PortHit } from "./game/view.ts";
+import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, presentLiveView, stageHasDrawableRooms, type PortChr, type PortHit } from "./game/view.ts";
 import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
 import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
 import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
@@ -264,6 +264,39 @@ function paint(now: number): void {
     const hfov = netLock
       ? (horPlusHfovDeg(PORT_NATIVE_FOVY, canvas.width / canvas.height) * Math.PI) / 180
       : undefined;
+    const drawable = stageHasDrawableRooms({ gdlRaw: game.gdlRaw(), gdlC0: game.gdlC0() });
+    let stageFb: { rgba: Uint8Array; w: number; h: number } | undefined;
+    if (drawable) {
+      game.rasterStage();
+      stageFb = game.stageFb() ?? undefined;
+    }
+    if (drawable && stageFb) {
+      const viewSeat = netLock ? mySeat : game.viewSeat();
+      const overlay: PortChr[] = guard.slice();
+      for (let j = 0; j < n; j++) {
+        if (j === viewSeat) continue;
+        overlay.push({
+          x: game.playerXAt(j),
+          z: game.playerZAt(j),
+          theta: game.playerThetaAt(j),
+          peer: true,
+        });
+      }
+      presentLiveView(ctx, {
+        gdlRaw: game.gdlRaw(),
+        gdlC0: game.gdlC0(),
+        fb: stageFb,
+        cam: {
+          x: game.playerXAt(viewSeat),
+          z: game.playerZAt(viewSeat),
+          theta: game.playerThetaAt(viewSeat),
+        },
+        hits: hitMarks,
+        chrs: overlay,
+        box: { x: 0, y: 0, w: canvas.width, h: canvas.height },
+        hfov,
+      });
+    }
     for (const seat of seats) {
       const box = netLock
         ? { x: 0, y: 0, w: canvas.width, h: canvas.height }
@@ -273,24 +306,26 @@ function paint(now: number): void {
             w: game.vpWidth(seat),
             h: game.vpHeight(seat),
           };
-      const peers: PortChr[] = [];
-      for (let j = 0; j < n; j++) {
-        if (j === seat) continue;
-        peers.push({
-          x: game.playerXAt(j),
-          z: game.playerZAt(j),
-          theta: game.playerThetaAt(j),
-          peer: true,
-        });
+      if (!(drawable && stageFb)) {
+        const peers: PortChr[] = [];
+        for (let j = 0; j < n; j++) {
+          if (j === seat) continue;
+          peers.push({
+            x: game.playerXAt(j),
+            z: game.playerZAt(j),
+            theta: game.playerThetaAt(j),
+            peer: true,
+          });
+        }
+        drawPortView(
+          ctx,
+          { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat) },
+          seat === mySeat ? hitMarks : [],
+          guard.concat(peers),
+          box,
+          hfov,
+        );
       }
-      drawPortView(
-        ctx,
-        { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat) },
-        seat === mySeat ? hitMarks : [],
-        guard.concat(peers),
-        box,
-        hfov,
-      );
       ctx.fillStyle = "rgba(18,20,24,0.72)";
       ctx.fillRect(box.x, box.y, box.w, 14);
       ctx.fillStyle = "#e8e6e1";
@@ -322,7 +357,7 @@ function afterLoadStatus(packHash: string, fromIdb: boolean): string {
   const net = flags.netplay
     ? "Netplay lobby is on (opt-in). Campaign is not v1."
     : "Solo. Netplay is opt-in (?ff_netplay=1). Campaign is not v1.";
-  return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Facility mesh (not Rare bg). " + lastStageNote + " Click picture or Z/Space for audio. " + net;
+  return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Live G1 blit if this pack\'s room GDL is drawable, else PORT mesh. " + lastStageNote + " Click picture or Z/Space for audio. " + net;
 }
 
 async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<void> {
@@ -345,10 +380,10 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     if (rc === 0) {
       game.simTick(0);
       lastStageNote = game.gdlRaw()
-        ? `Facility header + synthetic Fast3D room GDL in G1. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 room GDL in G1 (SETTEX skip + TRI4). Not a retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
-        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — mesh walk only. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+        ? `Inflated 1172 C0 room GDL in G1 (SETTEX skip + TRI4) — live canvas blits that FB. Not a retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;
     }

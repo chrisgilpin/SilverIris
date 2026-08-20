@@ -26,14 +26,17 @@ if they appear (`tools/guard`).
 
 Public URL: [https://007.goodhouseinc.com](https://007.goodhouseinc.com)
 (no access secret). The shell lobby, 2-4P lockstep, and coturn TURN exist.
-Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. Facility
-is a mesh walk on the live site, not the Rare background. Native tests walk
-the Rare bg room table, inflate a synthetic 1172-compressed C0 room GDL
+Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. The live
+canvas calls `port_api_draw` and blits the stage G1 framebuffer when the
+user pack produced a drawable room GDL (synthetic Fast3D or inflated 1172
+C0/`G_TRI4`). Otherwise it keeps the PORT mesh so a non-drawable pack does
+not black-screen. Facility appears only if that pack's `bg_ark` inflates to
+drawable GDL — we have not loaded a retail pack here. Native tests walk the
+Rare bg room table, inflate a synthetic 1172-compressed C0 room GDL
 (`bgDecompress` / puff), and raster `G_SETTEX` (skip) + `G_TRI4` through G1
-(same greyscale hash as the G1 triangle). A user pack is still required to
-see Facility, and retail C0 textures / compressed verts are not this slice —
-do not claim Facility is on screen. Campaign is not v1. Title boot is not
-in this build.
+(same greyscale hash as the G1 triangle). Retail C0/4Tri for real `bg_ark`,
+textures, and compressed verts are not this slice — do not claim Facility
+is on screen. Campaign is not v1. Title boot is not in this build.
 
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).
@@ -96,9 +99,10 @@ redistributing a compiled engine lawful. Read [`docs/legal-posture.md`](docs/leg
 ## Web shell
 
 ROM gate + in-tab extract + `.c0pack` in IndexedDB, then `game.wasm` `init(pack)`
-(hash check, 256 MB, G1 blit, placeholder AudioWorklet). Title music and gun
-are integer-phase stubs, not cartridge banks. Netplay is opt-in
-(`?ff_netplay=1`); campaign is not v1.
+(hash check, 256 MB, G1 blit when the pack's room GDL is drawable, else the
+PORT mesh, placeholder AudioWorklet). Title music and gun are integer-phase
+stubs, not cartridge banks. Netplay is opt-in (`?ff_netplay=1`); campaign is
+not v1.
 
 ```bash
 make -C native wasm                 # emcc → web/shell/public/game.{js,wasm}

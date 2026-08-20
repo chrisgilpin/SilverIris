@@ -10,3 +10,7 @@ Do not replace with a dump from a retail pack.
   (`G_SETTEX` + `G_TRI4`). Runtime `bgDecompress` inflates it; G1 must
   match the same greyscale hash. A junk Rare header without `0x11 0x72`
   still walks rooms and refuses to draw.
+
+`port_api_draw` after a drawable load reports `PORT_DRAW_STAGE`
+and the same greyscale hash. A junk Rare header reports `PORT_DRAW_FALLBACK`
+(the live presenter keeps the PORT mesh in that case).

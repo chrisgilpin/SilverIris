@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "glue/port_api.h"
 #include "fs/c0pack.h"
 #include "fs/inflate1172.h"
 #include "fs/pack_dma.h"
@@ -442,8 +443,23 @@ int main(int argc, char **argv)
     if (check_grey(want) != 0)
         return 1;
     printf("stage c0 1172 inflated=%zu gdl_c0=1\n", gdl_n);
+
+    /* port_api_draw must blit the inflated C0 stage FB, not only init synthetic. */
     port_stage_unload();
     port_shutdown();
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail(port_api_last_error()[0] ? port_api_last_error() : "port_api_init c0");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("port_api load c0");
+    if (!port_api_gdl_c0())
+        return fail("port_api expected gdl_c0");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("port_api_draw did not use stage FB");
+    if (check_grey(want) != 0)
+        return 1;
+    printf("port_api_draw c0 last_draw=%d\n", port_api_last_draw());
+    port_api_shutdown();
     free(pack);
     pack = NULL;
 
@@ -474,8 +490,21 @@ int main(int argc, char **argv)
     printf("stage ok rooms=%d bg_rooms=%d clock=%d dt=%g gdl_raw=%d gdl_c0=%d\n",
            port_stage_room_count(), port_stage_bg_rooms(), g_ClockTimer,
            (double)g_GlobalTimerDelta, port_stage_gdl_raw(), port_stage_gdl_c0());
+
+    /* No drawable GDL: port_api_draw falls back. Presenter must not treat this as stage blit. */
     port_stage_unload();
     port_shutdown();
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("port_api rare init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("port_api rare load");
+    if (port_api_gdl_raw() || port_api_gdl_c0())
+        return fail("junk rare not drawable");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_FALLBACK)
+        return fail("junk rare must fallback, not stage blit");
+    printf("port_api_draw rare last_draw=%d (fallback)\n", port_api_last_draw());
+    port_api_shutdown();
     free(pack);
     return 0;
 }

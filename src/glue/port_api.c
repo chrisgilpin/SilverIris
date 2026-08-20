@@ -19,6 +19,7 @@
 
 static char g_err[160];
 static int g_ready;
+static int g_last_draw;
 static uint8_t *g_pack_copy;
 
 static void set_err(const char *s)
@@ -72,6 +73,7 @@ PORT_KEEP PortErr port_api_init(const uint8_t *pack, uint32_t pack_len, const ui
     }
     port_audio_init();
     g_ready = 1;
+    g_last_draw = PORT_DRAW_NONE;
     return PORT_OK;
 }
 
@@ -83,6 +85,7 @@ PORT_KEEP void port_api_shutdown(void)
     free(g_pack_copy);
     g_pack_copy = NULL;
     g_ready = 0;
+    g_last_draw = PORT_DRAW_NONE;
 }
 
 PORT_KEEP const uint8_t *port_api_fb(void) { return g1_fb_rgba(); }
@@ -93,11 +96,19 @@ PORT_KEEP int port_api_fb_height(void) { return G1_FB_H; }
 
 PORT_KEEP void port_api_draw(void)
 {
-    if (!g_ready)
+    if (!g_ready) {
+        g_last_draw = PORT_DRAW_NONE;
         return;
-    if (port_stage_draw() != 0)
-        g1_run_synthetic();
+    }
+    if (port_stage_draw() == 0) {
+        g_last_draw = PORT_DRAW_STAGE;
+        return;
+    }
+    g1_run_synthetic();
+    g_last_draw = PORT_DRAW_FALLBACK;
 }
+
+PORT_KEEP int port_api_last_draw(void) { return g_last_draw; }
 
 PORT_KEEP const char *port_api_last_error(void) { return g_err; }
 

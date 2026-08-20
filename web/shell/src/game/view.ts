@@ -1,4 +1,4 @@
-/** PORT first-person view of the z=-50 wall (gun.h PORT_WALL_Z). Not Facility mesh. */
+/** PORT overlay + placeholder mesh. Stage G1 blit is the live picture when a pack GDL is drawable. */
 
 export const PORT_WALL_Z = -50;
 export const PORT_VIEW_FOV = (70 * Math.PI) / 180;
@@ -15,6 +15,14 @@ export type PortCam = { x: number; z: number; theta: number };
 export type PortHit = { x: number; y: number; z: number };
 export type PortChr = { x: number; z: number; theta: number; dead?: boolean; peer?: boolean };
 export type PortViewBox = { x: number; y: number; w: number; h: number };
+export type StageDrawInfo = { gdlRaw: boolean; gdlC0: boolean };
+export type StageFb = { rgba: ArrayLike<number>; w: number; h: number };
+export type LivePresent = "stage" | "placeholder";
+
+/** True only when the pack produced a room GDL G1 can actually raster. */
+export function stageHasDrawableRooms(info: StageDrawInfo): boolean {
+  return !!(info.gdlRaw || info.gdlC0);
+}
 
 export function wrapPi(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -129,13 +137,10 @@ function drawRadar(
   ctx.fill();
 }
 
-export function drawPortView(
+function withViewBox(
   ctx: CanvasRenderingContext2D,
-  cam: PortCam,
-  hits: readonly PortHit[],
-  chrs: readonly PortChr[] = [],
-  box?: PortViewBox,
-  hfov = PORT_VIEW_FOV,
+  box: PortViewBox | undefined,
+  fn: (w: number, h: number) => void,
 ): void {
   const ox = box?.x ?? 0;
   const oy = box?.y ?? 0;
@@ -148,6 +153,17 @@ export function drawPortView(
     ctx.clip();
     ctx.translate(ox, oy);
   }
+  fn(w, h);
+  ctx.restore();
+}
+
+function drawPlaceholderMesh(
+  ctx: CanvasRenderingContext2D,
+  cam: PortCam,
+  w: number,
+  h: number,
+  hfov: number,
+): void {
   ctx.fillStyle = "#1a2430";
   ctx.fillRect(0, 0, w, h / 2);
   ctx.fillStyle = "#2a2218";
@@ -172,7 +188,17 @@ export function drawPortView(
     ctx.fillStyle = stripe ? shadeRgb(62, 74, 58, shade) : shadeRgb(96, 108, 88, shade);
     ctx.fillRect(col, y0, 1, sliceH);
   }
+}
 
+function drawOverlayMarks(
+  ctx: CanvasRenderingContext2D,
+  cam: PortCam,
+  hits: readonly PortHit[],
+  chrs: readonly PortChr[],
+  w: number,
+  h: number,
+  hfov: number,
+): void {
   ctx.lineWidth = 1;
   for (const chr of chrs) {
     const feet = projectWorld(chr.x, 0, chr.z, cam, w, h, hfov);
@@ -213,7 +239,107 @@ export function drawPortView(
   ctx.fillStyle = "#2a2a28";
   ctx.fillRect(w * 0.48, h * 0.74, w * 0.04, h * 0.08);
 
-  if (h >= 100)
-    drawRadar(ctx, cam, hits, chrs, h);
-  ctx.restore();
+  if (h >= 100) drawRadar(ctx, cam, hits, chrs, h);
+}
+
+/** Player/guard markers, crosshair, gun, radar. No placeholder wall. */
+export function drawPortOverlay(
+  ctx: CanvasRenderingContext2D,
+  cam: PortCam,
+  hits: readonly PortHit[],
+  chrs: readonly PortChr[] = [],
+  box?: PortViewBox,
+  hfov = PORT_VIEW_FOV,
+): void {
+  withViewBox(ctx, box, (w, h) => {
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov);
+  });
+}
+
+export function drawPortView(
+  ctx: CanvasRenderingContext2D,
+  cam: PortCam,
+  hits: readonly PortHit[],
+  chrs: readonly PortChr[] = [],
+  box?: PortViewBox,
+  hfov = PORT_VIEW_FOV,
+): void {
+  withViewBox(ctx, box, (w, h) => {
+    drawPlaceholderMesh(ctx, cam, w, h, hfov);
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov);
+  });
+}
+
+/** Copy a G1 RGBA framebuffer into dest (scaled when the box differs). */
+export function blitRgbaToCanvas(
+  ctx: CanvasRenderingContext2D,
+  rgba: ArrayLike<number>,
+  sw: number,
+  sh: number,
+  dest?: PortViewBox,
+): boolean {
+  if (sw <= 0 || sh <= 0 || rgba.length < sw * sh * 4) return false;
+  const ox = dest?.x ?? 0;
+  const oy = dest?.y ?? 0;
+  const dw = dest?.w ?? ctx.canvas.width;
+  const dh = dest?.h ?? ctx.canvas.height;
+  const img = ctx.createImageData(sw, sh);
+  img.data.set(rgba as ArrayLike<number> as Uint8ClampedArray);
+  if (ox === 0 && oy === 0 && dw === sw && dh === sh) {
+    ctx.putImageData(img, 0, 0);
+    return true;
+  }
+  let scratch: { width: number; height: number; getContext: (t: "2d") => CanvasRenderingContext2D | null } | null =
+    null;
+  if (typeof OffscreenCanvas !== "undefined") {
+    scratch = new OffscreenCanvas(sw, sh) as unknown as {
+      width: number;
+      height: number;
+      getContext: (t: "2d") => CanvasRenderingContext2D | null;
+    };
+  } else if (typeof document !== "undefined") {
+    const c = document.createElement("canvas");
+    c.width = sw;
+    c.height = sh;
+    scratch = c;
+  }
+  if (scratch) {
+    const sctx = scratch.getContext("2d");
+    if (sctx) {
+      sctx.putImageData(img, 0, 0);
+      ctx.drawImage(scratch as CanvasImageSource, ox, oy, dw, dh);
+      return true;
+    }
+  }
+  ctx.putImageData(img, ox, oy);
+  return true;
+}
+
+/**
+ * Live presenter: blit the stage G1 FB when the pack produced a drawable
+ * room GDL. Otherwise keep the PORT placeholder mesh (never a black screen).
+ */
+export function presentLiveView(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    gdlRaw: boolean;
+    gdlC0: boolean;
+    fb?: StageFb | null;
+    cam: PortCam;
+    hits: readonly PortHit[];
+    chrs?: readonly PortChr[];
+    box?: PortViewBox;
+    hfov?: number;
+  },
+): LivePresent {
+  const hfov = opts.hfov ?? PORT_VIEW_FOV;
+  const chrs = opts.chrs ?? [];
+  const drawable = stageHasDrawableRooms(opts) && !!opts.fb;
+  if (drawable && opts.fb) {
+    blitRgbaToCanvas(ctx, opts.fb.rgba, opts.fb.w, opts.fb.h, opts.box);
+    drawPortOverlay(ctx, opts.cam, opts.hits, chrs, opts.box, hfov);
+    return "stage";
+  }
+  drawPortView(ctx, opts.cam, opts.hits, chrs, opts.box, hfov);
+  return "placeholder";
 }
