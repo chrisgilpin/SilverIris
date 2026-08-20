@@ -120,6 +120,9 @@ int port_pack_dma(void *dest, uint32_t devAddr, uint32_t size)
     return port_pack_dma_named(dest, fl->name, local, size);
 }
 
+/* Product-only PI hooks. rom_dma.c owns these symbols when
+ * PORT_BRINGUP_ROM_DMA is set; do not link this object into silveriris_bringup. */
+#ifndef PORT_BRINGUP_ROM_DMA
 s32 osPiStartDma(OSIoMesg *mb, s32 priority, s32 direction, u32 devAddr, void *dramAddr, u32 size,
                  OSMesgQueue *mq)
 {
@@ -148,3 +151,4 @@ s32 osPiRawStartDma(s32 direction, u32 devAddr, void *dramAddr, u32 size)
     memset(&mb, 0, sizeof mb);
     return osPiStartDma(&mb, OS_MESG_PRI_NORMAL, direction, devAddr, dramAddr, size, NULL);
 }
+#endif

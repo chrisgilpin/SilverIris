@@ -201,14 +201,17 @@ silveriris: overlay $(BUILD)/silveriris
 tick-test: silveriris
 	$(BUILD)/silveriris --headless --ticks=8
 
-$(BUILD)/silveriris_bringup: $(BUILD)/native/main_bringup.o $(PORT_OS_OBJS) $(PORT_STAGE_OBJS) \
+# Bringup is ROM DMA only. pack_dma.o also defines osPiStartDma/osPiRawStartDma
+# and must not be linked here (product silveriris is the pack-backed binary).
+# stage.o talks to the pack; omit it — bringup main never loads a stage.
+BRINGUP_STAGE_OBJS := $(filter-out $(BUILD)/src/port/fs/stage.o,$(PORT_STAGE_OBJS))
+
+$(BUILD)/silveriris_bringup: $(BUILD)/native/main_bringup.o $(PORT_OS_OBJS) $(BRINGUP_STAGE_OBJS) \
 		$(BUILD)/src/port/fs/rom_dma.o $(BUILD)/src/port/fs/sha1.o \
-		$(BUILD)/src/port/fs/filelist.o $(BUILD)/src/port/fs/c0pack.o \
-		$(BUILD)/src/port/fs/pack_dma.o $(BUILD)/libge_sim.a
-	$(CC) -o $@ $(BUILD)/native/main_bringup.o $(PORT_OS_OBJS) $(PORT_STAGE_OBJS) \
+		$(BUILD)/src/port/fs/filelist.o $(BUILD)/libge_sim.a
+	$(CC) -o $@ $(BUILD)/native/main_bringup.o $(PORT_OS_OBJS) $(BRINGUP_STAGE_OBJS) \
 		$(BUILD)/src/port/fs/rom_dma.o $(BUILD)/src/port/fs/sha1.o \
-		$(BUILD)/src/port/fs/filelist.o $(BUILD)/src/port/fs/c0pack.o \
-		$(BUILD)/src/port/fs/pack_dma.o \
+		$(BUILD)/src/port/fs/filelist.o \
 		$(BUILD)/libge_sim.a -lm $(SDL_LIBS)
 
 silveriris_bringup: overlay $(BUILD)/silveriris_bringup
