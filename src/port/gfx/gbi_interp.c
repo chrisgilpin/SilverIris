@@ -566,6 +566,7 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             g1_set_segment(14, rooms[0].vtx);
         if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f &&
             rooms[0].yaw == 0.f && rooms[0].seg5 == 0 &&
+            rooms[0].rx == 0.f && rooms[0].ry == 0.f && rooms[0].rz == 0.f &&
             (rooms[0].scale == 0.f || rooms[0].scale == 1.f))
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
                                        rooms[0].sec_n);
@@ -590,6 +591,26 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         g_cam_eye[1] = eye[1] - rooms[i].oy;
         g_cam_eye[2] = eye[2] - rooms[i].oz;
         apply_stored_camera();
+        if (rooms[i].rx != 0.f || rooms[i].ry != 0.f || rooms[i].rz != 0.f) {
+            /* Rare XYZ Euler, G1 column-vector layout (transpose of Mtxf rows). */
+            float R[4][4], tmp[4][4];
+            float cx = cosf(rooms[i].rx), sx = sinf(rooms[i].rx);
+            float cy = cosf(rooms[i].ry), sy = sinf(rooms[i].ry);
+            float cz = cosf(rooms[i].rz), sz = sinf(rooms[i].rz);
+            mtx_ident(R);
+            R[0][0] = cy * cz;
+            R[0][1] = (sx * cz * sy) - (cx * sz);
+            R[0][2] = (cx * cz * sy) + (sx * sz);
+            R[1][0] = cy * sz;
+            R[1][1] = (sx * sz * sy) + (cx * cz);
+            R[1][2] = (cx * sz * sy) - (sx * cz);
+            R[2][0] = -sy;
+            R[2][1] = sx * cy;
+            R[2][2] = cx * cy;
+            mtx_mul(tmp, g_mv, R);
+            mtx_copy(g_mv, tmp);
+            rebuild_mvp();
+        }
         if (rooms[i].yaw != 0.f ||
             (rooms[i].scale != 0.f && rooms[i].scale != 1.f)) {
             float R[4][4], tmp[4][4];

@@ -2359,9 +2359,13 @@ static void build_rare_node_model(uint8_t *m)
     memset(vtx, 0, sizeof vtx);
     vtx[0].v.ob[0] = -80;
     vtx[0].v.ob[1] = 0;
+    vtx[0].v.ob[2] = 0;
     vtx[1].v.ob[0] = 80;
     vtx[1].v.ob[1] = 0;
+    vtx[1].v.ob[2] = 0;
+    vtx[2].v.ob[0] = 0;
     vtx[2].v.ob[1] = 180;
+    vtx[2].v.ob[2] = 0;
     for (i = 0; i < 3; i++) {
         vtx[i].v.cn[0] = 220;
         vtx[i].v.cn[1] = 20;
@@ -2515,6 +2519,100 @@ static int test_prop_guard_then_door(void)
     /* Guard has no C*Z; door still parses and draws. */
     return run_prop_pack_ex(st, sizeof st, door, sizeof door, PROP_MDL_PATH, NULL, 0, NULL,
                             NULL, 80, 200000, 1, 1, 0, "prop_guard_then_door");
+}
+
+#define REST_MODEL_SIZE 0x180
+#define PORT_RST_MAGIC 0x52535431u
+#define REST_LIMB 400.f
+
+/* Two GROUP nodes: parent JointID=2 + optional RST1 Euler, child Origin
+ * (REST_LIMB,0,0) + magenta triangle. Identity rest paints off +X; Y=pi/2
+ * rest paints on the look-at axis (posed, not T-pose). */
+static void wr_f32(uint8_t *p, float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    wr_be32(p, u);
+}
+
+static void build_two_group_guard(uint8_t *m, float rx, float ry, float rz, int with_rest)
+{
+    Vtx vtx[3];
+    int i;
+    uint32_t g0 = 0, g1 = 0x18, dl = 0x30;
+    uint32_t d0 = 0x48, d1 = 0x78, rec = 0x98, gdl = 0xB8, vtx_off = 0xD8;
+    memset(m, 0, REST_MODEL_SIZE);
+    /* parent GROUP */
+    wr_be16(m + g0, 2);
+    wr_be32(m + g0 + 4, 0x05000000u | d0);
+    wr_be32(m + g0 + 20, 0x05000000u | g1);
+    wr_be16(m + d0 + 12, 2); /* JointID 2 — SKELETON(guard) mtxA=3 */
+    wr_f32(m + d0 + 24, 1.f);
+    if (with_rest) {
+        wr_be32(m + d0 + 0x1C, PORT_RST_MAGIC);
+        wr_f32(m + d0 + 0x20, rx);
+        wr_f32(m + d0 + 0x24, ry);
+        wr_f32(m + d0 + 0x28, rz);
+    }
+    /* child GROUP */
+    wr_be16(m + g1, 2);
+    wr_be32(m + g1 + 4, 0x05000000u | d1);
+    wr_be32(m + g1 + 20, 0x05000000u | dl);
+    wr_f32(m + d1 + 0, REST_LIMB);
+    wr_f32(m + d1 + 4, 0.f);
+    wr_f32(m + d1 + 8, 0.f);
+    wr_be16(m + d1 + 12, 3);
+    wr_f32(m + d1 + 24, 1.f);
+    /* DL opcode 24 */
+    wr_be16(m + dl, 24);
+    wr_be32(m + dl + 4, 0x05000000u | rec);
+    wr_be32(m + rec, 0x05000000u | gdl);
+    wr_be32(m + rec + 8, 0x05000000u | vtx_off);
+    wr_be16(m + rec + 12, 3);
+    wr_be32(m + gdl, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(m + gdl + 4, 0x05000000u | vtx_off);
+    wr_be32(m + gdl + 8, 0xB1000002u);
+    wr_be32(m + gdl + 12, 0x00000010u);
+    wr_be32(m + gdl + 16, (uint32_t)(uint8_t)G_ENDDL << 24);
+    memset(vtx, 0, sizeof vtx);
+    /* YZ triangle: identity (at +X) is edge-on; after Ry(pi/2) it faces the camera. */
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[2] = 80;
+    vtx[2].v.ob[1] = 180;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(m + vtx_off + (size_t)i * 16, &vtx[i]);
+    }
+}
+
+static int test_prop_guard_rest_pose(void)
+{
+    uint8_t st[PROP_SETUP_SIZE];
+    uint8_t ident[REST_MODEL_SIZE], posed[REST_MODEL_SIZE];
+    unsigned mag_i, mag_p;
+
+    build_one_guard_setup(st, 0.f, 40.f, -220.f);
+    build_two_group_guard(ident, 0.f, 0.f, 0.f, 0);
+    if (run_prop_pack_ex(st, sizeof st, ident, sizeof ident, PROP_CHR_PATH, NULL, 0, NULL,
+                         NULL, 0, 0, 1, 1, 1, "prop_guard_rest_identity") != 0)
+        return 1;
+    mag_i = count_magenta();
+    if (mag_i != 0)
+        return fail("identity T-pose must stay off-screen");
+
+    build_one_guard_setup(st, 0.f, 40.f, -220.f);
+    build_two_group_guard(posed, 0.f, 1.5707963f, 0.f, 1);
+    if (run_prop_pack_ex(st, sizeof st, posed, sizeof posed, PROP_CHR_PATH, NULL, 0, NULL,
+                         NULL, 80, 200000, 1, 1, 1, "prop_guard_rest_posed") != 0)
+        return 1;
+    mag_p = count_magenta();
+    if (mag_p < 80)
+        return fail("posed rest must paint on-axis");
+    printf("prop_guard_rest_pose identity_mag=%u posed_mag=%u\n", mag_i, mag_p);
+    return 0;
 }
 
 /* Player x/z/θ must match the intro pad (room-1 local = world when room1 is
@@ -3050,6 +3148,8 @@ int main(int argc, char **argv)
     if (test_prop_guard_missing_model(want) != 0)
         return 1;
     if (test_prop_guard_then_door() != 0)
+        return 1;
+    if (test_prop_guard_rest_pose() != 0)
         return 1;
     if (test_intro_spawn_pad() != 0)
         return 1;

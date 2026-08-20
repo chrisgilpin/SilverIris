@@ -26,6 +26,12 @@
 #define PORT_PROP_NEAR 4000.f
 #define PORT_NODE_MAX 96
 #define PORT_GDL_MAX 512
+#define PORT_SKEL_GUARD_N 16
+#define PORT_ANIM_IDLE_OFF 0x1Cu
+#define PORT_RST_MAGIC 0x52535431u
+#define PORT_ANIM_ENTRIES_ROM_U 1198784u
+#define PORT_ANIM_DATA_PATH "assets/animationtable_data.bin"
+#define PORT_ANIM_ENTRY_PATH "assets/animationtable_entries.bin"
 #define TEXREC_BYTES 12
 #define NODE_BYTES 24
 
@@ -59,6 +65,7 @@ typedef struct {
     const uint8_t *sec;
     uint32_t sec_n;
     float ox, oy, oz;
+    float rx, ry, rz;
 } PortPart;
 
 typedef struct {
@@ -70,6 +77,7 @@ typedef struct {
     PortPart part[PORT_MODEL_PARTS];
     int npart;
     float head_off[3];
+    float head_rx, head_ry, head_rz;
     int have_head;
 } PortModel;
 
@@ -84,6 +92,7 @@ typedef struct {
     PortModel *mdl;
     PortModel *head;
     float head_off[3];
+    float head_rx, head_ry, head_rz;
 } PortProp;
 
 static uint8_t *g_setup;
@@ -97,6 +106,14 @@ static int g_intro_pad = -1;
 static int g_have_intro;
 static float g_intro_pos[3];
 static float g_intro_look[3];
+static float g_idle_rest[PORT_SKEL_GUARD_N][3];
+static int g_have_idle;
+
+/* SKELETON(guard) JOINTLIST mtxA — bitstream channel base per JointID. */
+static const uint16_t k_guard_mtxa[PORT_SKEL_GUARD_N] = {
+    0x00, 0x00, 0x03, 0x06, 0x09, 0x0C, 0x0F, 0x12,
+    0x15, 0x18, 0x1B, 0x1E, 0x21, 0x24, 0x27, 0x2A,
+};
 
 static const uint8_t k_intro_words[INTRO_MAX] = {
     3, 4, 4, 8, 2, 2, 10, 3, 2, 1,
@@ -125,6 +142,169 @@ static float be_f32(const uint8_t *p)
     float f;
     memcpy(&f, &u, 4);
     return f;
+}
+
+static void mtx_ident4(float m[4][4])
+{
+    int i, j;
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            m[i][j] = (i == j) ? 1.f : 0.f;
+}
+
+static void mtx_mul4(float out[4][4], const float a[4][4], const float b[4][4])
+{
+    float t[4][4];
+    int i, j, k;
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            float s = 0.f;
+            for (k = 0; k < 4; k++)
+                s += a[i][k] * b[k][j];
+            t[i][j] = s;
+        }
+    }
+    memcpy(out, t, sizeof t);
+}
+
+/* G1 column-vector XYZ Euler + translation in last column. */
+static void mtx_local(float m[4][4], float x, float y, float z, float rx, float ry, float rz)
+{
+    float cx = cosf(rx), sx = sinf(rx);
+    float cy = cosf(ry), sy = sinf(ry);
+    float cz = cosf(rz), sz = sinf(rz);
+    mtx_ident4(m);
+    m[0][0] = cy * cz;
+    m[0][1] = (sx * cz * sy) - (cx * sz);
+    m[0][2] = (cx * cz * sy) + (sx * sz);
+    m[1][0] = cy * sz;
+    m[1][1] = (sx * sz * sy) + (cx * cz);
+    m[1][2] = (cx * sz * sy) - (sx * cz);
+    m[2][0] = -sy;
+    m[2][1] = sx * cy;
+    m[2][2] = cx * cy;
+    m[0][3] = x;
+    m[1][3] = y;
+    m[2][3] = z;
+}
+
+static void mtx_euler(const float m[4][4], float *rx, float *ry, float *rz)
+{
+    *ry = atan2f(-m[2][0], sqrtf(m[0][0] * m[0][0] + m[1][0] * m[1][0]));
+    *rx = atan2f(m[2][1], m[2][2]);
+    *rz = atan2f(m[1][0], m[0][0]);
+}
+
+/* modelAnimReadBitsAsU16Angle — width bits at bitOffset, left-justified to u16. */
+static uint16_t anim_u16(const uint8_t *bits, size_t n, uint8_t width, uint32_t bitoff)
+{
+    uint32_t value = 0, mask;
+    uint8_t remain = width, here;
+    size_t byte = (size_t)(bitoff / 8u);
+    uint32_t skip = bitoff % 8u;
+    if (!bits || width == 0 || width > 16)
+        return 0;
+    if (byte >= n)
+        return 0;
+    bits += byte;
+    n -= byte;
+    here = (uint8_t)(8u - skip);
+    while (remain >= here) {
+        if (!n)
+            break;
+        remain = (uint8_t)(remain - here);
+        mask = (1u << here) - 1u;
+        value |= ((uint32_t)(*bits) & mask) << remain;
+        value &= 0xffffu;
+        bits++;
+        n--;
+        here = 8;
+    }
+    if (remain > 0 && n) {
+        mask = (1u << remain) - 1u;
+        value |= ((uint32_t)(*bits) >> (here - remain)) & mask;
+        value &= 0xffffu;
+    }
+    value <<= (16u - width);
+    return (uint16_t)(value & 0xffffu);
+}
+
+static void load_idle_rest(void)
+{
+    const C0Pack *pack;
+    const C0PackEntry *data, *ent;
+    const uint8_t *hdr, *frame;
+    uint32_t addr, frames, frame_bits, frame_bytes, off;
+    uint8_t width;
+    int j;
+
+    g_have_idle = 0;
+    memset(g_idle_rest, 0, sizeof g_idle_rest);
+    pack = port_pack();
+    if (!pack)
+        return;
+    data = c0pack_find(pack, PORT_ANIM_DATA_PATH);
+    if (!data)
+        data = c0pack_find_tail(pack, PORT_ANIM_DATA_PATH);
+    ent = c0pack_find(pack, PORT_ANIM_ENTRY_PATH);
+    if (!ent)
+        ent = c0pack_find_tail(pack, PORT_ANIM_ENTRY_PATH);
+    if (!data || !ent || data->size < PORT_ANIM_IDLE_OFF + 16u || ent->size == 0)
+        return;
+    hdr = data->bytes + PORT_ANIM_IDLE_OFF;
+    addr = be32(hdr);
+    frames = be16(hdr + 4);
+    width = hdr[6];
+    frame_bits = be16(hdr + 14);
+    if (frames < 1 || width < 8 || width > 16 || frame_bits < (uint32_t)width)
+        return;
+    frame_bytes = frame_bits >> 3;
+    if (frame_bytes == 0 || frame_bytes * 8u < 45u * (uint32_t)width)
+        return;
+    off = 0xFFFFFFFFu;
+    if (addr >= PORT_ANIM_ENTRIES_ROM_U &&
+        addr + frame_bytes <= PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
+        off = addr - PORT_ANIM_ENTRIES_ROM_U;
+    else if ((addr & 0x00FFFFFFu) >= PORT_ANIM_ENTRIES_ROM_U &&
+             (addr & 0x00FFFFFFu) + frame_bytes <=
+                 PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
+        off = (addr & 0x00FFFFFFu) - PORT_ANIM_ENTRIES_ROM_U;
+    else if (addr < (uint32_t)ent->size && addr + frame_bytes <= (uint32_t)ent->size)
+        off = addr;
+    if (off == 0xFFFFFFFFu || off + frame_bytes > (uint32_t)ent->size)
+        return;
+    frame = ent->bytes + off;
+    for (j = 0; j < PORT_SKEL_GUARD_N; j++) {
+        uint32_t bo = (uint32_t)k_guard_mtxa[j] * (uint32_t)width;
+        uint16_t ax = anim_u16(frame, frame_bytes, width, bo);
+        uint16_t ay = anim_u16(frame, frame_bytes, width, bo + width);
+        uint16_t az = anim_u16(frame, frame_bytes, width, bo + 2u * width);
+        g_idle_rest[j][0] = (float)ax * (2.f * PI_F) / 65536.f;
+        g_idle_rest[j][1] = (float)ay * (2.f * PI_F) / 65536.f;
+        g_idle_rest[j][2] = (float)az * (2.f * PI_F) / 65536.f;
+    }
+    g_have_idle = 1;
+}
+
+static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use_guard,
+                           float *rx, float *ry, float *rz)
+{
+    uint16_t joint;
+    *rx = *ry = *rz = 0.f;
+    if (!data || data + 14 > n)
+        return;
+    joint = be16(base + data + 12);
+    if (data + 0x1C + 16 <= n && be32(base + data + 0x1C) == PORT_RST_MAGIC) {
+        *rx = be_f32(base + data + 0x20);
+        *ry = be_f32(base + data + 0x24);
+        *rz = be_f32(base + data + 0x28);
+        return;
+    }
+    if (use_guard && g_have_idle && joint < PORT_SKEL_GUARD_N) {
+        *rx = g_idle_rest[joint][0];
+        *ry = g_idle_rest[joint][1];
+        *rz = g_idle_rest[joint][2];
+    }
 }
 
 static int scenery_type(int t)
@@ -174,7 +354,8 @@ static uint32_t gdl_count(const uint8_t *base, size_t n, uint32_t off)
 }
 
 static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
-                        uint32_t data, float ox, float oy, float oz)
+                        uint32_t data, float ox, float oy, float oz, float rx, float ry,
+                        float rz)
 {
     uint32_t p = 0, s = 0;
     PortPart *pt;
@@ -205,16 +386,20 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
     pt->ox = ox;
     pt->oy = oy;
     pt->oz = oz;
+    pt->rx = rx;
+    pt->ry = ry;
+    pt->rz = rz;
     m->npart++;
     return 1;
 }
 
-/* Walk Rare nodes. GROUP / GROUPSIMPLE Origin accumulates as the bind-pose
- * joint translation (identity rest rot — not a skeleton/anim tick). */
-static int walk_parts(PortModel *m, uint32_t root)
+/* Walk Rare nodes. GROUP / GROUPSIMPLE Origin is T; guard bodies also
+ * apply rest-pose R from RST1 (synthetic) or ANIM_idle frame 0 via
+ * SKELETON(guard) JointID → mtxA. Identity rest = old bind-pose. */
+static int walk_parts(PortModel *m, uint32_t root, int use_guard)
 {
     uint32_t q[PORT_NODE_MAX];
-    float qx[PORT_NODE_MAX], qy[PORT_NODE_MAX], qz[PORT_NODE_MAX];
+    float qm[PORT_NODE_MAX][4][4];
     int qh = 0, qt = 0, i;
     const uint8_t *base = m->file;
     size_t n = m->file_len;
@@ -222,16 +407,15 @@ static int walk_parts(PortModel *m, uint32_t root)
     if (root + NODE_BYTES > n)
         return -1;
     q[qt] = root;
-    qx[qt] = 0.f;
-    qy[qt] = 0.f;
-    qz[qt] = 0.f;
+    mtx_ident4(qm[qt]);
     qt++;
     while (qh < qt) {
         uint32_t off = q[qh];
-        float ox = qx[qh], oy = qy[qh], oz = qz[qh];
-        float cox = ox, coy = oy, coz = oz;
+        float parent[4][4], childm[4][4], local[4][4];
+        float ox, oy, oz, rx, ry, rz;
         uint8_t op;
         uint32_t data, child, next;
+        memcpy(parent, qm[qh], sizeof parent);
         qh++;
         if (off + NODE_BYTES > n)
             continue;
@@ -239,22 +423,34 @@ static int walk_parts(PortModel *m, uint32_t root)
         data = file_off(be32(base + off + 4), n);
         child = file_off(be32(base + off + 20), n);
         next = file_off(be32(base + off + 12), n);
+        memcpy(childm, parent, sizeof childm);
         if ((op == 2 || op == 21) && data && data + 12 <= n) {
-            cox += be_f32(base + data);
-            coy += be_f32(base + data + 4);
-            coz += be_f32(base + data + 8);
+            ox = be_f32(base + data);
+            oy = be_f32(base + data + 4);
+            oz = be_f32(base + data + 8);
+            rx = ry = rz = 0.f;
+            if (op == 2)
+                rest_for_group(base, n, data, use_guard, &rx, &ry, &rz);
+            mtx_local(local, ox, oy, oz, rx, ry, rz);
+            mtx_mul4(childm, parent, local);
         }
+        ox = childm[0][3];
+        oy = childm[1][3];
+        oz = childm[2][3];
+        mtx_euler(childm, &rx, &ry, &rz);
         if ((op == 4 || op == 22 || op == 24) && data)
-            add_part_gdl(m, base, n, op, data, cox, coy, coz);
+            add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz);
         if (op == 23 && !m->have_head) {
-            m->head_off[0] = cox;
-            m->head_off[1] = coy;
-            m->head_off[2] = coz;
+            m->head_off[0] = ox;
+            m->head_off[1] = oy;
+            m->head_off[2] = oz;
+            m->head_rx = rx;
+            m->head_ry = ry;
+            m->head_rz = rz;
             m->have_head = 1;
         }
         for (i = 0; i < 2; i++) {
             uint32_t c = i ? next : child;
-            float nx = i ? ox : cox, ny = i ? oy : coy, nz = i ? oz : coz;
             int j, have = 0;
             if (!c)
                 continue;
@@ -266,9 +462,7 @@ static int walk_parts(PortModel *m, uint32_t root)
             }
             if (!have && qt < PORT_NODE_MAX) {
                 q[qt] = c;
-                qx[qt] = nx;
-                qy[qt] = ny;
-                qz[qt] = nz;
+                memcpy(qm[qt], i ? parent : childm, sizeof qm[qt]);
                 qt++;
             }
         }
@@ -276,12 +470,13 @@ static int walk_parts(PortModel *m, uint32_t root)
     return m->npart ? 0 : -1;
 }
 
-static int bind_model_gdl(PortModel *m)
+static int bind_model_gdl(PortModel *m, int use_guard)
 {
     uint32_t root;
 
     m->npart = 0;
     m->have_head = 0;
+    m->head_rx = m->head_ry = m->head_rz = 0.f;
     if (!m->file || m->file_len < 8)
         return -1;
     if (be32(m->file) == PORT_BG_MAGIC_G1DL) {
@@ -294,14 +489,15 @@ static int bind_model_gdl(PortModel *m)
     /* Synthetic node trees start with a DL opcode; retail files start with
      * a texture table or 0x05 switch pointers. */
     if (m->file_len >= NODE_BYTES &&
-        (m->file[1] == 4 || m->file[1] == 22 || m->file[1] == 24))
+        (m->file[1] == 2 || m->file[1] == 4 || m->file[1] == 22 || m->file[1] == 24))
         root = 0;
     else
         root = (uint32_t)m->nswitch * 4u + (uint32_t)m->ntex * TEXREC_BYTES;
-    if (walk_parts(m, root) != 0 && root != 0) {
+    if (walk_parts(m, root, use_guard) != 0 && root != 0) {
         m->npart = 0;
         m->have_head = 0;
-        walk_parts(m, 0);
+        m->head_rx = m->head_ry = m->head_rz = 0.f;
+        walk_parts(m, 0, use_guard);
     }
     return m->npart ? 0 : -1;
 }
@@ -337,7 +533,8 @@ static int inflate_or_copy(const uint8_t *src, size_t n, uint8_t **out, size_t *
     return 0;
 }
 
-static PortModel *load_named(int id, const char *dir, const char *prefix, const PortPropCat *cat)
+static PortModel *load_named(int id, const char *dir, const char *prefix, const PortPropCat *cat,
+                             int use_guard)
 {
     const C0Pack *pack;
     const C0PackEntry *e;
@@ -372,7 +569,7 @@ static PortModel *load_named(int id, const char *dir, const char *prefix, const 
     m->ntex = cat->ntex;
     m->file = file;
     m->file_len = flen;
-    if (bind_model_gdl(m) != 0) {
+    if (bind_model_gdl(m, use_guard) != 0) {
         free(file);
         memset(m, 0, sizeof *m);
         return NULL;
@@ -383,13 +580,14 @@ static PortModel *load_named(int id, const char *dir, const char *prefix, const 
 
 static PortModel *load_model(int id)
 {
-    return load_named(id, "prop", "P", cat_by_id(id));
+    return load_named(id, "prop", "P", cat_by_id(id), 0);
 }
 
 /* BodyID is the BODIES / c_item_entries index. Missing pack blob → NULL. */
 static PortModel *load_chr(int body)
 {
-    return load_named(1000 + body, "chr", "C", chr_by_id(body));
+    int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
+    return load_named(1000 + body, "chr", "C", chr_by_id(body), use_guard);
 }
 
 static const char *setup_name(int level_id)
@@ -572,6 +770,9 @@ static int parse_setup(const uint8_t *st, size_t n)
                     pr->head_off[0] = mdl->head_off[0];
                     pr->head_off[1] = mdl->head_off[1];
                     pr->head_off[2] = mdl->head_off[2];
+                    pr->head_rx = mdl->head_rx;
+                    pr->head_ry = mdl->head_ry;
+                    pr->head_rz = mdl->head_rz;
                 }
                 if (head >= PORT_CHR_HEAD_START)
                     pr->head = load_chr(head);
@@ -598,6 +799,8 @@ void port_prop_unload(void)
     g_drawn = 0;
     g_have_intro = 0;
     g_intro_pad = -1;
+    g_have_idle = 0;
+    memset(g_idle_rest, 0, sizeof g_idle_rest);
 }
 
 int port_prop_load(int level_id)
@@ -625,6 +828,7 @@ int port_prop_load(int level_id)
         return PORT_PROP_OK;
     g_setup = copy;
     g_setup_len = clen;
+    load_idle_rest();
     parse_setup(g_setup, g_setup_len);
     return PORT_PROP_OK;
 }
@@ -701,25 +905,35 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const PortModel *mdl,
-                      const float room1[3], float extra_x, float extra_y, float extra_z)
+                      const float room1[3], float extra_x, float extra_y, float extra_z,
+                      float extra_rx, float extra_ry, float extra_rz)
 {
     int p;
     float th, c, s;
+    float extra[4][4];
 
     if (!mdl)
         return k;
     th = pr->yaw * (PI_F / 180.f);
     c = cosf(th);
     s = sinf(th);
+    mtx_local(extra, extra_x, extra_y, extra_z, extra_rx, extra_ry, extra_rz);
     for (p = 0; p < mdl->npart && k < cap; p++) {
         const PortPart *pt = &mdl->part[p];
-        float lx = pt->ox + extra_x;
-        float ly = pt->oy + extra_y;
-        float lz = pt->oz + extra_z;
-        float wx = c * lx + s * lz;
-        float wz = -s * lx + c * lz;
+        float loc[4][4], world[4][4];
+        float lx, ly, lz, wx, wz, rx, ry, rz;
         if (!pt->pri || pt->pri_n == 0)
             continue;
+        mtx_local(loc, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
+        mtx_mul4(world, extra, loc);
+        lx = world[0][3];
+        ly = world[1][3];
+        lz = world[2][3];
+        mtx_euler(world, &rx, &ry, &rz);
+        if (rx * rx + ry * ry + rz * rz < 1e-8f)
+            rx = ry = rz = 0.f;
+        wx = c * lx + s * lz;
+        wz = -s * lx + c * lz;
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
         out[k].pri_n = pt->pri_n;
@@ -731,6 +945,9 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].yaw = pr->yaw;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
+        out[k].rx = rx;
+        out[k].ry = ry;
+        out[k].rz = rz;
         k++;
     }
     return k;
@@ -752,10 +969,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
             continue;
-        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f);
+        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
         if (pr->head && pr->head->npart)
             k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0], pr->head_off[1],
-                           pr->head_off[2]);
+                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz);
     }
     g_drawn = k;
     return k;
