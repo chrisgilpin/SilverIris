@@ -15,6 +15,16 @@
 #define GE_1172_HEADER_LENGTH 2
 #define MAX_INFLATE (2u * 1024u * 1024u)
 
+/* NTSC-U animation table DMA. Same numbers as web/extractor ANIM_TABLE_U.
+ * filelist.u.csv: 1198784,1482432 entries; 2681216,59360 data.
+ * JP is 1202144 / 2684576 — do not use. Skip if the ROM range is missing. */
+#define ANIM_ENTRIES_OFF_U 1198784u
+#define ANIM_ENTRIES_SIZE_U 1482432u
+#define ANIM_DATA_OFF_U 2681216u
+#define ANIM_DATA_SIZE_U 59360u
+#define ANIM_ENTRIES_NAME "assets/animationtable_entries.bin"
+#define ANIM_DATA_NAME "assets/animationtable_data.bin"
+
 static int detect_z64(uint8_t *rom, size_t n)
 {
     size_t i;
@@ -78,6 +88,21 @@ static uint8_t *read_all(const char *path, size_t *n)
     return buf;
 }
 
+static int is_anim_table(const char *name)
+{
+    return name && (strcmp(name, ANIM_ENTRIES_NAME) == 0 || strcmp(name, ANIM_DATA_NAME) == 0);
+}
+
+static int already_have(const C0File *files, size_t nfiles, const char *name)
+{
+    size_t i;
+    for (i = 0; i < nfiles; i++) {
+        if (files[i].path && strcmp(files[i].path, name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 static int extract_row(const uint8_t *rom, size_t rom_len, const PortFilelistEntry *e, uint8_t **out,
                        size_t *out_len)
 {
@@ -116,6 +141,24 @@ static int extract_row(const uint8_t *rom, size_t rom_len, const PortFilelistEnt
     }
 }
 
+static int append_file(C0File **files, size_t *nfiles, size_t *cap, const char *path, uint8_t *payload,
+                       size_t plen)
+{
+    if (*nfiles == *cap) {
+        size_t ncap = *cap ? *cap * 2 : 16;
+        C0File *nf = (C0File *)realloc(*files, ncap * sizeof *nf);
+        if (!nf)
+            return -1;
+        *files = nf;
+        *cap = ncap;
+    }
+    (*files)[*nfiles].path = path;
+    (*files)[*nfiles].bytes = payload;
+    (*files)[*nfiles].size = plen;
+    (*nfiles)++;
+    return 0;
+}
+
 static void usage(void)
 {
     fprintf(stderr, "extract --rom ge007.u.z64 --filelist filelist.u.csv -o ge.u.c0pack\n");
@@ -134,6 +177,14 @@ int main(int argc, char **argv)
     uint8_t pack_hash[32];
     char hex[65];
     int rc, a;
+    static const struct {
+        uint32_t off;
+        uint32_t sz;
+        const char *name;
+    } extra_u[2] = {
+        {ANIM_ENTRIES_OFF_U, ANIM_ENTRIES_SIZE_U, ANIM_ENTRIES_NAME},
+        {ANIM_DATA_OFF_U, ANIM_DATA_SIZE_U, ANIM_DATA_NAME},
+    };
 
     for (a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--rom") == 0 && a + 1 < argc)
@@ -178,26 +229,42 @@ int main(int argc, char **argv)
         size_t plen = 0;
         if (!e || e->size == 0)
             continue;
+        if ((size_t)e->offset + (size_t)e->size > rom_len) {
+            if (is_anim_table(e->name))
+                continue;
+            fprintf(stderr, "extract failed %s\n", e->name);
+            free(rom);
+            return 1;
+        }
         if (extract_row(rom, rom_len, e, &payload, &plen) != 0) {
             fprintf(stderr, "extract failed %s\n", e->name);
             free(rom);
             return 1;
         }
-        if (nfiles == cap) {
-            size_t ncap = cap ? cap * 2 : 16;
-            C0File *nf = (C0File *)realloc(files, ncap * sizeof *nf);
-            if (!nf) {
-                free(payload);
-                free(rom);
-                return 1;
-            }
-            files = nf;
-            cap = ncap;
+        if (append_file(&files, &nfiles, &cap, e->name, payload, plen) != 0) {
+            free(payload);
+            free(rom);
+            return 1;
         }
-        files[nfiles].path = e->name;
-        files[nfiles].bytes = payload;
-        files[nfiles].size = plen;
-        nfiles++;
+    }
+
+    for (i = 0; i < 2; i++) {
+        uint8_t *payload;
+        if (already_have(files, nfiles, extra_u[i].name))
+            continue;
+        if ((size_t)extra_u[i].off + extra_u[i].sz > rom_len)
+            continue;
+        payload = (uint8_t *)malloc(extra_u[i].sz ? extra_u[i].sz : 1);
+        if (!payload) {
+            free(rom);
+            return 1;
+        }
+        memcpy(payload, rom + extra_u[i].off, extra_u[i].sz);
+        if (append_file(&files, &nfiles, &cap, extra_u[i].name, payload, extra_u[i].sz) != 0) {
+            free(payload);
+            free(rom);
+            return 1;
+        }
     }
 
     rc = c0pack_build(files, nfiles, 0, 0, &pack, &pack_len, pack_hash);

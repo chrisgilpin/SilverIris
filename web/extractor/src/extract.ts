@@ -27,9 +27,33 @@ export type ExtractOptions = {
 const US_CDATA_OFFSET = 137616;
 const US_CDATA_SIZE = 71760;
 
-function pull(rom: Uint8Array, row: CsvRow): Uint8Array {
+/**
+ * NTSC-U animation table DMA.
+ * Verified against n64decomp/007 `scripts/filelist.u.csv` (not .j/.e) and
+ * `ge007.ld` (animation_entries → animation_data → Globalimagetable).
+ * Entries 1198784+1482432 == data 2681216; data+59360 == Globalimagetable 2740576.
+ * JP entries start at 1202144 — do not use those. Matching filelist marks
+ * extract=0 ("don't write to disk"); the port pack still needs the blobs for
+ * ANIM_idle rest. Skip if the ROM range is missing.
+ */
+export const ANIM_TABLE_U: readonly {
+  offset: number;
+  size: number;
+  name: string;
+}[] = [
+  { offset: 1198784, size: 1482432, name: "assets/animationtable_entries.bin" },
+  { offset: 2681216, size: 59360, name: "assets/animationtable_data.bin" },
+];
+
+export function isAnimTablePath(name: string): boolean {
+  return ANIM_TABLE_U.some((r) => r.name === name);
+}
+
+function pull(rom: Uint8Array, row: CsvRow): Uint8Array | null {
   const end = row.offset + row.size;
   if (row.offset < 0 || row.size < 0 || end > rom.byteLength) {
+    /* Optional rest-pose blobs: skip-if-missing, do not abort the pack. */
+    if (isAnimTablePath(row.name)) return null;
     throw new Error(`ROM range OOB for ${row.name}`);
   }
   const slice = rom.subarray(row.offset, end);
@@ -55,6 +79,7 @@ async function extractRows(
       current: row.name,
     });
     const bytes = pull(rom, row);
+    if (!bytes) continue;
     out.push({
       path: row.name,
       sha256: await sha256Hex(bytes),
@@ -63,7 +88,26 @@ async function extractRows(
   }
 }
 
-export const EXTRACT_RUNTIME = "dma-v2";
+async function extractAnimTables(
+  rom: Uint8Array,
+  out: ExtractedFile[],
+): Promise<void> {
+  const have = new Set(out.map((f) => f.path));
+  for (const row of ANIM_TABLE_U) {
+    if (have.has(row.name)) continue;
+    const end = row.offset + row.size;
+    if (row.offset < 0 || row.size <= 0 || end > rom.byteLength) continue;
+    const bytes = rom.subarray(row.offset, end).slice();
+    out.push({
+      path: row.name,
+      sha256: await sha256Hex(bytes),
+      bytes,
+    });
+    have.add(row.name);
+  }
+}
+
+export const EXTRACT_RUNTIME = "dma-v3";
 
 export async function extractRom(
   z64: Uint8Array,
@@ -84,6 +128,7 @@ export async function extractRom(
   });
   await extractRows(z64, fileRows, out, progress, maps.onProgress);
   await extractRows(z64, imageRows, out, progress, maps.onProgress);
+  await extractAnimTables(z64, out);
 
   if (maps.includeUcode) {
     await extractUcode(z64, out, progress, maps.onProgress);
