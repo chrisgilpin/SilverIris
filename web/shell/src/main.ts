@@ -316,10 +316,16 @@ function paint(now: number): void {
   raf = requestAnimationFrame(paint);
 }
 
+function afterLoadStatus(packHash: string, fromIdb: boolean): string {
+  const src = fromIdb ? "from this browser" : "loaded";
+  const prefix = fromIdb ? "" : "NTSC-U verified. ";
+  const net = flags.netplay
+    ? "Netplay lobby is on (opt-in). Campaign is not v1."
+    : "Solo. Netplay is opt-in (?ff_netplay=1). Campaign is not v1.";
+  return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Facility mesh (not Rare bg). " + lastStageNote + " Click picture or Z/Space for audio. " + net;
+}
+
 async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<void> {
-  if (flags.netplay || flags.campaign) {
-    console.info("netplay/campaign are off in this build");
-  }
   setStatus("", "Compiling engine…");
   if (!game) {
     game = await loadGame("/game.js");
@@ -358,7 +364,7 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
   raf = requestAnimationFrame(paint);
 }
 
-/** Last extract in this tab. Pack builder is PR-04. */
+/** Last extract in this tab. Pack lives in IndexedDB. */
 let lastExtract: ExtractedFile[] | null = null;
 
 function setStatus(kind: "ok" | "err" | "", text: string): void {
@@ -418,7 +424,7 @@ async function ingest(name: string, bytes: Uint8Array): Promise<void> {
       await startEngine(pack.bytes, pack.packHash);
       setStatus(
         "ok",
-        `NTSC-U verified. Pack ${pack.packHash.slice(0, 16)}… loaded. G1 picture. ${lastStageNote} Click picture or Z/Space for audio. netplay/campaign off.`,
+        afterLoadStatus(pack.packHash, false),
       );
     } catch (eng) {
       const msg = eng instanceof Error ? eng.message : String(eng);
@@ -966,7 +972,7 @@ void (async () => {
     await startEngine(new Uint8Array(stored.blob), hash);
     setStatus(
       "ok",
-      `Pack ${hash.slice(0, 16)}… from this browser. G1 picture. ${lastStageNote} netplay/campaign off.`,
+      afterLoadStatus(hash, true),
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

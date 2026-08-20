@@ -1,5 +1,4 @@
 import { hexToBytes } from "../pack.ts";
-import { flags } from "../flags.ts";
 
 export type GameModule = {
   _malloc: (n: number) => number;
@@ -155,9 +154,6 @@ async function importPublicModule(path: string): Promise<{ default?: Factory; cr
 }
 
 export async function loadGame(url = "/game.js"): Promise<GameBridge> {
-  if (flags.netplay || flags.campaign) {
-    console.info("SilverIris: netplay/campaign flags ignored in this build");
-  }
   const modNs = await importPublicModule(url);
   const factory = modNs.default ?? modNs.createSilverIris;
   if (typeof factory !== "function") {

@@ -1,4 +1,12 @@
-/** Feature flags. Query `?ff_name=0|1` overrides localStorage `ff_name`. */
+/** Feature flags. Query `?ff_name=0|1` overrides localStorage `ff_name`.
+ *
+ *   netplay     -- lobby + lockstep mesh. Default off. Do not default on.
+ *   lan         -- delay 1 instead of 2.
+ *   turnForce   -- ICE relay-only (TURN path). Default off.
+ *   wsRelay     -- force /ws inp+ctl relay. Also auto-on after ICE fail.
+ *   widescreen  -- Hor+ camera. Default on.
+ *   campaign    -- not v1. Default off.
+ */
 
 export type FlagName =
   | "netplay"

@@ -24,12 +24,46 @@ if they appear (`tools/guard`).
 
 ## Status
 
-Web shell: ROM gate + in-tab extract + `.c0pack` + `game.wasm` `init(pack)`
-(G1 picture, placeholder audio, Facility load, analog-walk slice at
-`g_ClockTimer=3`). Native ge_sim through pack DMA. Full MoveBond still
-needs `bondview2.c`.
+Public URL: [https://007.goodhouseinc.com](https://007.goodhouseinc.com)
+(no access secret). The shell lobby, 2-4P lockstep, and coturn TURN exist.
+Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. Facility
+is a mesh walk, not the Rare background. Campaign is not v1. Title boot is
+not in this build.
+
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).
+This box: [`docs/remote-dev.md`](docs/remote-dev.md).
+
+## Privacy
+
+- The ROM is chosen in *your* browser. It is never uploaded through nginx.
+  Extracted assets stay in this tab (IndexedDB). We do not provide a ROM.
+- WebRTC can reveal your IP to peers in the room (host / srflx candidates).
+  Default ICE is `all` (direct or STUN first). This box runs coturn TURN
+  with ephemeral room-scoped credentials -- **no open TURN**.
+  `?ff_turnForce=1` forces the TURN relay path. `?ff_wsRelay=1` (or ICE
+  fail after Start) carries `inp`/`ctl` on same-origin `/ws` instead of
+  DataChannels.
+- **Keep the game tab visible.** Browsers throttle hidden timers to about
+  1 Hz. The shell sends STALL and overlays "tab must stay visible."
+  Background-tab lockstep is unsupported.
+- No analytics SDK. Debug report (`silveriris-report/1`) is clipboard JSON
+  with no ROM bytes.
+
+## QoL flags
+
+Query `?ff_name=0|1` overrides `localStorage` `ff_name`. Do not default
+netplay on.
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `ff_netplay` | off | Show the lobby and start a 2-4P lockstep mesh |
+| `ff_lan` | off | Delay 1 tick (LAN) instead of 2 (Internet) |
+| `ff_turnForce` | off | ICE `relay` only (TURN path; hides host IP) |
+| `ff_wsRelay` | off | Force `/ws` relay of `inp`/`ctl` (also auto-on after ICE fail) |
+| `ff_widescreen` | on | Hor+ camera on remote seats |
+| `ff_campaign` | off | Not v1. Leave it off. |
+
 
 ## Layout
 
@@ -39,10 +73,11 @@ Design:
 | `src/glue/` | Emscripten exports |
 | `src/overrides/` | Tiny, reviewed patches to decomp C |
 | `third_party/goldeneye_src/` | Submodule: matching decomp, pinned in `NOTICE` |
-| `web/shell/` | Browser UI (later) |
+| `web/shell/` | Browser shell (ROM gate, lobby, lockstep) |
 | `native/` | Developer/CI host only — not a public desktop player |
 | `tools/guard/` | No-ROM / no-asset scanner |
-| `services/` | Signaling + Caddy + coturn |
+| `services/` | Signaling + nginx template + coturn |
+| `deploy/systemd/` | `silveriris-vite` / `silveriris-signal` unit copies |
 
 Decomp C is compiled by path from the submodule. Do not copy `src/game` into
 this tree.
@@ -56,8 +91,9 @@ redistributing a compiled engine lawful. Read [`docs/legal-posture.md`](docs/leg
 ## Web shell
 
 ROM gate + in-tab extract + `.c0pack` in IndexedDB, then `game.wasm` `init(pack)`
-(hash check, 256 MB, G1 blit, placeholder AudioWorklet). `netplay` / `campaign`
-stay off. Title music and gun are integer-phase stubs, not cartridge banks.
+(hash check, 256 MB, G1 blit, placeholder AudioWorklet). Title music and gun
+are integer-phase stubs, not cartridge banks. Netplay is opt-in
+(`?ff_netplay=1`); campaign is not v1.
 
 ```bash
 make -C native wasm                 # emcc → web/shell/public/game.{js,wasm}
@@ -67,9 +103,7 @@ npm test
 npm run dev
 ```
 
-`npm run dev` is localhost-only. To try it from another machine, point DNS at
-this Hetzner box and put nginx in front — see [`docs/remote-dev.md`](docs/remote-dev.md)
-(`007.goodhouseinc.com`).
+`npm run dev` is localhost-only. The public instance is already live. See [`docs/remote-dev.md`](docs/remote-dev.md).
 
 ### Netplay (opt-in, `?ff_netplay=1`)
 
@@ -101,12 +135,6 @@ How to try 3-4P: open four tabs at
 `https://007.goodhouseinc.com/?ff_netplay=1` (or add `&ff_lan=1` on a LAN).
 Each tab loads the same NTSC-U ROM. Host Create room, others Join the code,
 Ready, host Start. Each tab is one seat with its own full-frame view.
-
-
-Drop or pick an NTSC-U dump. Unknown files and JP/EU matching hashes are
-rejected. The file stays in the tab. After verify, assets are extracted
-here, stored as a `.c0pack`, and the engine draws the G1 picture. Title
-boot is not in this build.
 
 ## Native ge_sim (developer / CI only)
 

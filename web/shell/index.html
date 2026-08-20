@@ -25,7 +25,23 @@
       <canvas id="view" class="view" width="320" height="240" hidden></canvas>
       <section id="lobby" class="lobby" hidden>
         <h2>Lobby</h2>
-        <p class="hint">Netplay flag is on. Host Start opens a 2-4P WebRTC mesh (6 DataChannels at 4P). Delay 1 with ?ff_lan=1, else 2 (Internet STUN). Each remote client gets a full-frame Hor+ camera for its seat. Keep this tab visible. Host disconnect ends the match. WASD+Z is this seat. WebRTC can reveal your IP to peers.</p>
+        <p class="hint">
+          Netplay is opt-in. Host Start opens a 2-4P lockstep mesh over WebRTC
+          (6 DataChannels at 4P). Delay 2 on the Internet, or 1 with
+          <code>?ff_lan=1</code>. Each remote client gets a full-frame Hor+
+          camera for its seat. Host disconnect ends the match. WASD+Z is this
+          seat.
+        </p>
+        <p class="hint" id="privacy">
+          Privacy: WebRTC can reveal your IP to peers. Default ICE is
+          <code>all</code> (direct or STUN first). This box has coturn TURN
+          (ephemeral room-scoped creds, no open allocate).
+          <code>?ff_turnForce=1</code> forces the TURN relay path;
+          <code>?ff_wsRelay=1</code> (or ICE fail after Start) carries
+          <code>inp</code>/<code>ctl</code> on same-origin <code>/ws</code>
+          instead. Keep this tab visible -- hidden tabs stall the match. The
+          ROM never leaves this tab; it is not uploaded through nginx.
+        </p>
         <label>Nick <input id="nick" maxlength="16" value="Player" /></label>
         <button type="button" id="create-room">Create room</button>
         <label>Code <input id="join-code" maxlength="5" spellcheck="false" /></label>
@@ -46,9 +62,14 @@
         accepted in this version. <strong>US dump required.</strong>
       </p>
       <p>
-        The file stays in this tab. It is not uploaded. Assets are extracted
-        here and never sent to the server. WebRTC (when netplay is on) can
-        expose your IP to other players in the room.
+        The file stays in this tab. It is not uploaded through nginx. Assets
+        are extracted here and never sent to the server.
+      </p>
+      <p>
+        WebRTC (when netplay is on) can expose your IP to other players in the
+        room. Use <code>?ff_turnForce=1</code> for the TURN-only path, or
+        <code>?ff_wsRelay=1</code> to relay input over <code>/ws</code>.
+        Keep the match tab visible.
       </p>
     </footer>
     <script type="module" src="/src/main.ts"></script>
