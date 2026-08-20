@@ -33,7 +33,8 @@ bank container (`uzllllll` + format4/w8/h8/method4 uncompressed).
 floor-like checkers in the same non-zlib container. None of these files
 are ROM-derived. G1 also proves two SETTEX ids in one DL (per-tri tile
 cache, not last-wins), a near-plane floor that must not wipe a distant
-red marker (frustum clip, not a full-screen sliver), IA alpha 0 that
+red marker (frustum clip, not a full-screen sliver), a close IA-black
+portal that must not cover the FB center (`|z|<=w`), IA alpha 0 that
 does not stamp black, and walking `pSecMappingBin` after the primary GDL.
 
 Retail Facility banks use the same *container*. After 3550dc9 a w-only

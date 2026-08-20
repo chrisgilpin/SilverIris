@@ -46,10 +46,13 @@ those floors sampled, but a `w>0.01` clip (no x/y frustum) projected
 near-camera slivers across the whole FB as black, overwriting brick
 and the gun. G1 now keeps a per-triangle tile cache, samples
 IA/RGBA32, inflates the secondary GDL, and clips homogeneous
-`w`/`±x`/`±y` so a near-camera floor cannot fill the screen.
+`w`/`±x`/`±y`/`±z` so a near-camera floor cannot fill the screen
+and a door/portal closer than the projection near plane cannot
+stamp a center-covering black rectangle over the gun.
 Transparent IA (alpha 0) does not stamp black. A SETTEX miss still
 paints vertex grey. Native tests prove synthetic IA8/IA4, two SETTEX
-ids, a near-plane floor that must not wipe a distant marker, and
+ids, a near-plane floor that must not wipe a distant marker, a close
+black portal that must not wipe a distant green wall, and
 `pSec`. HUD `settex` / `texOk` / `texMiss` are honest — a miss stays
 a miss. No retail texels in git. Campaign is not v1. Title boot is not in this
 build.

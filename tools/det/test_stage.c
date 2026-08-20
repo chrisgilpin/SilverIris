@@ -1367,6 +1367,126 @@ static int test_ia_alpha0_no_black(void)
     return 0;
 }
 
+
+/*
+ * Close vertical portal (z=-4, w~4) with IA I=0 A=max, drawn last over a
+ * distant green wall. w/±x/±y keep it — it is in-frustum in x/y and
+ * becomes a center-covering black rectangle (the live Facility slab on
+ * the gun). |z|<=w discards it (closer than near). Identity-MVP tests
+ * are unchanged (z=0, w=1).
+ */
+static int test_center_cover_black_rect(void)
+{
+    uint8_t vtx_be[7 * 16], gdl[48], ia8[64];
+    Vtx vtx[7];
+    int i, ngfx;
+    unsigned nz, green = 0, black = 0, center_green = 0, center_black = 0;
+    const uint8_t *fb;
+
+    memset(ia8, 0x0F, sizeof ia8); /* IA8 I4A4: I=0, A=15 — opaque black */
+    g1_tex_unload();
+    g1_tex_set_pack(NULL);
+    if (g1_tex_load_raw(22, G1_TEX_IA8, 8, 8, ia8, 64, NULL, 0) != 0)
+        return fail("center-cover load ia8");
+
+    memset(vtx, 0, sizeof vtx);
+    /* Distant green wall: fills the view at z=-80. */
+    vtx[0].v.ob[0] = -120;
+    vtx[0].v.ob[1] = -80;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 120;
+    vtx[1].v.ob[1] = -80;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 80;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 16;
+        vtx[i].v.cn[1] = 220;
+        vtx[i].v.cn[2] = 16;
+        vtx[i].v.cn[3] = 255;
+    }
+    /* Close portal/door, last-wins. Entirely closer than near (n=10). */
+    vtx[3].v.ob[0] = -3;
+    vtx[3].v.ob[1] = -2;
+    vtx[3].v.ob[2] = -4;
+    vtx[4].v.ob[0] = 3;
+    vtx[4].v.ob[1] = -2;
+    vtx[4].v.ob[2] = -4;
+    vtx[5].v.ob[0] = 3;
+    vtx[5].v.ob[1] = 2;
+    vtx[5].v.ob[2] = -4;
+    vtx[6].v.ob[0] = -3;
+    vtx[6].v.ob[1] = 2;
+    vtx[6].v.ob[2] = -4;
+    for (i = 3; i < 7; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+        vtx[i].v.tc[0] = 256;
+        vtx[i].v.tc[1] = 256;
+    }
+    for (i = 0; i < 7; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x60 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    /* Green wall (0,1,2) before SETTEX. */
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 22);
+    ngfx++;
+    /* Portal tris (3,4,5) (3,5,6). */
+    wr_be32(gdl + ngfx * 8, 0xB1000065u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00005343u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("center-cover interpret");
+    if (g1_tex_ok_count() < 1)
+        return fail("center-cover SETTEX 22 must bind");
+    nz = g1_fb_nonzero();
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        int x = i % G1_FB_W, y = i / G1_FB_W;
+        int center = (x >= 120 && x < 200 && y >= 80 && y < 160);
+        int is_green = (g > 160 && r < 80 && b < 80);
+        int is_black = (r < 20 && g < 20 && b < 20);
+        if (is_green)
+            green++;
+        if (is_black)
+            black++;
+        if (center && is_green)
+            center_green++;
+        if (center && is_black)
+            center_black++;
+    }
+    if (green < 8000)
+        return fail("center-cover distant green wall missing");
+    if (center_green < 2000)
+        return fail("close black portal still covers the center");
+    if (center_black > 800)
+        return fail("center still dominated by the close black rectangle");
+    if (nz < 8000)
+        return fail("center-cover fb still mostly black");
+    printf("center-cover clipped green=%u black=%u center_g=%u center_k=%u nz=%u ok=%u\n",
+           green, black, center_green, center_black, nz, g1_tex_ok_count());
+    g1_clear_lookat();
+    g1_tex_unload();
+    return 0;
+}
+
 static int test_secondary_gdl(void)
 {
     uint8_t pri[32], sec[32], bg[0x300], stan[256];
@@ -1699,6 +1819,8 @@ int main(int argc, char **argv)
     if (test_near_clip_floor() != 0)
         return 1;
     if (test_near_clip_keeps_marker() != 0)
+        return 1;
+    if (test_center_cover_black_rect() != 0)
         return 1;
     if (test_ia_alpha0_no_black() != 0)
         return 1;

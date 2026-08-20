@@ -387,7 +387,7 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
       lastStageNote = game.gdlRaw()
         ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA32 + per-tri cache + secondary GDL + frustum clip). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. After 3550dc9 a w-only near clip could fill the FB black; clip is now w/±x/±y so walls keep SETTEX and a miss stays vertex grey. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
+        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA32 + per-tri cache + secondary GDL + frustum clip). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. After 3550dc9 a w-only near clip could fill the FB black; clip is now w/±x/±y/±z so a door closer than near cannot stamp a center black slab over the gun. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
         : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;

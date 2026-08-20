@@ -203,6 +203,8 @@ static float plane_xp(const GirVert *v) { return v->w - v->x; }
 static float plane_xn(const GirVert *v) { return v->w + v->x; }
 static float plane_yp(const GirVert *v) { return v->w - v->y; }
 static float plane_yn(const GirVert *v) { return v->w + v->y; }
+static float plane_zp(const GirVert *v) { return v->w - v->z; }
+static float plane_zn(const GirVert *v) { return v->w + v->z; }
 
 typedef float (*ClipPlane)(const GirVert *);
 
@@ -238,8 +240,11 @@ static int clip_poly(GirVert *poly, int n, ClipPlane f)
 }
 
 /*
- * Clip to the view frustum (w, ±x, ±y). A w-only clip at 0.01 left vertices
- * almost at the camera; x/w and y/w then exploded into a full-FB sliver.
+ * Clip to the view frustum (w, ±x, ±y, ±z). w/±x/±y stopped a near-floor
+ * sliver (x/w exploded). A door/portal closer than the projection near
+ * plane is still in-frustum in x/y and projected to a center-covering
+ * rectangle; |z|<=w rejects those (NDC z < -1). W_EPS stays 1 so
+ * identity-MVP synthetics (w=1, z=0) still raster.
  */
 static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
 {
@@ -255,6 +260,8 @@ static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2, in
     n = clip_poly(poly, n, plane_xn);
     n = clip_poly(poly, n, plane_yp);
     n = clip_poly(poly, n, plane_yn);
+    n = clip_poly(poly, n, plane_zp);
+    n = clip_poly(poly, n, plane_zn);
     if (n < 3)
         return;
     for (i = 1; i + 1 < n; i++)
