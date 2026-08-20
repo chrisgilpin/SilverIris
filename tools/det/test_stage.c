@@ -2211,7 +2211,9 @@ static int test_neighbor_portal_pixels(void)
 #define PROP_SETUP_SIZE 0x200
 #define PROP_MODEL_SIZE 0x80
 #define PROP_MDL_PATH "assets/obseg/prop/Pgas_plant_met1_do1Z.bin"
+#define PROP_CHR_PATH "assets/obseg/chr/CcamguardZ.bin"
 #define PROP_SETUP_PATH "assets/obseg/setup/UsetuparkZ.bin"
+#define PDEF_GUARD_WORDS 7
 
 static void wr_door_header(uint8_t *p, int model, int pad)
 {
@@ -2219,6 +2221,15 @@ static void wr_door_header(uint8_t *p, int model, int pad)
     wr_be32(p, 0x01000001u);
     wr_be16(p + 4, (uint16_t)model);
     wr_be16(p + 6, (uint16_t)pad);
+}
+
+static void wr_guard_header(uint8_t *p, int pad, int body)
+{
+    /* PROPDEF_GUARD (9), 7 words. PadID@6 BodyID@8 HeadID@16 = 0. */
+    memset(p, 0, (size_t)PDEF_GUARD_WORDS * 4u);
+    wr_be32(p, 0x00000009u);
+    wr_be16(p + 6, (uint16_t)pad);
+    wr_be16(p + 8, (uint16_t)body);
 }
 
 static void wr_pad(uint8_t *p, float x, float y, float z, float lx, float ly, float lz)
@@ -2255,6 +2266,39 @@ static void build_one_door_setup(uint8_t *st, float px, float py, float pz)
     wr_door_header(st + defs, 158, 0);
     wr_be32(st + end, 0x00000030u);
     wr_pad(st + pads, px, py, pz, 0.f, 0.f, 1.f);
+}
+
+static void build_one_guard_setup(uint8_t *st, float px, float py, float pz)
+{
+    uint32_t defs = 0x28;
+    uint32_t gsz = (uint32_t)PDEF_GUARD_WORDS * 4u;
+    uint32_t end = defs + gsz;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_guard_header(st + defs, 0, 0); /* BodyID 0 = camguard */
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, px, py, pz, 0.f, 0.f, 1.f);
+}
+
+/* Guard first (7 words) then a door — word-size walk must still see the door. */
+static void build_guard_then_door_setup(uint8_t *st, float gx, float gy, float gz,
+                                        float dx, float dy, float dz)
+{
+    uint32_t defs = 0x28;
+    uint32_t gsz = (uint32_t)PDEF_GUARD_WORDS * 4u;
+    uint32_t door = defs + gsz;
+    uint32_t end = door + 256;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_guard_header(st + defs, 0, 0);
+    wr_door_header(st + door, 158, 1);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, gx, gy, gz, 0.f, 0.f, 1.f);
+    wr_pad(st + pads + 44, dx, dy, dz, 0.f, 0.f, 1.f);
 }
 
 static void build_magenta_g1dl_model(uint8_t *m)
@@ -2327,12 +2371,14 @@ static void build_rare_node_model(uint8_t *m)
     }
 }
 
-static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *model,
-                         size_t model_n, const char *want_grey, unsigned min_mag,
-                         unsigned max_mag, int want_props, int want_drawn, const char *tag)
+static int run_prop_pack_ex(const uint8_t *setup, size_t setup_n, const uint8_t *model,
+                            size_t model_n, const char *model_path, const uint8_t *model2,
+                            size_t model2_n, const char *model2_path, const char *want_grey,
+                            unsigned min_mag, unsigned max_mag, int want_props,
+                            int want_drawn, int want_guards, const char *tag)
 {
     uint8_t bg[BG_SIZE], stan[256];
-    C0File files[4];
+    C0File files[5];
     uint8_t *pack = NULL;
     size_t pack_len = 0;
     uint8_t hash[32];
@@ -2355,9 +2401,15 @@ static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *mo
         nfiles++;
     }
     if (model && model_n) {
-        files[nfiles].path = PROP_MDL_PATH;
+        files[nfiles].path = model_path ? model_path : PROP_MDL_PATH;
         files[nfiles].bytes = model;
         files[nfiles].size = model_n;
+        nfiles++;
+    }
+    if (model2 && model2_n) {
+        files[nfiles].path = model2_path ? model2_path : PROP_CHR_PATH;
+        files[nfiles].bytes = model2;
+        files[nfiles].size = model2_n;
         nfiles++;
     }
     if (c0pack_build(files, (size_t)nfiles, 0, 0, &pack, &pack_len, hash) != 0)
@@ -2368,6 +2420,8 @@ static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *mo
         return fail("prop stage load");
     if (port_stage_prop_count() != want_props)
         return fail("prop count");
+    if (port_stage_guard_count() != want_guards)
+        return fail("guard count");
     port_api_draw();
     if (port_api_last_draw() != PORT_DRAW_STAGE)
         return fail("prop last_draw");
@@ -2380,12 +2434,20 @@ static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *mo
     mag = count_magenta();
     if (mag < min_mag || mag > max_mag)
         return fail("prop magenta");
-    printf("%s props=%d models=%d drawn=%d walked=%d magenta=%u\n", tag,
-           port_stage_prop_count(), port_stage_prop_models(),
+    printf("%s props=%d guards=%d models=%d drawn=%d walked=%d magenta=%u\n", tag,
+           port_stage_prop_count(), port_stage_guard_count(), port_stage_prop_models(),
            port_stage_props_drawn(), port_stage_rooms_walked(), mag);
     port_api_shutdown();
     free(pack);
     return 0;
+}
+
+static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *model,
+                         size_t model_n, const char *want_grey, unsigned min_mag,
+                         unsigned max_mag, int want_props, int want_drawn, const char *tag)
+{
+    return run_prop_pack_ex(setup, setup_n, model, model_n, PROP_MDL_PATH, NULL, 0, NULL,
+                            want_grey, min_mag, max_mag, want_props, want_drawn, 0, tag);
 }
 
 static int test_prop_no_setup_hash(const char *want)
@@ -2425,6 +2487,34 @@ static int test_prop_door_far_culled(void)
     build_magenta_g1dl_model(mdl);
     return run_prop_pack(st, sizeof st, mdl, sizeof mdl, NULL, 0, 0, 1, 0,
                          "prop_door_far");
+}
+
+static int test_prop_guard_pixels(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    build_one_guard_setup(st, 0.f, 40.f, -220.f);
+    build_magenta_g1dl_model(mdl);
+    return run_prop_pack_ex(st, sizeof st, mdl, sizeof mdl, PROP_CHR_PATH, NULL, 0, NULL,
+                            NULL, 80, 200000, 1, 1, 1, "prop_guard_g1dl");
+}
+
+static int test_prop_guard_missing_model(const char *want)
+{
+    uint8_t st[PROP_SETUP_SIZE];
+    build_one_guard_setup(st, 0.f, 40.f, -220.f);
+    /* Setup names a body the pack does not have — skip, keep greyscale. */
+    return run_prop_pack_ex(st, sizeof st, NULL, 0, NULL, NULL, 0, NULL, want, 0, 0, 0, 0,
+                            0, "prop_guard_missing");
+}
+
+static int test_prop_guard_then_door(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], door[PROP_MODEL_SIZE];
+    build_guard_then_door_setup(st, 0.f, 40.f, -220.f, 0.f, 40.f, -220.f);
+    build_magenta_g1dl_model(door);
+    /* Guard has no C*Z; door still parses and draws. */
+    return run_prop_pack_ex(st, sizeof st, door, sizeof door, PROP_MDL_PATH, NULL, 0, NULL,
+                            NULL, 80, 200000, 1, 1, 0, "prop_guard_then_door");
 }
 
 /* Player x/z/θ must match the intro pad (room-1 local = world when room1 is
@@ -2954,6 +3044,12 @@ int main(int argc, char **argv)
     if (test_prop_door_rare_nodes() != 0)
         return 1;
     if (test_prop_door_far_culled() != 0)
+        return 1;
+    if (test_prop_guard_pixels() != 0)
+        return 1;
+    if (test_prop_guard_missing_model(want) != 0)
+        return 1;
+    if (test_prop_guard_then_door() != 0)
         return 1;
     if (test_intro_spawn_pad() != 0)
         return 1;

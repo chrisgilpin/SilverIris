@@ -570,6 +570,8 @@ int port_stage_props_drawn(void) { return port_prop_drawn(); }
 
 int port_stage_intro_pad(void) { return port_prop_intro_pad(); }
 
+int port_stage_guard_count(void) { return port_prop_guard_count(); }
+
 static int pick_current_room(void)
 {
     float ox, oy, oz, px, py, pz, best, d;
