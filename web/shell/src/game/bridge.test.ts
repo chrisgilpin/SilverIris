@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, shouldBlitStageFb } from "./bridge.ts";
+import { formatStageDebug, lastDrawLabel, packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, shouldBlitStageFb } from "./bridge.ts";
 import { presentLiveView } from "./view.ts";
 
 describe("packHashBytes", () => {
@@ -72,5 +72,16 @@ describe("bridge stage blit", () => {
     expect(last![0]).toBe(12);
     expect(last![2]).toBe(48);
     expect(ops.some((o) => o.includes("#1a2430"))).toBe(false);
+  });
+});
+
+describe("stage debug line", () => {
+  it("formats last_draw, rooms, gdlC0, fbNonzero", () => {
+    expect(lastDrawLabel(PORT_DRAW_STAGE)).toBe("STAGE");
+    expect(lastDrawLabel(PORT_DRAW_FALLBACK)).toBe("FALLBACK");
+    expect(lastDrawLabel(0)).toBe("NONE");
+    expect(
+      formatStageDebug({ lastDraw: PORT_DRAW_STAGE, rooms: 12, gdlC0: true, fbNonzero: 10712 }),
+    ).toBe("last_draw STAGE  rooms 12  gdlC0 1  fbNonzero 10712");
   });
 });

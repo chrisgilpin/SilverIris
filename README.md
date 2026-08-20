@@ -30,13 +30,15 @@ Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. The live
 canvas calls `port_api_draw` and blits the stage G1 framebuffer when the
 user pack produced a drawable room GDL (synthetic Fast3D or inflated 1172
 C0/`G_TRI4`). Otherwise it keeps the PORT mesh so a non-drawable pack does
-not black-screen. Facility appears only if that pack's `bg_ark` inflates to
-drawable GDL — we have not loaded a retail pack here. Native tests walk the
-Rare bg room table, inflate a synthetic 1172-compressed C0 room GDL
-(`bgDecompress` / puff), and raster `G_SETTEX` (skip) + `G_TRI4` through G1
-(same greyscale hash as the G1 triangle). Retail C0/4Tri for real `bg_ark`,
-textures, and compressed verts are not this slice — do not claim Facility
-is on screen. Campaign is not v1. Title boot is not in this build.
+not black-screen. A retail-shaped C0 room now also inflates `pPointTableBin`
+(the vertex table), binds RSP segment 14 (`SPSEGMENT_BG_VTX`), skips
+unknown opcodes / unresolved `G_DL`, and applies a player look-at (theta=0
+faces -Z) so world-space `G_TRI4`s can land on the G1 FB as untextured
+grey. Native tests prove identity MVP or a missing vertex segment leaves
+the FB black, and that look-at + seg 14 paints. A real Facility picture
+still needs textures, lighting, and a spawn pad in world space — do not
+claim textured Facility is on screen. Campaign is not v1. Title boot is
+not in this build.
 
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).

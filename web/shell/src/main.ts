@@ -151,7 +151,7 @@ function drawHud(): void {
   const z = game.playerZ();
   const th = game.playerTheta();
   ctx.fillStyle = "rgba(18,20,24,0.72)";
-  ctx.fillRect(0, 0, canvas.width, 48);
+  ctx.fillRect(0, 0, canvas.width, 62);
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
   ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  θ ${th.toFixed(0)}°`, 8, 14);
@@ -167,6 +167,11 @@ function drawHud(): void {
       42,
     );
   }
+  ctx.fillText(
+    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}`,
+    8,
+    56,
+  );
 }
 
 function flashPew(): void {
@@ -382,7 +387,7 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
       lastStageNote = game.gdlRaw()
         ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 room GDL in G1 (SETTEX skip + TRI4) — live canvas blits that FB. Not a retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        ? `Inflated 1172 C0 + vtx table (seg 14) + player look-at. last_draw=${game.lastDraw()} rooms=${game.bgRooms()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. Untextured grey if verts land in front of the stub spawn camera. Not a textured retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
         : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;

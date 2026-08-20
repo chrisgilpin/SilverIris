@@ -17,4 +17,9 @@ void g1_fb_grey_sha256(uint8_t out[32]);
 void g1_set_segment(unsigned seg, uintptr_t base);
 int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx);
 
+/* Player look-at (theta=0 faces -Z). Identity when cleared. */
+void g1_set_lookat(float x, float y, float z, float theta_deg);
+void g1_clear_lookat(void);
+unsigned g1_fb_nonzero(void);
+
 #endif

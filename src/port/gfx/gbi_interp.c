@@ -3,6 +3,7 @@
 #include "gfx/gbi_trace.h"
 #include "gfx/sw_raster.h"
 
+#include <math.h>
 #include <string.h>
 
 #define G1_VTX 16
@@ -23,6 +24,10 @@ static Slot g_slot[G1_VTX];
 static uint8_t g_fill[4];
 static Mtx g_mtx_host;
 static Vtx g_vtx_host[G1_VTX];
+static float g_cam_eye[3];
+static float g_cam_theta;
+static int g_cam_on;
+#define G1_PI 3.1415927f
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
 static uint32_t gfx_w1(const Gfx *g) { return (uint32_t)g->words.w1; }
@@ -137,10 +142,18 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
         s->clip[1] = g_mvp[1][0] * x + g_mvp[1][1] * y + g_mvp[1][2] * z + g_mvp[1][3];
         s->clip[2] = g_mvp[2][0] * x + g_mvp[2][1] * y + g_mvp[2][2] * z + g_mvp[2][3];
         s->clip[3] = g_mvp[3][0] * x + g_mvp[3][1] * y + g_mvp[3][2] * z + g_mvp[3][3];
-        s->r = v->cn[0];
-        s->g = v->cn[1];
-        s->b = v->cn[2];
-        s->a = v->cn[3];
+        if (!v->cn[0] && !v->cn[1] && !v->cn[2]) {
+            /* Untextured grey so a black Vtx.cn still paints. */
+            s->r = 180;
+            s->g = 180;
+            s->b = 180;
+            s->a = 255;
+        } else {
+            s->r = v->cn[0];
+            s->g = v->cn[1];
+            s->b = v->cn[2];
+            s->a = v->cn[3];
+        }
     }
 }
 
@@ -357,11 +370,16 @@ static void walk(const Gfx *start, uint32_t n_hint)
         if (cmd == (uint8_t)G_DL) {
             uint32_t push = (w0 >> 16) & 0xFF;
             const Gfx *child = (const Gfx *)resolve_addr(w1, ip->words.w1);
+            if (!child) {
+                /* Unresolved branch: do not abort the walk. */
+                ip++;
+                continue;
+            }
             if (push == G_DL_NOPUSH) {
                 ip = child;
                 continue;
             }
-            if (sp < G1_MAX_DEPTH && child) {
+            if (sp < G1_MAX_DEPTH) {
                 stack[sp++] = ip + 1;
                 ip = child;
                 continue;
@@ -398,11 +416,15 @@ static void walk_be(const uint8_t *start, uint32_t n_gfx)
         if (cmd == (uint8_t)G_DL) {
             uint32_t push = (w0 >> 16) & 0xFF;
             const uint8_t *child = (const uint8_t *)resolve_addr(w1, 0);
+            if (!child) {
+                ip += 8;
+                continue;
+            }
             if (push == G_DL_NOPUSH) {
                 ip = child;
                 continue;
             }
-            if (sp < G1_MAX_DEPTH && child) {
+            if (sp < G1_MAX_DEPTH) {
                 stack[sp++] = ip + 8;
                 ip = child;
                 continue;
@@ -421,11 +443,64 @@ static void walk_be(const uint8_t *start, uint32_t n_gfx)
     }
 }
 
+static void apply_stored_camera(void)
+{
+    float th, fx, fz, rx, rz;
+    float V[4][4], P[4][4];
+    float fovy, aspect, n, f, ft;
+    if (!g_cam_on)
+        return;
+    th = g_cam_theta * (G1_PI / 180.f);
+    fx = sinf(th);
+    fz = -cosf(th);
+    rx = cosf(th);
+    rz = sinf(th);
+    mtx_ident(V);
+    V[0][0] = rx;
+    V[0][2] = rz;
+    V[0][3] = -(rx * g_cam_eye[0] + rz * g_cam_eye[2]);
+    V[1][1] = 1.f;
+    V[1][3] = -g_cam_eye[1];
+    V[2][0] = -fx;
+    V[2][2] = -fz;
+    V[2][3] = fx * g_cam_eye[0] + fz * g_cam_eye[2];
+    fovy = 60.f * (G1_PI / 180.f);
+    aspect = 320.f / 240.f;
+    n = 10.f;
+    f = 8000.f;
+    ft = 1.f / tanf(fovy * 0.5f);
+    mtx_ident(P);
+    P[0][0] = ft / aspect;
+    /* Viewport +Y is down; negate so +Y world is up on the canvas. */
+    P[1][1] = -ft;
+    P[2][2] = (n + f) / (n - f);
+    P[2][3] = (2.f * n * f) / (n - f);
+    P[3][2] = -1.f;
+    P[3][3] = 0.f;
+    mtx_copy(g_mv, V);
+    mtx_copy(g_proj, P);
+    rebuild_mvp();
+}
+
+void g1_set_lookat(float x, float y, float z, float theta_deg)
+{
+    g_cam_eye[0] = x;
+    g_cam_eye[1] = y;
+    g_cam_eye[2] = z;
+    g_cam_theta = theta_deg;
+    g_cam_on = 1;
+}
+
+void g1_clear_lookat(void) { g_cam_on = 0; }
+
+unsigned g1_fb_nonzero(void) { return sw_fb_nonzero(); }
+
 int g1_interpret_dl(const Gfx *dl, uint32_t n_gfx)
 {
     if (!dl)
         return -1;
     reset_state();
+    apply_stored_camera();
     walk(dl, n_gfx);
     sw_raster_clear(0, 0, 0, 255);
     sw_raster_list(&g_ir);
@@ -440,6 +515,7 @@ int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx)
     memcpy(saved, g_seg, sizeof saved);
     reset_state();
     memcpy(g_seg, saved, sizeof saved);
+    apply_stored_camera();
     walk_be(bytes, n_gfx);
     sw_raster_clear(0, 0, 0, 255);
     sw_raster_list(&g_ir);

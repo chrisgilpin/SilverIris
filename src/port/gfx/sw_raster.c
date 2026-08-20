@@ -22,6 +22,17 @@ void sw_raster_clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 
 const uint8_t *sw_fb_rgba(void) { return &g_fb[0][0][0]; }
 
+unsigned sw_fb_nonzero(void)
+{
+    unsigned i, n = (unsigned)G1_FB_W * (unsigned)G1_FB_H, c = 0;
+    const uint8_t *p = &g_fb[0][0][0];
+    for (i = 0; i < n; i++) {
+        if (p[i * 4] | p[i * 4 + 1] | p[i * 4 + 2])
+            c++;
+    }
+    return c;
+}
+
 void sw_fb_grey_sha256(uint8_t out[32])
 {
     uint8_t grey[G1_FB_W * G1_FB_H];

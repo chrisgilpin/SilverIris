@@ -5,6 +5,19 @@ export const PORT_DRAW_NONE = 0;
 export const PORT_DRAW_STAGE = 1;
 export const PORT_DRAW_FALLBACK = 2;
 
+export function lastDrawLabel(d: number): string {
+  return d === PORT_DRAW_STAGE ? "STAGE" : d === PORT_DRAW_FALLBACK ? "FALLBACK" : "NONE";
+}
+
+export function formatStageDebug(opts: {
+  lastDraw: number;
+  rooms: number;
+  gdlC0: boolean;
+  fbNonzero: number;
+}): string {
+  return `last_draw ${lastDrawLabel(opts.lastDraw)}  rooms ${opts.rooms}  gdlC0 ${opts.gdlC0 ? 1 : 0}  fbNonzero ${opts.fbNonzero}`;
+}
+
 /** Live canvas blits G1 only when the pack produced a drawable room GDL. */
 export function shouldBlitStageFb(info: { gdlRaw: boolean; gdlC0: boolean }): boolean {
   return stageHasDrawableRooms(info);
@@ -33,6 +46,8 @@ export type GameModule = {
   _port_api_bg_rooms: () => number;
   _port_api_gdl_raw: () => number;
   _port_api_gdl_c0: () => number;
+  _port_api_gdl_vtx?: () => number;
+  _port_api_fb_nonzero?: () => number;
   _port_api_pack_files: () => number;
   _port_api_set_pad: (seat: number, x: number, y: number, buttons: number) => void;
   _port_api_set_player_count: (n: number) => void;
@@ -100,6 +115,9 @@ export type GameBridge = {
   bgRooms(): number;
   gdlRaw(): boolean;
   gdlC0(): boolean;
+  gdlVtx(): boolean;
+  fbNonzero(): number;
+  lastDrawName(): string;
   packFiles(): number;
   lastError(): string;
   setPad(seat: number, x: number, y: number, buttons: number): void;
@@ -304,6 +322,15 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     gdlC0(): boolean {
       return !!(alive && M._port_api_gdl_c0 && M._port_api_gdl_c0());
+    },
+    gdlVtx(): boolean {
+      return !!(alive && M._port_api_gdl_vtx && M._port_api_gdl_vtx());
+    },
+    fbNonzero(): number {
+      return alive && M._port_api_fb_nonzero ? M._port_api_fb_nonzero() : 0;
+    },
+    lastDrawName(): string {
+      return lastDrawLabel(this.lastDraw());
     },
     packFiles(): number {
       return alive ? M._port_api_pack_files() : 0;

@@ -317,6 +317,147 @@ static int check_grey(const char *want)
     return 0;
 }
 
+
+#define VTX_SEG14 0x0E000000u
+
+/* Retail-shaped: 1172 Vtx table + GDL with G_VTX(seg 14) + unknown + G_TRI4. No MTX. */
+static size_t build_c0_seg14_bg(uint8_t *bg)
+{
+    static Vtx vtx[3];
+    uint8_t raw_vtx[48];
+    uint8_t raw_gdl[64];
+    uint8_t wrapped_v[80];
+    uint8_t wrapped_g[80];
+    int i, ngfx;
+    size_t vlen, glen;
+
+    memset(bg, 0, BG_SIZE);
+    wr_be32(bg + 0, 0);
+    wr_be32(bg + 4, SEG(OFF_ROOMS));
+    wr_be32(bg + 8, SEG(OFF_PORTAL));
+    wr_be32(bg + OFF_ROOM1 + 0, SEG(OFF_VTX));
+    wr_be32(bg + OFF_ROOM1 + 4, SEG(OFF_GDL));
+    wr_be32(bg + OFF_ROOM1 + 8, 0);
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -40;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 40;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(raw_vtx + (size_t)i * 16, &vtx[i]);
+    vlen = wrap1172_stored(raw_vtx, sizeof raw_vtx, wrapped_v, sizeof wrapped_v);
+    if (!vlen || OFF_VTX + vlen > OFF_GDL)
+        return 0;
+    memcpy(bg + OFF_VTX, wrapped_v, vlen);
+
+    memset(raw_gdl, 0, sizeof raw_gdl);
+    ngfx = 0;
+    /* G_SETTEX skip */
+    wr_be32(raw_gdl + ngfx * 8, 0xC0000000u);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    /* Unresolved G_DL (seg 13 empty) — must not abort the walk. */
+    wr_be32(raw_gdl + ngfx * 8, ((uint32_t)(uint8_t)G_DL << 24));
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0x0D000000u);
+    ngfx++;
+    /* Unknown opcode — skip, then TRI4 still runs. */
+    wr_be32(raw_gdl + ngfx * 8, 0xAB000000u);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(raw_gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    glen = wrap1172_stored(raw_gdl, (size_t)ngfx * 8u, wrapped_g, sizeof wrapped_g);
+    if (!glen || OFF_GDL + glen > BG_SIZE)
+        return 0;
+    memcpy(bg + OFF_GDL, wrapped_g, glen);
+    return glen;
+}
+
+static int test_seg14_camera(void)
+{
+    uint8_t vtx_be[48];
+    uint8_t gdl[48];
+    Vtx vtx[3];
+    int i, ngfx;
+    unsigned nz;
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -40;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 40;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    memset(gdl, 0, sizeof gdl);
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, 0xC0000000u);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_DL << 24));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0D000000u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xAB000000u);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    /* Missing seg 14: G_VTX resolves NULL, FB stays black. */
+    g1_clear_lookat();
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("seg14 interpret no-vtx");
+    nz = g1_fb_nonzero();
+    if (nz != 0)
+        return fail("no segment 14 must stay black");
+    printf("seg14 missing-vtx fb_nonzero=%u (black)\n", nz);
+
+    /* Identity MVP: clip=world, so +/-40 verts are a huge wrong cover (or miss). */
+    g1_clear_lookat();
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("identity interpret");
+    {
+        unsigned id_nz = g1_fb_nonzero();
+        printf("seg14 identity fb_nonzero=%u\n", id_nz);
+
+        /* Player look-at (theta=0 faces -Z): triangle at z=-80 is in front. */
+        g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+        g1_set_segment(14, (uintptr_t)vtx_be);
+        if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+            return fail("lookat interpret");
+        nz = g1_fb_nonzero();
+        if (nz < 1000)
+            return fail("lookat+seg14 TRI4 should paint");
+        if (nz == id_nz)
+            return fail("lookat FB matches identity — camera not applied");
+        printf("seg14 lookat fb_nonzero=%u (visible grey, != identity)\n", nz);
+    }
+    g1_clear_lookat();
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -462,6 +603,45 @@ int main(int argc, char **argv)
     port_api_shutdown();
     free(pack);
     pack = NULL;
+
+
+    if (test_seg14_camera() != 0)
+        return 1;
+
+    /* Pack path: 1172 Vtx table + seg-14 G_VTX + player camera. */
+    {
+        uint8_t s14_bg[BG_SIZE];
+        size_t s14_len;
+        unsigned nz;
+        s14_len = build_c0_seg14_bg(s14_bg);
+        if (!s14_len)
+            return fail("build c0 seg14");
+        files[0].bytes = s14_bg;
+        files[0].size = sizeof s14_bg;
+        files[1].bytes = stan;
+        files[1].size = sizeof stan;
+        if (c0pack_build(files, 2, 0, 0, &pack, &pack_len, hash) != 0)
+            return fail("build seg14 pack");
+        if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+            return fail("port_api seg14 init");
+        if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+            return fail("port_api seg14 load");
+        if (!port_api_gdl_c0())
+            return fail("seg14 expected gdl_c0");
+        if (!port_api_gdl_vtx())
+            return fail("seg14 expected inflated vtx table");
+        port_api_draw();
+        if (port_api_last_draw() != PORT_DRAW_STAGE)
+            return fail("seg14 last_draw not STAGE");
+        nz = port_api_fb_nonzero();
+        if (nz < 1000)
+            return fail("seg14 pack draw still black");
+        printf("port_api_draw seg14 last_draw=%d gdl_vtx=1 fb_nonzero=%u\n",
+               port_api_last_draw(), nz);
+        port_api_shutdown();
+        free(pack);
+        pack = NULL;
+    }
 
     /* Rare-shaped header (word0 == 0) without 1172: rooms walk, no interpret. */
     memset(rare_bg, 0, sizeof rare_bg);

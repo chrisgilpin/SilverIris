@@ -47,6 +47,11 @@ static size_t g_gdl_csize;
 static uint32_t g_gdl_ngfx;
 static uint8_t *g_gdl;
 static size_t g_gdl_len;
+static uint8_t *g_vtx;
+static size_t g_vtx_len;
+static int g_gdl_vtx;
+static size_t g_vtx_off;
+static size_t g_vtx_csize;
 static void *g_first_room;
 static char g_stage_err[160];
 
@@ -129,9 +134,12 @@ static int fixup_bg(uint8_t *bg, size_t n)
     g_bg_rooms = 0;
     g_gdl_raw = 0;
     g_gdl_c0 = 0;
+    g_gdl_vtx = 0;
     g_gdl_off = 0;
     g_gdl_csize = 0;
     g_gdl_ngfx = 0;
+    g_vtx_off = 0;
+    g_vtx_csize = 0;
 
     if (n < BG_HDR_BYTES)
         return PORT_STAGE_ERR_FORMAT;
@@ -172,6 +180,8 @@ static int fixup_bg(uint8_t *bg, size_t n)
                 g_gdl_raw = 1;
             }
         } else if (i == 1 && magic == 0) {
+            uint32_t point, next_point;
+            uint8_t *pt;
             next_pri = 0;
             if (r + 2 * BG_ROOM_BYTES <= bg + n)
                 next_pri = be32(r + BG_ROOM_BYTES + 4);
@@ -184,6 +194,26 @@ static int fixup_bg(uint8_t *bg, size_t n)
                 gdl[1] == 0x72) {
                 g_gdl_off = gdl_off;
                 g_gdl_csize = gdl_end - gdl_off;
+            }
+            /* pPointTableBin is a separate 1172 Vtx table (SPSEGMENT_BG_VTX=14). */
+            point = be32(r + 0);
+            pt = (uint8_t *)maybe_ptr(bg, n, point);
+            if (pt && pt + PORT_INFLATE1172_HEADER <= bg + n && pt[0] == 0x11 &&
+                pt[1] == 0x72) {
+                size_t vtx_end;
+                next_point = 0;
+                if (r + 2 * BG_ROOM_BYTES <= bg + n)
+                    next_point = be32(r + BG_ROOM_BYTES);
+                if (pri && maybe_ptr(bg, n, pri) && seg_to_off(pri) > (size_t)(pt - bg))
+                    vtx_end = seg_to_off(pri);
+                else if (next_point && maybe_ptr(bg, n, next_point))
+                    vtx_end = seg_to_off(next_point);
+                else
+                    vtx_end = n;
+                if (vtx_end > (size_t)(pt - bg) + PORT_INFLATE1172_HEADER) {
+                    g_vtx_off = (size_t)(pt - bg);
+                    g_vtx_csize = vtx_end - g_vtx_off;
+                }
             }
         }
     }
@@ -254,8 +284,14 @@ void port_stage_unload(void)
     free(g_gdl);
     g_gdl = NULL;
     g_gdl_len = 0;
+    free(g_vtx);
+    g_vtx = NULL;
+    g_vtx_len = 0;
     g_gdl_raw = 0;
     g_gdl_c0 = 0;
+    g_gdl_vtx = 0;
+    g_vtx_off = 0;
+    g_vtx_csize = 0;
     g_gdl_off = 0;
     g_gdl_csize = 0;
     g_gdl_ngfx = 0;
@@ -333,6 +369,25 @@ int port_stage_load(int level_id)
         g_gdl_c0 = 1;
     }
 
+    if (g_vtx_csize) {
+        size_t need = 0;
+        uint8_t *exp = NULL;
+        rc = bgDecompress(bg + g_vtx_off, g_vtx_csize, NULL, 0, &need);
+        if (rc == PORT_INFLATE1172_OK && need) {
+            exp = (uint8_t *)malloc(need);
+            if (exp) {
+                rc = bgDecompress(bg + g_vtx_off, g_vtx_csize, exp, need, &need);
+                if (rc == PORT_INFLATE1172_OK) {
+                    g_vtx = exp;
+                    g_vtx_len = need;
+                    g_gdl_vtx = 1;
+                } else {
+                    free(exp);
+                }
+            }
+        }
+    }
+
     g_bg = bg;
     g_bg_len = bg_len;
     g_stan = stan;
@@ -354,6 +409,8 @@ int port_stage_gdl_raw(void) { return g_gdl_raw; }
 
 int port_stage_gdl_c0(void) { return g_gdl_c0; }
 
+int port_stage_gdl_vtx(void) { return g_gdl_vtx; }
+
 int port_stage_draw(void)
 {
     const uint8_t *dl = NULL;
@@ -366,6 +423,9 @@ int port_stage_draw(void)
     if (!dl)
         return 1;
     g1_set_segment(0xF, (uintptr_t)g_bg);
+    if (g_vtx)
+        g1_set_segment(14, (uintptr_t)g_vtx);
+    g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
     return g1_interpret_be_dl(dl, g_gdl_ngfx);
 }
 

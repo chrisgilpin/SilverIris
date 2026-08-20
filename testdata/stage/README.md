@@ -14,3 +14,8 @@ Do not replace with a dump from a retail pack.
 `port_api_draw` after a drawable load reports `PORT_DRAW_STAGE`
 and the same greyscale hash. A junk Rare header reports `PORT_DRAW_FALLBACK`
 (the live presenter keeps the PORT mesh in that case).
+
+A retail-shaped C0 pack (no `G_MTX` in the GDL) 1172-compresses a 3-vertex
+table at `pPointTableBin` and a `G_SETTEX` + unresolved `G_DL` + unknown
+opcode + `G_VTX` (segment 14) + `G_TRI4` GDL. Identity camera stays black;
+player look-at paints. `port_api_fb_nonzero` counts painted pixels.
