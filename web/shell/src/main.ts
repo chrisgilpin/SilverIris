@@ -385,10 +385,10 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     if (rc === 0) {
       game.simTick(0);
       lastStageNote = game.gdlRaw()
-        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter.`
-        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter.`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;
     }

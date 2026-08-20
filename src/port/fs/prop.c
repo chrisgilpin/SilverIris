@@ -3,6 +3,7 @@
 #include "c0pack.h"
 #include "inflate1172.h"
 #include "pack_dma.h"
+#include "player/stan_walk.h"
 #include "stage.h"
 
 #include <math.h>
@@ -565,6 +566,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
         float dx, dy, dz, best, d;
         int r, near = 0;
         if (!pr->mdl || !pr->mdl->pri || pr->mdl->pri_n == 0)
+            continue;
+        /* Open door: unlatch. No swing pose in this slice — hide the slab. */
+        if (pr->type == PDEF_DOOR && port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
             continue;
         best = PORT_PROP_NEAR * PORT_PROP_NEAR;
         for (r = 0; r < nrooms; r++) {

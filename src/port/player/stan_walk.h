@@ -27,6 +27,13 @@ int port_stan_ready(void);
 void port_stan_clear_doors(void);
 void port_stan_add_door(float world_x, float world_z, float look_x, float look_z);
 
+/* Rare doorTestForInteract: xz^2 < 40000 (200 units). Port use is Z_TRIG. */
+#define PORT_DOOR_USE_RANGE 200.0f
+int port_stan_use_door(float local_x, float local_z, float look_x, float look_z);
+void port_stan_set_door_open(int i, int open);
+int port_stan_door_is_open(int i);
+int port_stan_door_is_open_at(float world_x, float world_z);
+
 /* Room-local xz. Returns 0 and writes floor+eye (room-local) if a tile owns xz. */
 int port_stan_eye_y(float local_x, float local_z, float *y_out);
 int port_stan_on_tile(float local_x, float local_z);

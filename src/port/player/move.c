@@ -40,6 +40,7 @@ typedef struct {
     float x, y, z, theta;
     int8_t pad_x, pad_y;
     uint16_t pad_buttons;
+    uint16_t prev_buttons;
     int spawned;
 } PortPly;
 
@@ -234,6 +235,7 @@ void port_player_spawn(void)
         g_p[i].pad_x = 0;
         g_p[i].pad_y = 0;
         g_p[i].pad_buttons = 0;
+        g_p[i].prev_buttons = 0;
         g_p[i].spawned = 1;
     }
     port_gun_reset();
@@ -282,7 +284,6 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     float dt = g_GlobalTimerDelta;
     float walk, turn, fwd, rad;
 
-    (void)buttons;
     if (!p->spawned)
         return;
 
@@ -313,6 +314,13 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
             p->y = ny;
         }
     }
+    /* Rare bond_pressed_reload_activate -> propdoorInteract. HUD is Z/Space. */
+    if ((buttons & PORT_Z_TRIG) && !(p->prev_buttons & PORT_Z_TRIG)) {
+        float lx = sinf(rad);
+        float lz = -cosf(rad);
+        port_stan_use_door(p->x, p->z, lx, lz);
+    }
+    p->prev_buttons = buttons;
 }
 
 int port_player_spawned(void) { return g_p[g_cur].spawned; }

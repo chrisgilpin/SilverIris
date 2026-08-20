@@ -26,6 +26,7 @@ typedef struct {
 
 typedef struct {
     float x, z, nx, nz, tx, tz;
+    int open;
 } StanDoor;
 
 static StanTile g_tile[PORT_STAN_MAX_TILES];
@@ -35,6 +36,8 @@ static int g_ndoor;
 static float g_scale = 1.0f;
 static float g_inv_scale = 1.0f;
 static float g_ox, g_oy, g_oz;
+
+static void local_to_world(float lx, float lz, float *wx, float *wz);
 
 static uint32_t be32(const uint8_t *p)
 {
@@ -97,6 +100,74 @@ void port_stan_add_door(float world_x, float world_z, float look_x, float look_z
     d->nz = look_z * inv;
     d->tx = -d->nz;
     d->tz = d->nx;
+    d->open = 0;
+}
+
+int port_stan_door_is_open(int i)
+{
+    if (i < 0 || i >= g_ndoor)
+        return 0;
+    return g_door[i].open;
+}
+
+void port_stan_set_door_open(int i, int open)
+{
+    if (i < 0 || i >= g_ndoor)
+        return;
+    g_door[i].open = open ? 1 : 0;
+}
+
+int port_stan_door_is_open_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = world_x - g_door[i].x;
+        float dz = world_z - g_door[i].z;
+        if (dx * dx + dz * dz <= 1.0f)
+            return g_door[i].open;
+    }
+    return 0;
+}
+
+int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
+{
+    float wx, wz, llen, inv, nearest;
+    int i, best;
+
+    if (g_ndoor <= 0)
+        return 0;
+    llen = sqrtf(look_x * look_x + look_z * look_z);
+    if (llen < 1e-4f)
+        return 0;
+    inv = 1.0f / llen;
+    look_x *= inv;
+    look_z *= inv;
+    local_to_world(local_x, local_z, &wx, &wz);
+    nearest = PORT_DOOR_USE_RANGE * PORT_DOOR_USE_RANGE + 1.0f;
+    best = -1;
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = g_door[i].x - wx;
+        float dz = g_door[i].z - wz;
+        float dsq = dx * dx + dz * dz;
+        float dist, face;
+        if (dsq > PORT_DOOR_USE_RANGE * PORT_DOOR_USE_RANGE)
+            continue;
+        dist = sqrtf(dsq);
+        if (dist < 1e-3f)
+            face = 1.0f;
+        else
+            face = (dx * look_x + dz * look_z) / dist;
+        if (face < 0.25f)
+            continue;
+        if (dsq < nearest) {
+            nearest = dsq;
+            best = i;
+        }
+    }
+    if (best < 0)
+        return 0;
+    g_door[best].open = !g_door[best].open;
+    return 1;
 }
 
 int port_stan_tile_count(void) { return g_ntile; }
@@ -221,6 +292,8 @@ static int hit_door_world(float wx, float wz)
             along = -along;
         if (across < 0.0f)
             across = -across;
+        if (d->open)
+            continue;
         if (along <= PORT_DOOR_HALF_T && across <= PORT_DOOR_HALF_W)
             return 1;
     }

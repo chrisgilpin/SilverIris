@@ -152,6 +152,105 @@ static int test_stan_eye_and_clip(void)
     return 0;
 }
 
+static int test_door_use_open(void)
+{
+    uint8_t stan[256];
+    float y, x1;
+    uint32_t t;
+    const float want_y = 50.0f + PORT_EYE_HEIGHT;
+
+    (void)want_y;
+    port_stan_unload();
+    build_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("use stan load");
+    port_stan_clear_doors();
+    port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
+    if (port_stan_door_count() != 1 || port_stan_door_is_open(0))
+        return fail("use door starts closed");
+
+    port_player_spawn();
+    if (port_stan_eye_y(200.0f, 0.0f, &y) != 0)
+        return fail("use eye");
+
+    /* Closed slab still blocks the same +X walk. */
+    port_player_set_pose(200.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 0; t < 80; t++) {
+        if (port_sim_tick(600 + t) != 0)
+            return fail("use closed tick");
+    }
+    x1 = port_player_x();
+    if (x1 >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "use closed leaked x=%g\n", (double)x1);
+        return fail("use closed still blocks");
+    }
+    printf("door_use closed x=%.1f\n", (double)x1);
+
+    /* Facing away must not open. */
+    port_player_set_pose(250.0f, y, 0.0f, 270.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(700) != 0)
+        return fail("use away idle");
+    port_set_local_pad(0, 0, 0, 0x2000); /* PORT_Z_TRIG */
+    if (port_sim_tick(701) != 0)
+        return fail("use away z");
+    if (port_stan_door_is_open(0))
+        return fail("use behind opened");
+
+    /* Face +X and press Z. */
+    port_player_set_pose(250.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(702) != 0)
+        return fail("use face idle");
+    port_set_local_pad(0, 0, 0, 0x2000);
+    if (port_sim_tick(703) != 0)
+        return fail("use face z");
+    if (!port_stan_door_is_open(0))
+        return fail("use did not open");
+
+    port_player_set_pose(200.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 0; t < 80; t++) {
+        if (port_sim_tick(710 + t) != 0)
+            return fail("use open tick");
+    }
+    x1 = port_player_x();
+    if (x1 <= 300.0f) {
+        fprintf(stderr, "open door blocked x=%g\n", (double)x1);
+        return fail("use open walk");
+    }
+    printf("door_use open x=%.1f\n", (double)x1);
+
+    /* Second Z closes. */
+    port_player_set_pose(250.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(800) != 0)
+        return fail("use close idle");
+    port_set_local_pad(0, 0, 0, 0x2000);
+    if (port_sim_tick(801) != 0)
+        return fail("use close z");
+    if (port_stan_door_is_open(0))
+        return fail("use did not close");
+
+    port_player_set_pose(200.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 0; t < 80; t++) {
+        if (port_sim_tick(810 + t) != 0)
+            return fail("use reclose tick");
+    }
+    x1 = port_player_x();
+    if (x1 >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "reclose leaked x=%g\n", (double)x1);
+        return fail("use reclose blocks");
+    }
+    printf("door_use reclosed x=%.1f\n", (double)x1);
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -192,6 +291,8 @@ int main(void)
     }
     printf("player walk ok z1=%g z200=%g clock=%d\n", (double)z1, (double)z200, g_ClockTimer);
     if (test_stan_eye_and_clip() != 0)
+        return 1;
+    if (test_door_use_open() != 0)
         return 1;
     return 0;
 }
