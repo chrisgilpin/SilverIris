@@ -186,14 +186,21 @@ static void load_vtx(uint32_t w0, uintptr_t full)
     apply_vtx(w0, src);
 }
 
-static void emit_tri(uint32_t w1)
+/* Fast3D G_TRI1 stores indices * 10. Rare G_TRI4 stores raw 0..15. */
+#ifndef G_TRI4
+#define G_TRI4 (G_IMMFIRST - 14)
+#endif
+#ifndef G_SETTEX
+#define G_SETTEX 0xc0
+#endif
+
+static void emit_indexed_tri(uint32_t i0, uint32_t i1, uint32_t i2)
 {
-    uint32_t i0 = ((w1 >> 16) & 0xFF) / 10;
-    uint32_t i1 = ((w1 >> 8) & 0xFF) / 10;
-    uint32_t i2 = (w1 & 0xFF) / 10;
     GirCmd c;
     int k;
     Slot *idx[3];
+    if (i0 == 0 && i1 == 0 && i2 == 0)
+        return;
     if (i0 >= G1_VTX || i1 >= G1_VTX || i2 >= G1_VTX)
         return;
     idx[0] = &g_slot[i0];
@@ -212,6 +219,23 @@ static void emit_tri(uint32_t w1)
         c.u.tri.v[k].a = idx[k]->a;
     }
     emit(&c);
+}
+
+static void emit_tri(uint32_t w1)
+{
+    uint32_t i0 = ((w1 >> 16) & 0xFF) / 10;
+    uint32_t i1 = ((w1 >> 8) & 0xFF) / 10;
+    uint32_t i2 = (w1 & 0xFF) / 10;
+    emit_indexed_tri(i0, i1, i2);
+}
+
+/* Rare G_TRI4 (0xB1): four nibble-indexed tris. All-zero slots are skipped. */
+static void emit_tri4(uint32_t w0, uint32_t w1)
+{
+    emit_indexed_tri(w1 & 0xF, (w1 >> 4) & 0xF, w0 & 0xF);
+    emit_indexed_tri((w1 >> 8) & 0xF, (w1 >> 12) & 0xF, (w0 >> 4) & 0xF);
+    emit_indexed_tri((w1 >> 16) & 0xF, (w1 >> 20) & 0xF, (w0 >> 8) & 0xF);
+    emit_indexed_tri((w1 >> 24) & 0xF, (w1 >> 28) & 0xF, (w0 >> 12) & 0xF);
 }
 
 static void emit_fillrect(uint32_t w0, uint32_t w1)
@@ -287,6 +311,14 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
     }
     if (cmd == (uint8_t)G_TRI1) {
         emit_tri(w1);
+        return 0;
+    }
+    if (cmd == (uint8_t)G_TRI4) {
+        emit_tri4(w0, w1);
+        return 0;
+    }
+    if (cmd == (uint8_t)G_SETTEX) {
+        /* Rare C0 texture-from-bank. TMEM / bank ids are not this slice. */
         return 0;
     }
     if (cmd == G_SETFILLCOLOR) {

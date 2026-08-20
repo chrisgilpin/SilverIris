@@ -26,6 +26,7 @@ int port_stage_level_id(void);
 int port_stage_room_count(void);
 int port_stage_bg_rooms(void);
 int port_stage_gdl_raw(void);
+int port_stage_gdl_c0(void);
 int port_stage_draw(void);
 const uint8_t *port_stage_bg(size_t *size_out);
 const uint8_t *port_stage_stan(size_t *size_out);

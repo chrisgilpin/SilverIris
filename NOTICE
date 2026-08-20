@@ -92,3 +92,13 @@ fopen a ROM. Product play loads a `.c0pack` only (`port_init` / `--pack`).
 `tools/pack/extract --rom` is a developer tool, not the product binary.
 Neither native binary is a public download. Do not add `fopen("*.z64")` under
 `#ifndef PORT_BRINGUP_ROM_DMA`.
+
+
+7. puff (Mark Adler)
+--------------------
+
+`third_party/goldeneye_src/tools/extractor/puff.c` is Mark Adler's public-domain
+deflate inflater (modified in the decomp extractor to report output length).
+SilverIris compiles it for runtime Rare 1172 inflate (`bgDecompress`). See the
+license comment at the top of that file.
+

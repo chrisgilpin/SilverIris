@@ -345,8 +345,10 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     if (rc === 0) {
       game.simTick(0);
       lastStageNote = game.gdlRaw()
-        ? `Facility header + synthetic room GDL in G1 (not Rare inflate). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
-        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL needs inflate+C0 — mesh walk only. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+        ? `Facility header + synthetic Fast3D room GDL in G1. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        : game.gdlC0()
+        ? `Inflated 1172 C0 room GDL in G1 (SETTEX skip + TRI4). Not a retail Facility picture. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — mesh walk only. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;
     }

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "fs/c0pack.h"
+#include "fs/inflate1172.h"
 #include "fs/pack_dma.h"
 #include "fs/sha256.h"
 #include "fs/stage.h"
@@ -24,7 +25,7 @@
 #define OFF_MTX_MV 0x0D0
 #define OFF_MTX_PR 0x110
 #define OFF_GDL 0x150
-#define BG_SIZE 0x200
+#define BG_SIZE 0x280
 
 #define SEG(off) (0x0F000000u | (uint32_t)(off))
 
@@ -68,6 +69,55 @@ static void wr_be_vtx(uint8_t *dst, const Vtx *v)
     dst[13] = v->v.cn[1];
     dst[14] = v->v.cn[2];
     dst[15] = v->v.cn[3];
+}
+
+/* Extractor inflate1172.test.ts vector: fflate raw-deflate + 2-byte 1172 header. */
+static const uint8_t k_hello_1172[] = {
+    0x11, 0x72, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xce, 0xcc, 0x29,
+    0x4b, 0x2d, 0xca, 0x2c, 0xca, 0x2c, 0x56, 0x30, 0x34, 0x34, 0x37, 0x52,
+    0x28, 0x49, 0x2d, 0x2e, 0x51, 0x28, 0x4b, 0x4d, 0x2e, 0xc9, 0x2f, 0x02,
+    0x00};
+static const char k_hello_plain[] = "hello silveriris 1172 test vector";
+
+static size_t wrap1172_stored(const uint8_t *src, size_t n, uint8_t *dst, size_t cap)
+{
+    size_t need = n + 7;
+    if (n > 0xFFFFu || cap < need)
+        return 0;
+    dst[0] = 0x11;
+    dst[1] = 0x72;
+    dst[2] = 0x01; /* final stored deflate block */
+    dst[3] = (uint8_t)n;
+    dst[4] = (uint8_t)(n >> 8);
+    dst[5] = (uint8_t)~n;
+    dst[6] = (uint8_t)(~(n >> 8));
+    memcpy(dst + 7, src, n);
+    return need;
+}
+
+static int test_inflate_bytes(void)
+{
+    uint8_t out[64];
+    uint8_t wrapped[80];
+    uint8_t again[64];
+    size_t n = 0, w = 0, n2 = 0;
+    const uint8_t *plain = (const uint8_t *)k_hello_plain;
+    size_t plen = strlen(k_hello_plain);
+
+    if (bgDecompress(k_hello_1172, sizeof k_hello_1172, out, sizeof out, &n) !=
+        PORT_INFLATE1172_OK)
+        return fail("inflate extractor vector");
+    if (n != plen || memcmp(out, plain, plen) != 0)
+        return fail("extractor 1172 bytes");
+    w = wrap1172_stored(plain, plen, wrapped, sizeof wrapped);
+    if (!w)
+        return fail("wrap 1172");
+    if (bgDecompress(wrapped, w, again, sizeof again, &n2) != PORT_INFLATE1172_OK)
+        return fail("inflate stored wrap");
+    if (n2 != plen || memcmp(again, plain, plen) != 0)
+        return fail("stored wrap bytes");
+    printf("inflate1172 ok extractor_n=%zu stored_n=%zu\n", n, n2);
+    return 0;
 }
 
 /* Same picture as g1_run_synthetic, stored as pack-faithful BE + 0x0F segs. */
@@ -144,6 +194,102 @@ static void build_g1dl_bg(uint8_t *bg)
     }
 }
 
+/*
+ * Rare-shaped header (word0 == 0) + 1172-compressed C0 GDL.
+ * G_SETTEX is skipped; G_TRI4(0,1,2) is the picture — same verts as G1DL.
+ */
+static size_t build_c0_compressed_bg(uint8_t *bg)
+{
+    static Vtx vtx[3];
+    static Mtx mv, proj;
+    uint8_t raw_gdl[80];
+    uint8_t wrapped[96];
+    float id[4][4];
+    int i, j, ngfx;
+    size_t wlen;
+
+    memset(bg, 0, BG_SIZE);
+    wr_be32(bg + 0, 0);
+    wr_be32(bg + 4, SEG(OFF_ROOMS));
+    wr_be32(bg + 8, SEG(OFF_PORTAL));
+    wr_be32(bg + OFF_ROOM1 + 0, SEG(OFF_VTX));
+    wr_be32(bg + OFF_ROOM1 + 4, SEG(OFF_GDL));
+    wr_be32(bg + OFF_ROOM1 + 8, 0);
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    wr_be_mtx(bg + OFF_MTX_MV, &mv);
+    wr_be_mtx(bg + OFF_MTX_PR, &proj);
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[0].v.cn[0] = 255;
+    vtx[0].v.cn[1] = 32;
+    vtx[0].v.cn[2] = 32;
+    vtx[0].v.cn[3] = 255;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.cn[0] = 32;
+    vtx[1].v.cn[1] = 255;
+    vtx[1].v.cn[2] = 32;
+    vtx[1].v.cn[3] = 255;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.cn[0] = 32;
+    vtx[2].v.cn[1] = 32;
+    vtx[2].v.cn[2] = 255;
+    vtx[2].v.cn[3] = 255;
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(bg + OFF_VTX + (size_t)i * 16, &vtx[i]);
+
+    memset(raw_gdl, 0, sizeof raw_gdl);
+    ngfx = 0;
+    /* G_SETFILLCOLOR + G_FILLRECT — same as Fast3D synthetic. */
+    wr_be32(raw_gdl + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(raw_gdl + ngfx * 8 + 4,
+            GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8,
+            ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    /* G_MTX modelview / projection */
+    wr_be32(raw_gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(raw_gdl + ngfx * 8 + 4, SEG(OFF_MTX_MV));
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(raw_gdl + ngfx * 8 + 4, SEG(OFF_MTX_PR));
+    ngfx++;
+    /* G_VTX n=3 v0=0 (Fast3D param: ((n-1)<<4)|v0) */
+    wr_be32(raw_gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(raw_gdl + ngfx * 8 + 4, SEG(OFF_VTX));
+    ngfx++;
+    /* Rare G_SETTEX 0xC0 — skip (no bank). */
+    wr_be32(raw_gdl + ngfx * 8, 0xC0000000u);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    /* Rare G_TRI4: first tri (0,1,2), others empty. */
+    wr_be32(raw_gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(raw_gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(raw_gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    wlen = wrap1172_stored(raw_gdl, (size_t)ngfx * 8u, wrapped, sizeof wrapped);
+    if (!wlen || OFF_GDL + wlen > BG_SIZE)
+        return 0;
+    memcpy(bg + OFF_GDL, wrapped, wlen);
+    return wlen;
+}
+
 static int check_grey(const char *want)
 {
     uint8_t digest[32];
@@ -184,6 +330,14 @@ int main(int argc, char **argv)
     const uint8_t *loaded;
     const char *want = argc >= 2 ? argv[1] : NULL;
     int rc;
+    size_t clen;
+    uint8_t c0_bg[BG_SIZE];
+    uint8_t gdl_plain[80];
+    uint8_t gdl_again[80];
+    size_t gdl_n = 0;
+
+    if (test_inflate_bytes() != 0)
+        return 1;
 
     memset(stan, 0, sizeof stan);
     wr_be32(stan + 4, 0x0F000080u);
@@ -256,7 +410,44 @@ int main(int argc, char **argv)
     free(pack);
     pack = NULL;
 
-    /* Rare-shaped header (word0 == 0): rooms walk, but no interpret. */
+    /* Compressed C0 room: inflate + G_TRI4 must match the G1 greyscale hash. */
+    clen = build_c0_compressed_bg(c0_bg);
+    if (!clen)
+        return fail("build c0 1172");
+    if (bgDecompress(c0_bg + OFF_GDL, clen, gdl_again, sizeof gdl_again, &gdl_n) !=
+        PORT_INFLATE1172_OK)
+        return fail("c0 gdl inflate");
+    /* First opcode after inflate is G_SETFILLCOLOR (0xF7). */
+    if (gdl_n < 16 || gdl_again[0] != (uint8_t)G_SETFILLCOLOR)
+        return fail("c0 gdl bytes");
+    memcpy(gdl_plain, gdl_again, gdl_n);
+    files[0].bytes = c0_bg;
+    files[0].size = sizeof c0_bg;
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    if (c0pack_build(files, 2, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("build c0 pack");
+    if (port_init(pack, (uint32_t)pack_len) != PORT_PACK_OK)
+        return fail("port_init c0");
+    if (port_stage_load(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("c0 stage load");
+    if (port_stage_bg_rooms() != 1)
+        return fail("c0 bg rooms");
+    if (port_stage_gdl_raw())
+        return fail("c0 must not be G1DL magic");
+    if (!port_stage_gdl_c0())
+        return fail("expected inflated C0");
+    if (port_stage_draw() != 0)
+        return fail("c0 stage draw");
+    if (check_grey(want) != 0)
+        return 1;
+    printf("stage c0 1172 inflated=%zu gdl_c0=1\n", gdl_n);
+    port_stage_unload();
+    port_shutdown();
+    free(pack);
+    pack = NULL;
+
+    /* Rare-shaped header (word0 == 0) without 1172: rooms walk, no interpret. */
     memset(rare_bg, 0, sizeof rare_bg);
     wr_be32(rare_bg + 4, 0x0F000040u);
     wr_be32(rare_bg + 0x58, 0x0F000070u); /* room1 pPointTable */
@@ -278,9 +469,11 @@ int main(int argc, char **argv)
     if (port_stage_draw() == 0)
         return fail("must not interpret compressed/unknown GDL");
 
-    printf("stage ok rooms=%d bg_rooms=%d clock=%d dt=%g gdl_raw=%d\n",
+    if (port_stage_gdl_c0())
+        return fail("junk rare must not inflate");
+    printf("stage ok rooms=%d bg_rooms=%d clock=%d dt=%g gdl_raw=%d gdl_c0=%d\n",
            port_stage_room_count(), port_stage_bg_rooms(), g_ClockTimer,
-           (double)g_GlobalTimerDelta, port_stage_gdl_raw());
+           (double)g_GlobalTimerDelta, port_stage_gdl_raw(), port_stage_gdl_c0());
     port_stage_unload();
     port_shutdown();
     free(pack);

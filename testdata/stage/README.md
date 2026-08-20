@@ -6,5 +6,7 @@ Do not replace with a dump from a retail pack.
 
 - `G1DL` magic (`0x4731444C`) plus a Fast3D room GDL. G1 rasters it;
   greyscale FB must match `testdata/g1/synthetic.fb.sha256`.
-- Rare-shaped header (`word0 == 0`): room table walks, GDL is not
-  interpreted (retail payloads are compressed C0/4Tri).
+- Rare-shaped header (`word0 == 0`) plus a 1172-compressed C0 GDL
+  (`G_SETTEX` + `G_TRI4`). Runtime `bgDecompress` inflates it; G1 must
+  match the same greyscale hash. A junk Rare header without `0x11 0x72`
+  still walks rooms and refuses to draw.

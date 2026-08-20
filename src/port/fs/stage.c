@@ -1,6 +1,7 @@
 #include "stage.h"
 
 #include "c0pack.h"
+#include "inflate1172.h"
 #include "pack_dma.h"
 #include "rng/random.h"
 #include "player/move.h"
@@ -40,8 +41,12 @@ static int g_level = -1;
 static int g_rooms;
 static int g_bg_rooms;
 static int g_gdl_raw;
+static int g_gdl_c0;
 static size_t g_gdl_off;
+static size_t g_gdl_csize;
 static uint32_t g_gdl_ngfx;
+static uint8_t *g_gdl;
+static size_t g_gdl_len;
 static void *g_first_room;
 static char g_stage_err[160];
 
@@ -113,7 +118,7 @@ static int copy_named(const char *name, uint8_t **out, size_t *out_len)
  *
  * word[0] == PORT_BG_MAGIC_G1DL means room 1's primary mapping is an
  * uncompressed big-endian Fast3D GDL (synthetic CI only). Retail files use
- * 0 and compressed C0 — we count rooms but do not interpret those GDLs.
+ * 0 and a 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
  */
 static int fixup_bg(uint8_t *bg, size_t n)
 {
@@ -123,7 +128,9 @@ static int fixup_bg(uint8_t *bg, size_t n)
 
     g_bg_rooms = 0;
     g_gdl_raw = 0;
+    g_gdl_c0 = 0;
     g_gdl_off = 0;
+    g_gdl_csize = 0;
     g_gdl_ngfx = 0;
 
     if (n < BG_HDR_BYTES)
@@ -163,6 +170,20 @@ static int fixup_bg(uint8_t *bg, size_t n)
                 g_gdl_off = gdl_off;
                 g_gdl_ngfx = (uint32_t)((gdl_end - gdl_off) / 8u);
                 g_gdl_raw = 1;
+            }
+        } else if (i == 1 && magic == 0) {
+            next_pri = 0;
+            if (r + 2 * BG_ROOM_BYTES <= bg + n)
+                next_pri = be32(r + BG_ROOM_BYTES + 4);
+            gdl_off = (size_t)(gdl - bg);
+            if (next_pri && maybe_ptr(bg, n, next_pri))
+                gdl_end = seg_to_off(next_pri);
+            else
+                gdl_end = n;
+            if (gdl_end > gdl_off + PORT_INFLATE1172_HEADER && gdl[0] == 0x11 &&
+                gdl[1] == 0x72) {
+                g_gdl_off = gdl_off;
+                g_gdl_csize = gdl_end - gdl_off;
             }
         }
     }
@@ -230,8 +251,13 @@ void port_stage_unload(void)
     g_level = -1;
     g_rooms = 0;
     g_bg_rooms = 0;
+    free(g_gdl);
+    g_gdl = NULL;
+    g_gdl_len = 0;
     g_gdl_raw = 0;
+    g_gdl_c0 = 0;
     g_gdl_off = 0;
+    g_gdl_csize = 0;
     g_gdl_ngfx = 0;
     g_first_room = NULL;
 }
@@ -276,6 +302,37 @@ int port_stage_load(int level_id)
         return rc;
     }
 
+    if (g_gdl_csize) {
+        size_t need = 0;
+        uint8_t *exp = NULL;
+        rc = bgDecompress(bg + g_gdl_off, g_gdl_csize, NULL, 0, &need);
+        if (rc != PORT_INFLATE1172_OK) {
+            free(bg);
+            free(stan);
+            set_stage_err("bg 1172 inflate failed");
+            return PORT_STAGE_ERR_FORMAT;
+        }
+        exp = (uint8_t *)malloc(need);
+        if (!exp) {
+            free(bg);
+            free(stan);
+            set_stage_err("bg 1172 oom");
+            return PORT_STAGE_ERR_OOM;
+        }
+        rc = bgDecompress(bg + g_gdl_off, g_gdl_csize, exp, need, &need);
+        if (rc != PORT_INFLATE1172_OK) {
+            free(exp);
+            free(bg);
+            free(stan);
+            set_stage_err("bg 1172 inflate failed");
+            return PORT_STAGE_ERR_FORMAT;
+        }
+        g_gdl = exp;
+        g_gdl_len = need;
+        g_gdl_ngfx = (uint32_t)(need / 8u);
+        g_gdl_c0 = 1;
+    }
+
     g_bg = bg;
     g_bg_len = bg_len;
     g_stan = stan;
@@ -295,12 +352,21 @@ int port_stage_bg_rooms(void) { return g_bg_rooms; }
 
 int port_stage_gdl_raw(void) { return g_gdl_raw; }
 
+int port_stage_gdl_c0(void) { return g_gdl_c0; }
+
 int port_stage_draw(void)
 {
-    if (!g_bg || !g_gdl_raw || g_gdl_ngfx == 0)
+    const uint8_t *dl = NULL;
+    if (!g_bg || g_gdl_ngfx == 0)
+        return 1;
+    if (g_gdl_c0 && g_gdl)
+        dl = g_gdl;
+    else if (g_gdl_raw)
+        dl = g_bg + g_gdl_off;
+    if (!dl)
         return 1;
     g1_set_segment(0xF, (uintptr_t)g_bg);
-    return g1_interpret_be_dl(g_bg + g_gdl_off, g_gdl_ngfx);
+    return g1_interpret_be_dl(dl, g_gdl_ngfx);
 }
 
 const uint8_t *port_stage_bg(size_t *size_out)
