@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: true
       - name: RNG golden vectors
         run: make -C native rng-test
       - name: c0pack C builder

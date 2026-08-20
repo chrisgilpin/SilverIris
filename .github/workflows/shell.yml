@@ -12,6 +12,8 @@ jobs:
         working-directory: web/shell
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -27,6 +29,8 @@ jobs:
         working-directory: services/signal
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
