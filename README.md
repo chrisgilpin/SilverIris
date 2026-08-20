@@ -41,12 +41,17 @@ in the user pack. After 0b83df6 some retail wall tiles already bind
 in that view stayed black because later SETTEX ids did not stay bound
 (last-wins TMEM at raster time), IA4/IA8/IA16 tiles were rejected, the
 secondary room GDL (`pSecMappingBin`) was not walked, and large floor
-tris that crossed the near plane were discarded whole. G1 now keeps a
-per-triangle tile cache, samples IA/RGBA32, inflates the secondary GDL,
-and clips against `w>0`. Native tests prove synthetic IA8/IA4 floor
-tiles, two SETTEX ids in one DL, a near-plane floor, and `pSec`. HUD
-`settex` / `texOk` / `texMiss` are honest — a miss stays a miss. No
-retail texels in git. Campaign is not v1. Title boot is not in this
+tris that crossed the near plane were discarded whole. After 3550dc9
+those floors sampled, but a `w>0.01` clip (no x/y frustum) projected
+near-camera slivers across the whole FB as black, overwriting brick
+and the gun. G1 now keeps a per-triangle tile cache, samples
+IA/RGBA32, inflates the secondary GDL, and clips homogeneous
+`w`/`±x`/`±y` so a near-camera floor cannot fill the screen.
+Transparent IA (alpha 0) does not stamp black. A SETTEX miss still
+paints vertex grey. Native tests prove synthetic IA8/IA4, two SETTEX
+ids, a near-plane floor that must not wipe a distant marker, and
+`pSec`. HUD `settex` / `texOk` / `texMiss` are honest — a miss stays
+a miss. No retail texels in git. Campaign is not v1. Title boot is not in this
 build.
 
 Design:

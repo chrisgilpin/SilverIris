@@ -50,6 +50,9 @@ static void put_px(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     if ((unsigned)x >= G1_FB_W || (unsigned)y >= G1_FB_H)
         return;
+    /* Alpha 0 is a punch-through miss / portal — do not stamp black. */
+    if (a == 0)
+        return;
     g_fb[y][x][0] = r;
     g_fb[y][x][1] = g;
     g_fb[y][x][2] = b;
@@ -77,6 +80,11 @@ static float edge(float ax, float ay, float bx, float by, float cx, float cy)
     return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
 }
 
+static int finite_xy(float x, float y)
+{
+    return x == x && y == y && x > -1.0e6f && x < 1.0e6f && y > -1.0e6f && y < 1.0e6f;
+}
+
 static int clip_to_screen(const GirVert *v, float *sx, float *sy)
 {
     float w = v->w;
@@ -87,7 +95,7 @@ static int clip_to_screen(const GirVert *v, float *sx, float *sy)
     y = v->y / w;
     *sx = x * g_sx + g_tx;
     *sy = y * g_sy + g_ty;
-    return 1;
+    return finite_xy(*sx, *sy);
 }
 
 static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
@@ -150,9 +158,16 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
                 al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
                 if (tex_slot >= 0) {
+                    uint8_t sr = r, sg = g, sb = bl, sa = al;
                     float ss = a * v0->s + b * v1->s + c * v2->s;
                     float tt = a * v0->t + b * v1->t + c * v2->t;
-                    g1_tex_sample_slot(tex_slot, ss, tt, &r, &g, &bl, &al);
+                    if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
+                        r = sr;
+                        g = sg;
+                        bl = sb;
+                        al = sa;
+                    }
+                    /* Sample miss keeps vertex shade (grey), never forced black. */
                 }
                 put_px(x, y, r, g, bl, al);
             }
@@ -160,11 +175,16 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     }
 }
 
-#define W_EPS 0.01f
+#define W_EPS 1.0f
+#define CLIP_MAX 16
 
 static GirVert lerp_vert(const GirVert *a, const GirVert *b, float t)
 {
     GirVert o;
+    if (t < 0.f)
+        t = 0.f;
+    if (t > 1.f)
+        t = 1.f;
     o.x = a->x + t * (b->x - a->x);
     o.y = a->y + t * (b->y - a->y);
     o.z = a->z + t * (b->z - a->z);
@@ -178,45 +198,67 @@ static GirVert lerp_vert(const GirVert *a, const GirVert *b, float t)
     return o;
 }
 
-/* Clip against w=W_EPS so floor/ceiling quads that cross the camera still paint. */
-static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
-{
-    const GirVert *v[3];
-    GirVert out[4];
-    int in[3], nin = 0, nout = 0, i;
+static float plane_w(const GirVert *v) { return v->w - W_EPS; }
+static float plane_xp(const GirVert *v) { return v->w - v->x; }
+static float plane_xn(const GirVert *v) { return v->w + v->x; }
+static float plane_yp(const GirVert *v) { return v->w - v->y; }
+static float plane_yn(const GirVert *v) { return v->w + v->y; }
 
-    v[0] = v0;
-    v[1] = v1;
-    v[2] = v2;
-    for (i = 0; i < 3; i++) {
-        in[i] = v[i]->w > W_EPS;
-        nin += in[i];
-    }
-    if (nin == 3) {
-        draw_tri_raw(v0, v1, v2, tex_slot);
-        return;
-    }
-    if (nin == 0)
-        return;
-    for (i = 0; i < 3; i++) {
-        int j = (i + 1) % 3;
-        if (in[i]) {
-            out[nout++] = *v[i];
-            if (!in[j]) {
-                float t = (W_EPS - v[i]->w) / (v[j]->w - v[i]->w);
-                out[nout++] = lerp_vert(v[i], v[j], t);
+typedef float (*ClipPlane)(const GirVert *);
+
+/* Sutherland–Hodgman: keep f(v) >= 0. */
+static int clip_poly(GirVert *poly, int n, ClipPlane f)
+{
+    GirVert tmp[CLIP_MAX];
+    int nout = 0, i;
+
+    if (n < 3)
+        return 0;
+    for (i = 0; i < n; i++) {
+        const GirVert *a = &poly[i];
+        const GirVert *b = &poly[(i + 1) % n];
+        float fa = f(a), fb = f(b);
+        int ia = fa >= 0.f, ib = fb >= 0.f;
+        if (ia) {
+            if (nout < CLIP_MAX)
+                tmp[nout++] = *a;
+            if (!ib && nout < CLIP_MAX) {
+                float den = fa - fb;
+                float t = (den > 1.0e-8f || den < -1.0e-8f) ? (fa / den) : 0.5f;
+                tmp[nout++] = lerp_vert(a, b, t);
             }
-        } else if (in[j]) {
-            float t = (W_EPS - v[i]->w) / (v[j]->w - v[i]->w);
-            out[nout++] = lerp_vert(v[i], v[j], t);
+        } else if (ib && nout < CLIP_MAX) {
+            float den = fa - fb;
+            float t = (den > 1.0e-8f || den < -1.0e-8f) ? (fa / den) : 0.5f;
+            tmp[nout++] = lerp_vert(a, b, t);
         }
     }
-    if (nout == 3)
-        draw_tri_raw(&out[0], &out[1], &out[2], tex_slot);
-    else if (nout == 4) {
-        draw_tri_raw(&out[0], &out[1], &out[2], tex_slot);
-        draw_tri_raw(&out[0], &out[2], &out[3], tex_slot);
-    }
+    memcpy(poly, tmp, (size_t)nout * sizeof(GirVert));
+    return nout;
+}
+
+/*
+ * Clip to the view frustum (w, ±x, ±y). A w-only clip at 0.01 left vertices
+ * almost at the camera; x/w and y/w then exploded into a full-FB sliver.
+ */
+static void draw_tri(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
+{
+    GirVert poly[CLIP_MAX];
+    int n, i;
+
+    poly[0] = *v0;
+    poly[1] = *v1;
+    poly[2] = *v2;
+    n = 3;
+    n = clip_poly(poly, n, plane_w);
+    n = clip_poly(poly, n, plane_xp);
+    n = clip_poly(poly, n, plane_xn);
+    n = clip_poly(poly, n, plane_yp);
+    n = clip_poly(poly, n, plane_yn);
+    if (n < 3)
+        return;
+    for (i = 1; i + 1 < n; i++)
+        draw_tri_raw(&poly[0], &poly[i], &poly[i + 1], tex_slot);
 }
 
 void sw_raster_list(const GirList *list)

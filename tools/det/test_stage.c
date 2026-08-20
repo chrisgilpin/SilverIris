@@ -1158,8 +1158,212 @@ static int test_near_clip_floor(void)
     nz = g1_fb_nonzero();
     if (nz < 400)
         return fail("near-clip floor still discarded");
-    printf("near-clip floor fb_nonzero=%u\n", nz);
+    if (nz > 70000)
+        return fail("near-clip floor filled the FB (w-only sliver)");
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned top = 0, x, y;
+        for (y = 0; y < 12; y++)
+            for (x = 0; x < (unsigned)G1_FB_W; x++) {
+                const uint8_t *px = fb + ((y * (unsigned)G1_FB_W + x) * 4u);
+                if (px[0] | px[1] | px[2])
+                    top++;
+            }
+        if (top > 80)
+            return fail("near-clip floor painted the top strip (full-screen sliver)");
+    }
+    printf("near-clip floor fb_nonzero=%u (not fullscreen)\n", nz);
     g1_clear_lookat();
+    return 0;
+}
+
+/* Crossing floor + distant red marker. w-only clip at 0.01 projected a
+ * full-FB sliver that erased the marker (and the gun on the live canvas). */
+static int test_near_clip_keeps_marker(void)
+{
+    uint8_t vtx_be[96], gdl[40];
+    Vtx vtx[6];
+    int i, ngfx;
+    unsigned nz, red = 0, grey = 0, top = 0;
+    const uint8_t *fb;
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = -20;
+    vtx[0].v.ob[2] = 40;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = -20;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[0] = -80;
+    vtx[2].v.ob[1] = -20;
+    vtx[2].v.ob[2] = -80;
+    vtx[3].v.ob[0] = -10;
+    vtx[3].v.ob[1] = 20;
+    vtx[3].v.ob[2] = -80;
+    vtx[4].v.ob[0] = 10;
+    vtx[4].v.ob[1] = 20;
+    vtx[4].v.ob[2] = -80;
+    vtx[5].v.ob[0] = 0;
+    vtx[5].v.ob[1] = 40;
+    vtx[5].v.ob[2] = -80;
+    for (i = 0; i < 3; i++) {
+        /* cn=0 → interpreter vertex grey. SETTEX 99 misses. */
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+    for (i = 3; i < 6; i++) {
+        vtx[i].v.cn[0] = 255;
+        vtx[i].v.cn[1] = 16;
+        vtx[i].v.cn[2] = 16;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x50 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 99);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000052u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00004310u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_tex_unload();
+    g1_tex_set_pack(NULL);
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("marker-clip interpret");
+    if (g1_tex_ok_count() != 0 || g1_tex_miss_count() < 1)
+        return fail("marker-clip SETTEX 99 must miss");
+    nz = g1_fb_nonzero();
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        int row = i / G1_FB_W;
+        if (r > 200 && g < 40 && b < 40)
+            red++;
+        else if (r > 140 && r < 220 && g > 140 && g < 220 && b > 140 && b < 220)
+            grey++;
+        if (row < 12 && (r | g | b))
+            top++;
+    }
+    if (grey < 400)
+        return fail("SETTEX-miss floor must stay vertex grey");
+    if (red < 40)
+        return fail("near-clip sliver wiped the distant red marker");
+    if (nz > 70000)
+        return fail("near-clip floor filled the FB");
+    if (top > 80)
+        return fail("near-clip sliver painted the top strip");
+    printf("near-clip keeps marker red=%u grey=%u nz=%u miss=%u\n", red, grey, nz,
+           g1_tex_miss_count());
+    g1_clear_lookat();
+    return 0;
+}
+
+/* IA8 all-zero (I=0,A=0) over a red marker must not stamp black. */
+static int test_ia_alpha0_no_black(void)
+{
+    uint8_t ia8[64], gdl[64];
+    Vtx vtx[6];
+    static Mtx mv, proj;
+    float id[4][4];
+    uint8_t host[0x400];
+    int i, j, ngfx;
+    unsigned red = 0;
+    const uint8_t *fb;
+
+    memset(ia8, 0, sizeof ia8);
+    g1_tex_unload();
+    if (g1_tex_load_raw(21, G1_TEX_IA8, 8, 8, ia8, 64, NULL, 0) != 0)
+        return fail("load ia8 zero");
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(vtx, 0, sizeof vtx);
+    /* Red marker, left half. */
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[1].v.ob[0] = 0;
+    vtx[1].v.ob[1] = -1;
+    vtx[2].v.ob[0] = -1;
+    vtx[2].v.ob[1] = 1;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 255;
+        vtx[i].v.cn[1] = 16;
+        vtx[i].v.cn[2] = 16;
+        vtx[i].v.cn[3] = 255;
+    }
+    /* IA overlay, right half — would be a black rect if A=0 wrote RGB. */
+    vtx[3].v.ob[0] = 0;
+    vtx[3].v.ob[1] = -1;
+    vtx[4].v.ob[0] = 1;
+    vtx[4].v.ob[1] = -1;
+    vtx[5].v.ob[0] = 1;
+    vtx[5].v.ob[1] = 1;
+    for (i = 3; i < 6; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+        vtx[i].v.tc[0] = 256;
+        vtx[i].v.tc[1] = 256;
+    }
+
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+    for (i = 0; i < 6; i++)
+        wr_be_vtx(host + 0x280 + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_MTX << 24) |
+                                ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000200u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_MTX << 24) |
+                                ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000240u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x50 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000280u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 21);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000005u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000034u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_clear_lookat();
+    g1_set_segment(0xF, (uintptr_t)host);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("ia0 interpret");
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        if (r > 200 && g < 40 && b < 40)
+            red++;
+    }
+    if (red < 80)
+        return fail("IA alpha-0 stamped over the red marker (or marker missing)");
+    printf("ia alpha0 no-black red=%u ok=%u\n", red, g1_tex_ok_count());
+    g1_tex_unload();
     return 0;
 }
 
@@ -1493,6 +1697,10 @@ int main(int argc, char **argv)
     if (test_settex_two_ids() != 0)
         return 1;
     if (test_near_clip_floor() != 0)
+        return 1;
+    if (test_near_clip_keeps_marker() != 0)
+        return 1;
+    if (test_ia_alpha0_no_black() != 0)
         return 1;
     if (test_secondary_gdl() != 0)
         return 1;
