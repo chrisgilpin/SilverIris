@@ -252,7 +252,7 @@ int main(int argc, char **argv)
                 SDL_PauseAudioDevice(adev, 0);
             }
         }
-        have_g1 = (g1_run_synthetic() == 0);
+        have_g1 = (port_stage_draw() == 0) || (g1_run_synthetic() == 0);
         if (have_g1) {
             tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
                                     G1_FB_W, G1_FB_H);

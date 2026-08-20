@@ -38,6 +38,8 @@ PORT_KEEP int port_api_load_stage(int level_id);
 PORT_KEEP int port_api_sim_tick(uint32_t tick);
 PORT_KEEP int port_api_clock_timer(void);
 PORT_KEEP int port_api_stage_rooms(void);
+PORT_KEEP int port_api_bg_rooms(void);
+PORT_KEEP int port_api_gdl_raw(void);
 PORT_KEEP int port_api_pack_files(void);
 
 PORT_KEEP void port_api_set_pad(int seat, int x, int y, int buttons);

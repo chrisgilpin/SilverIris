@@ -93,7 +93,9 @@ PORT_KEEP int port_api_fb_height(void) { return G1_FB_H; }
 
 PORT_KEEP void port_api_draw(void)
 {
-    if (g_ready)
+    if (!g_ready)
+        return;
+    if (port_stage_draw() != 0)
         g1_run_synthetic();
 }
 
@@ -144,6 +146,10 @@ PORT_KEEP int port_api_sim_tick(uint32_t tick)
 PORT_KEEP int port_api_clock_timer(void) { return (int)g_ClockTimer; }
 
 PORT_KEEP int port_api_stage_rooms(void) { return port_stage_room_count(); }
+
+PORT_KEEP int port_api_bg_rooms(void) { return port_stage_bg_rooms(); }
+
+PORT_KEEP int port_api_gdl_raw(void) { return port_stage_gdl_raw(); }
 
 PORT_KEEP int port_api_pack_files(void) { return (int)port_pack_file_count(); }
 

@@ -19,6 +19,8 @@ export type GameModule = {
   _port_api_sim_tick: (tick: number) => number;
   _port_api_clock_timer: () => number;
   _port_api_stage_rooms: () => number;
+  _port_api_bg_rooms: () => number;
+  _port_api_gdl_raw: () => number;
   _port_api_pack_files: () => number;
   _port_api_set_pad: (seat: number, x: number, y: number, buttons: number) => void;
   _port_api_set_player_count: (n: number) => void;
@@ -79,6 +81,8 @@ export type GameBridge = {
   simTick(tick: number): number;
   clockTimer(): number;
   stageRooms(): number;
+  bgRooms(): number;
+  gdlRaw(): boolean;
   packFiles(): number;
   lastError(): string;
   setPad(seat: number, x: number, y: number, buttons: number): void;
@@ -259,6 +263,12 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     stageRooms(): number {
       return alive ? M._port_api_stage_rooms() : 0;
+    },
+    bgRooms(): number {
+      return alive && M._port_api_bg_rooms ? M._port_api_bg_rooms() : 0;
+    },
+    gdlRaw(): boolean {
+      return !!(alive && M._port_api_gdl_raw && M._port_api_gdl_raw());
     },
     packFiles(): number {
       return alive ? M._port_api_pack_files() : 0;

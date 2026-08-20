@@ -344,7 +344,9 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     const rc = game.loadStage(FACILITY);
     if (rc === 0) {
       game.simTick(0);
-      lastStageNote = `Facility loaded. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+      lastStageNote = game.gdlRaw()
+        ? `Facility header + synthetic room GDL in G1 (not Rare inflate). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL needs inflate+C0 — mesh walk only. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;
     }

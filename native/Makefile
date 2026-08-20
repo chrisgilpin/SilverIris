@@ -120,9 +120,9 @@ $(BUILD)/src/port/vi/sim_tick.o: $(PORT)/vi/sim_tick.c | overlay
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
-$(BUILD)/src/port/fs/stage.o: $(PORT)/fs/stage.c
+$(BUILD)/src/port/fs/stage.o: $(PORT)/fs/stage.c | overlay
 	@mkdir -p $(dir $@)
-	$(CC) -std=c11 -I$(PORT) -I$(ROOT)/src -c $< -o $@
+	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
 $(BUILD)/src/port/player/move.o: $(PORT)/player/move.c
 	@mkdir -p $(dir $@)
@@ -326,16 +326,20 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(PORT_PACK_OBJS) $(BUILD)/src/port/fs/sha256.o \
 		$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
+		$(BUILD)/src/port/gfx/sw_raster.o \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_stage.c \
 		$(PORT_STAGE_OBJS) $(PORT_PACK_OBJS) \
 		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/os/mesg.o $(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
+		$(BUILD)/src/port/gfx/sw_raster.o \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
 
 stage-test: overlay $(BUILD)/test_stage
-	$(BUILD)/test_stage
+	$(BUILD)/test_stage $$(cat $(ROOT)/testdata/g1/synthetic.fb.sha256)
 
 $(BUILD)/test_player: $(ROOT)/tools/det/test_player.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/gun.o \
@@ -550,7 +554,7 @@ wasm: overlay $(BUILD)/wasm/frametiming.o
 		-sENVIRONMENT=web \
 		-sINITIAL_MEMORY=268435456 -sALLOW_MEMORY_GROWTH=1 \
 		-sMAXIMUM_MEMORY=1073741824 \
-		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_port_api_set_view_seat","_port_api_view_seat","_port_api_view_unsplit","_port_api_set_screen_size","_port_api_set_screen_position","_port_api_set_perspective","_port_api_view_hfov","_malloc","_free"]' \
+		-sEXPORTED_FUNCTIONS='["_port_api_init","_port_api_shutdown","_port_api_fb","_port_api_fb_width","_port_api_fb_height","_port_api_draw","_port_api_last_error","_port_api_ready","_port_api_audio_cb","_port_api_audio_play_gun","_port_api_audio_set_music","_port_api_audio_rate","_port_api_load_stage","_port_api_sim_tick","_port_api_clock_timer","_port_api_stage_rooms","_port_api_bg_rooms","_port_api_gdl_raw","_port_api_pack_files","_port_api_set_pad","_port_api_set_player_count","_port_api_player_count","_port_api_env_players","_port_api_player_x","_port_api_player_y","_port_api_player_z","_port_api_player_theta","_port_api_player_x_at","_port_api_player_z_at","_port_api_player_theta_at","_port_api_vp_left","_port_api_vp_top","_port_api_vp_width","_port_api_vp_height","_port_api_gun_mag","_port_api_gun_reserve","_port_api_gun_hits","_port_api_gun_have_hit","_port_api_gun_hit_x","_port_api_gun_hit_y","_port_api_gun_hit_z","_port_api_crc_players","_port_api_chr_count","_port_api_chr_x","_port_api_chr_z","_port_api_chr_theta","_port_api_chr_action","_port_api_crc_chrs","_port_api_kills","_port_api_crc_objectives","_port_api_rng_lo","_port_api_chr_rng_lo","_port_api_begin_match","_port_api_set_view_seat","_port_api_view_seat","_port_api_view_unsplit","_port_api_set_screen_size","_port_api_set_screen_position","_port_api_set_perspective","_port_api_view_hfov","_malloc","_free"]' \
 		-sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP16","UTF8ToString"]' \
 		-sNO_EXIT_RUNTIME=1
 	@echo "wrote $(WASM_OUT)/game.js $(WASM_OUT)/game.wasm"

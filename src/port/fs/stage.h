@@ -15,12 +15,18 @@
 #define PORT_LEVEL_FACILITY 34
 #define PORT_LEVEL_FACILITY_MP 434
 
+/* PORT-only bg header word0. Rare retail files use 0 and compressed C0 GDLs. */
+#define PORT_BG_MAGIC_G1DL 0x4731444Cu
+
 int port_stage_load(int level_id);
 void port_stage_unload(void);
 const char *port_stage_last_error(void);
 
 int port_stage_level_id(void);
 int port_stage_room_count(void);
+int port_stage_bg_rooms(void);
+int port_stage_gdl_raw(void);
+int port_stage_draw(void);
 const uint8_t *port_stage_bg(size_t *size_out);
 const uint8_t *port_stage_stan(size_t *size_out);
 void *port_stage_stan_first_room(void);

@@ -15,16 +15,28 @@ typedef struct {
 } Slot;
 
 static GirList g_ir;
-static uint32_t g_seg[16];
+static uintptr_t g_seg[16];
 static float g_mv[4][4], g_proj[4][4], g_mvp[4][4];
 static float g_mvstack[G1_MV_STACK][4][4];
 static int g_mvsp;
 static Slot g_slot[G1_VTX];
 static uint8_t g_fill[4];
+static Mtx g_mtx_host;
+static Vtx g_vtx_host[G1_VTX];
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
 static uint32_t gfx_w1(const Gfx *g) { return (uint32_t)g->words.w1; }
 static uint8_t gfx_cmd(const Gfx *g) { return (uint8_t)(gfx_w0(g) >> 24); }
+
+static uint16_t rd_be16(const uint8_t *p)
+{
+    return (uint16_t)((p[0] << 8) | p[1]);
+}
+
+static uint32_t rd_be32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
 
 static void mtx_ident(float m[4][4])
 {
@@ -61,7 +73,9 @@ static const void *resolve_addr(uint32_t addr32, uintptr_t full)
     uint32_t seg = (addr32 >> 24) & 0xF;
     uint32_t off = addr32 & 0x00FFFFFFu;
     if (g_seg[seg] != 0)
-        return (const void *)(uintptr_t)(g_seg[seg] + off);
+        return (const void *)(g_seg[seg] + off);
+    if (!full)
+        return NULL;
     return (const void *)full;
 }
 
@@ -82,10 +96,9 @@ static void unpack_fill(uint32_t packed)
     g_fill[3] = (c & 1) ? 255 : 0;
 }
 
-static void load_matrix(uint32_t w0, uintptr_t full)
+static void apply_matrix(uint32_t w0, const Mtx *src)
 {
     uint32_t params = (w0 >> 16) & 0xFF;
-    const Mtx *src = (const Mtx *)resolve_addr((uint32_t)full, full);
     float nf[4][4];
     if (!src)
         return;
@@ -108,12 +121,11 @@ static void load_matrix(uint32_t w0, uintptr_t full)
     rebuild_mvp();
 }
 
-static void load_vtx(uint32_t w0, uintptr_t full)
+static void apply_vtx(uint32_t w0, const Vtx *src)
 {
     uint32_t param = (w0 >> 16) & 0xFF;
     uint32_t n = (param >> 4) + 1;
     uint32_t v0 = param & 0xF;
-    const Vtx *src = (const Vtx *)resolve_addr((uint32_t)full, full);
     uint32_t i;
     if (!src)
         return;
@@ -130,6 +142,48 @@ static void load_vtx(uint32_t w0, uintptr_t full)
         s->b = v->cn[2];
         s->a = v->cn[3];
     }
+}
+
+static const Mtx *mtx_from_be(const uint8_t *p)
+{
+    uint32_t *dst = (uint32_t *)&g_mtx_host.m[0][0];
+    int i;
+    if (!p)
+        return NULL;
+    for (i = 0; i < 16; i++)
+        dst[i] = rd_be32(p + (size_t)i * 4);
+    return &g_mtx_host;
+}
+
+static const Vtx *vtx_from_be(const uint8_t *p, uint32_t n)
+{
+    uint32_t i;
+    if (!p)
+        return NULL;
+    memset(g_vtx_host, 0, sizeof g_vtx_host);
+    for (i = 0; i < n && i < G1_VTX; i++) {
+        const uint8_t *s = p + i * 16u;
+        g_vtx_host[i].v.ob[0] = (s16)rd_be16(s);
+        g_vtx_host[i].v.ob[1] = (s16)rd_be16(s + 2);
+        g_vtx_host[i].v.ob[2] = (s16)rd_be16(s + 4);
+        g_vtx_host[i].v.cn[0] = s[12];
+        g_vtx_host[i].v.cn[1] = s[13];
+        g_vtx_host[i].v.cn[2] = s[14];
+        g_vtx_host[i].v.cn[3] = s[15];
+    }
+    return g_vtx_host;
+}
+
+static void load_matrix(uint32_t w0, uintptr_t full)
+{
+    const Mtx *src = (const Mtx *)resolve_addr((uint32_t)full, full);
+    apply_matrix(w0, src);
+}
+
+static void load_vtx(uint32_t w0, uintptr_t full)
+{
+    const Vtx *src = (const Vtx *)resolve_addr((uint32_t)full, full);
+    apply_vtx(w0, src);
 }
 
 static void emit_tri(uint32_t w1)
@@ -197,6 +251,63 @@ static void reset_state(void)
     emit(&vp);
 }
 
+void g1_set_segment(unsigned seg, uintptr_t base)
+{
+    if (seg < 16)
+        g_seg[seg] = base;
+}
+
+static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, int be)
+{
+    if (cmd == (uint8_t)G_MOVEWORD && (w0 & 0xFF) == G_MW_SEGMENT) {
+        uint32_t seg = ((w0 >> 8) & 0xFFFF) / 4;
+        if (seg < 16)
+            g_seg[seg] = (uintptr_t)w1;
+        return 0;
+    }
+    if (cmd == (uint8_t)G_MTX) {
+        if (be) {
+            const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
+            apply_matrix(w0, mtx_from_be(p));
+        } else {
+            load_matrix(w0, w1_full);
+        }
+        return 0;
+    }
+    if (cmd == (uint8_t)G_VTX) {
+        if (be) {
+            uint32_t param = (w0 >> 16) & 0xFF;
+            uint32_t n = (param >> 4) + 1;
+            const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
+            apply_vtx(w0, vtx_from_be(p, n));
+        } else {
+            load_vtx(w0, w1_full);
+        }
+        return 0;
+    }
+    if (cmd == (uint8_t)G_TRI1) {
+        emit_tri(w1);
+        return 0;
+    }
+    if (cmd == G_SETFILLCOLOR) {
+        unpack_fill(w1);
+        return 0;
+    }
+    if (cmd == G_FILLRECT) {
+        emit_fillrect(w0, w1);
+        return 0;
+    }
+    if (cmd == (uint8_t)G_POPMTX) {
+        if (g_mvsp > 0) {
+            g_mvsp--;
+            mtx_copy(g_mv, g_mvstack[g_mvsp]);
+            rebuild_mvp();
+        }
+        return 0;
+    }
+    return 1;
+}
+
 static void walk(const Gfx *start, uint32_t n_hint)
 {
     const Gfx *stack[G1_MAX_DEPTH];
@@ -211,27 +322,7 @@ static void walk(const Gfx *start, uint32_t n_hint)
         uint32_t w1 = gfx_w1(ip);
         steps++;
 
-        if (cmd == (uint8_t)G_MOVEWORD && (w0 & 0xFF) == G_MW_SEGMENT) {
-            uint32_t seg = ((w0 >> 8) & 0xFFFF) / 4;
-            if (seg < 16)
-                g_seg[seg] = w1;
-        } else if (cmd == (uint8_t)G_MTX) {
-            load_matrix(w0, ip->words.w1);
-        } else if (cmd == (uint8_t)G_VTX) {
-            load_vtx(w0, ip->words.w1);
-        } else if (cmd == (uint8_t)G_TRI1) {
-            emit_tri(w1);
-        } else if (cmd == G_SETFILLCOLOR) {
-            unpack_fill(w1);
-        } else if (cmd == G_FILLRECT) {
-            emit_fillrect(w0, w1);
-        } else if (cmd == (uint8_t)G_POPMTX) {
-            if (g_mvsp > 0) {
-                g_mvsp--;
-                mtx_copy(g_mv, g_mvstack[g_mvsp]);
-                rebuild_mvp();
-            }
-        } else if (cmd == (uint8_t)G_DL) {
+        if (cmd == (uint8_t)G_DL) {
             uint32_t push = (w0 >> 16) & 0xFF;
             const Gfx *child = (const Gfx *)resolve_addr(w1, ip->words.w1);
             if (push == G_DL_NOPUSH) {
@@ -248,9 +339,52 @@ static void walk(const Gfx *start, uint32_t n_hint)
                 break;
             ip = stack[--sp];
             continue;
+        } else {
+            dispatch(cmd, w0, w1, ip->words.w1, 0);
         }
         ip++;
         if (sp == 0 && n_hint && (ip < start || ip >= start + n_hint))
+            break;
+    }
+}
+
+static void walk_be(const uint8_t *start, uint32_t n_gfx)
+{
+    const uint8_t *stack[G1_MAX_DEPTH];
+    int sp = 0;
+    const uint8_t *ip = start;
+    const uint8_t *end = start + (size_t)n_gfx * 8u;
+    uint32_t steps = 0;
+    uint32_t limit = n_gfx * 4u + 64u;
+
+    while (ip && ip + 8 <= end && steps < limit) {
+        uint32_t w0 = rd_be32(ip);
+        uint32_t w1 = rd_be32(ip + 4);
+        uint8_t cmd = (uint8_t)(w0 >> 24);
+        steps++;
+
+        if (cmd == (uint8_t)G_DL) {
+            uint32_t push = (w0 >> 16) & 0xFF;
+            const uint8_t *child = (const uint8_t *)resolve_addr(w1, 0);
+            if (push == G_DL_NOPUSH) {
+                ip = child;
+                continue;
+            }
+            if (sp < G1_MAX_DEPTH && child) {
+                stack[sp++] = ip + 8;
+                ip = child;
+                continue;
+            }
+        } else if (cmd == (uint8_t)G_ENDDL) {
+            if (sp == 0)
+                break;
+            ip = stack[--sp];
+            continue;
+        } else {
+            dispatch(cmd, w0, w1, 0, 1);
+        }
+        ip += 8;
+        if (sp == 0 && ip >= end)
             break;
     }
 }
@@ -261,6 +395,20 @@ int g1_interpret_dl(const Gfx *dl, uint32_t n_gfx)
         return -1;
     reset_state();
     walk(dl, n_gfx);
+    sw_raster_clear(0, 0, 0, 255);
+    sw_raster_list(&g_ir);
+    return 0;
+}
+
+int g1_interpret_be_dl(const uint8_t *bytes, uint32_t n_gfx)
+{
+    uintptr_t saved[16];
+    if (!bytes || n_gfx == 0)
+        return -1;
+    memcpy(saved, g_seg, sizeof saved);
+    reset_state();
+    memcpy(g_seg, saved, sizeof saved);
+    walk_be(bytes, n_gfx);
     sw_raster_clear(0, 0, 0, 255);
     sw_raster_list(&g_ir);
     return 0;

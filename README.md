@@ -27,8 +27,11 @@ if they appear (`tools/guard`).
 Public URL: [https://007.goodhouseinc.com](https://007.goodhouseinc.com)
 (no access secret). The shell lobby, 2-4P lockstep, and coturn TURN exist.
 Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. Facility
-is a mesh walk, not the Rare background. Campaign is not v1. Title boot is
-not in this build.
+is a mesh walk, not the Rare background. Native tests walk the Rare bg room
+table and raster a synthetic big-endian room GDL through G1 (same greyscale
+hash as the G1 triangle). A user pack's real room DLs still need inflate +
+C0/4Tri — do not claim Facility is on screen. Campaign is not v1. Title boot
+is not in this build.
 
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).
