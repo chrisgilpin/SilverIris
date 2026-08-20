@@ -46,6 +46,7 @@ PORT_STAGE_OBJS := \
 	$(BUILD)/src/port/fs/inflate1172.o \
 	$(BUILD)/tools/extractor/puff.o \
 	$(BUILD)/src/port/fs/stage.o \
+	$(BUILD)/src/port/fs/prop.o \
 	$(BUILD)/src/port/player/move.o \
 	$(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o \
@@ -133,6 +134,10 @@ $(BUILD)/src/port/vi/sim_tick.o: $(PORT)/vi/sim_tick.c | overlay
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
 $(BUILD)/src/port/fs/stage.o: $(PORT)/fs/stage.c | overlay
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
+
+$(BUILD)/src/port/fs/prop.o: $(PORT)/fs/prop.c | overlay
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
@@ -571,6 +576,7 @@ WASM_SRCS := \
 	$(PORT)/fs/inflate1172.c \
 	$(DECOMP)/tools/extractor/puff.c \
 	$(PORT)/fs/stage.c \
+	$(PORT)/fs/prop.c \
 	$(PORT)/player/move.c \
 	$(PORT)/player/gun.c \
 	$(PORT)/chr/patrol.c \

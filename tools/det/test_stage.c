@@ -2205,6 +2205,226 @@ static int test_neighbor_portal_pixels(void)
     return run_two_room(1, 2, 1000, 0xFFFFFFFFu, "neighbor portal");
 }
 
+#define PROP_SETUP_SIZE 0x200
+#define PROP_MODEL_SIZE 0x80
+#define PROP_MDL_PATH "assets/obseg/prop/Pgas_plant_met1_do1Z.bin"
+#define PROP_SETUP_PATH "assets/obseg/setup/UsetuparkZ.bin"
+
+static void wr_door_header(uint8_t *p, int model, int pad)
+{
+    /* extrascale 1.0, type=DOOR; obj=model, pad=pad */
+    wr_be32(p, 0x01000001u);
+    wr_be16(p + 4, (uint16_t)model);
+    wr_be16(p + 6, (uint16_t)pad);
+}
+
+static void wr_pad(uint8_t *p, float x, float y, float z, float lx, float ly, float lz)
+{
+    uint32_t u;
+    float f;
+    f = x; memcpy(&u, &f, 4); wr_be32(p + 0, u);
+    f = y; memcpy(&u, &f, 4); wr_be32(p + 4, u);
+    f = z; memcpy(&u, &f, 4); wr_be32(p + 8, u);
+    f = 0.f; memcpy(&u, &f, 4); wr_be32(p + 12, u);
+    f = 1.f; memcpy(&u, &f, 4); wr_be32(p + 16, u);
+    f = 0.f; memcpy(&u, &f, 4); wr_be32(p + 20, u);
+    f = lx; memcpy(&u, &f, 4); wr_be32(p + 24, u);
+    f = ly; memcpy(&u, &f, 4); wr_be32(p + 28, u);
+    f = lz; memcpy(&u, &f, 4); wr_be32(p + 32, u);
+}
+
+static void build_empty_setup(uint8_t *st)
+{
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 12, 0x28); /* propDefs */
+    wr_be32(st + 24, 0x2C); /* pads */
+    wr_be32(st + 0x28, 0x00000030u); /* PROPDEF_END */
+}
+
+static void build_one_door_setup(uint8_t *st, float px, float py, float pz)
+{
+    uint32_t defs = 0x28;
+    uint32_t end = defs + 256;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_door_header(st + defs, 158, 0);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, px, py, pz, 0.f, 0.f, 1.f);
+}
+
+static void build_magenta_g1dl_model(uint8_t *m)
+{
+    Vtx vtx[3];
+    int i, ngfx;
+    uint32_t vtx_off;
+    memset(m, 0, PROP_MODEL_SIZE);
+    wr_be32(m, PORT_BG_MAGIC_G1DL);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = 0;
+    vtx[0].v.ob[2] = 0;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = 0;
+    vtx[1].v.ob[2] = 0;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 180;
+    vtx[2].v.ob[2] = 0;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+    }
+    ngfx = 0;
+    vtx_off = 4 + 24; /* magic + 3 gfx */
+    wr_be32(m + 4 + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(m + 4 + ngfx * 8 + 4, 0x05000000u | vtx_off);
+    ngfx++;
+    wr_be32(m + 4 + ngfx * 8, 0xB1000002u);
+    wr_be32(m + 4 + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(m + 4 + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(m + 4 + ngfx * 8 + 4, 0);
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(m + vtx_off + (size_t)i * 16, &vtx[i]);
+}
+
+static void build_rare_node_model(uint8_t *m)
+{
+    Vtx vtx[3];
+    int i;
+    uint32_t node = 0, data = 0x18, gdl = 0x38, vtx_off = 0x50;
+    memset(m, 0, PROP_MODEL_SIZE);
+    /* ModelNode opcode 24 at 0 */
+    wr_be16(m + node, 24);
+    wr_be32(m + node + 4, 0x05000000u | data);
+    /* DLCOLLISION: Primary, Secondary, Vertices */
+    wr_be32(m + data, 0x05000000u | gdl);
+    wr_be32(m + data + 8, 0x05000000u | vtx_off);
+    wr_be16(m + data + 12, 3);
+    wr_be32(m + gdl, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(m + gdl + 4, 0x05000000u | vtx_off);
+    wr_be32(m + gdl + 8, 0xB1000002u);
+    wr_be32(m + gdl + 12, 0x00000010u);
+    wr_be32(m + gdl + 16, (uint32_t)(uint8_t)G_ENDDL << 24);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = 0;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = 0;
+    vtx[2].v.ob[1] = 180;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(m + vtx_off + (size_t)i * 16, &vtx[i]);
+    }
+}
+
+static int run_prop_pack(const uint8_t *setup, size_t setup_n, const uint8_t *model,
+                         size_t model_n, const char *want_grey, unsigned min_mag,
+                         unsigned max_mag, int want_props, int want_drawn, const char *tag)
+{
+    uint8_t bg[BG_SIZE], stan[256];
+    C0File files[4];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    unsigned mag;
+    int nfiles = 2;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    build_g1dl_bg(bg);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    if (setup && setup_n) {
+        files[nfiles].path = PROP_SETUP_PATH;
+        files[nfiles].bytes = setup;
+        files[nfiles].size = setup_n;
+        nfiles++;
+    }
+    if (model && model_n) {
+        files[nfiles].path = PROP_MDL_PATH;
+        files[nfiles].bytes = model;
+        files[nfiles].size = model_n;
+        nfiles++;
+    }
+    if (c0pack_build(files, (size_t)nfiles, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("prop pack build");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("prop port_api init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("prop stage load");
+    if (port_stage_prop_count() != want_props)
+        return fail("prop count");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("prop last_draw");
+    if (port_stage_rooms_walked() != 1)
+        return fail("prop rooms_walked must stay 1");
+    if (port_stage_props_drawn() != want_drawn)
+        return fail("prop drawn");
+    if (want_grey && check_grey(want_grey) != 0)
+        return 1;
+    mag = count_magenta();
+    if (mag < min_mag || mag > max_mag)
+        return fail("prop magenta");
+    printf("%s props=%d models=%d drawn=%d walked=%d magenta=%u\n", tag,
+           port_stage_prop_count(), port_stage_prop_models(),
+           port_stage_props_drawn(), port_stage_rooms_walked(), mag);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
+static int test_prop_no_setup_hash(const char *want)
+{
+    return run_prop_pack(NULL, 0, NULL, 0, want, 0, 0, 0, 0, "prop_no_setup");
+}
+
+static int test_prop_empty_setup_hash(const char *want)
+{
+    uint8_t st[PROP_SETUP_SIZE];
+    build_empty_setup(st);
+    return run_prop_pack(st, sizeof st, NULL, 0, want, 0, 0, 0, 0, "prop_empty_setup");
+}
+
+static int test_prop_door_pixels(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    build_one_door_setup(st, 0.f, 40.f, -220.f);
+    build_magenta_g1dl_model(mdl);
+    return run_prop_pack(st, sizeof st, mdl, sizeof mdl, NULL, 80, 200000, 1, 1,
+                         "prop_door_g1dl");
+}
+
+static int test_prop_door_rare_nodes(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    build_one_door_setup(st, 0.f, 40.f, -220.f);
+    build_rare_node_model(mdl);
+    return run_prop_pack(st, sizeof st, mdl, sizeof mdl, NULL, 80, 200000, 1, 1,
+                         "prop_door_rare_nodes");
+}
+
+static int test_prop_door_far_culled(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    build_one_door_setup(st, 0.f, 0.f, 8000.f);
+    build_magenta_g1dl_model(mdl);
+    return run_prop_pack(st, sizeof st, mdl, sizeof mdl, NULL, 0, 0, 1, 0,
+                         "prop_door_far");
+}
+
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -2473,6 +2693,16 @@ int main(int argc, char **argv)
     if (test_neighbor_no_portal() != 0)
         return 1;
     if (test_neighbor_portal_pixels() != 0)
+        return 1;
+    if (test_prop_no_setup_hash(want) != 0)
+        return 1;
+    if (test_prop_empty_setup_hash(want) != 0)
+        return 1;
+    if (test_prop_door_pixels() != 0)
+        return 1;
+    if (test_prop_door_rare_nodes() != 0)
+        return 1;
+    if (test_prop_door_far_culled() != 0)
         return 1;
     return 0;
 }

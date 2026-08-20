@@ -564,7 +564,9 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
     if (n == 1 && rooms[0].pri && rooms[0].pri_n) {
         if (rooms[0].vtx)
             g1_set_segment(14, rooms[0].vtx);
-        if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f)
+        if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f &&
+            rooms[0].yaw == 0.f && rooms[0].seg5 == 0 &&
+            (rooms[0].scale == 0.f || rooms[0].scale == 1.f))
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
                                        rooms[0].sec_n);
     }
@@ -582,10 +584,28 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             continue;
         if (rooms[i].vtx)
             g_seg[14] = rooms[i].vtx;
+        if (rooms[i].seg5)
+            g_seg[5] = rooms[i].seg5;
         g_cam_eye[0] = eye[0] - rooms[i].ox;
         g_cam_eye[1] = eye[1] - rooms[i].oy;
         g_cam_eye[2] = eye[2] - rooms[i].oz;
         apply_stored_camera();
+        if (rooms[i].yaw != 0.f ||
+            (rooms[i].scale != 0.f && rooms[i].scale != 1.f)) {
+            float R[4][4], tmp[4][4];
+            float s = rooms[i].scale != 0.f ? rooms[i].scale : 1.f;
+            float th = rooms[i].yaw * (G1_PI / 180.f);
+            float c = cosf(th), si = sinf(th);
+            mtx_ident(R);
+            R[0][0] = c * s;
+            R[0][2] = si * s;
+            R[1][1] = s;
+            R[2][0] = -si * s;
+            R[2][2] = c * s;
+            mtx_mul(tmp, g_mv, R);
+            mtx_copy(g_mv, tmp);
+            rebuild_mvp();
+        }
         walk_be(rooms[i].pri, rooms[i].pri_n);
         if (rooms[i].sec && rooms[i].sec_n)
             walk_be(rooms[i].sec, rooms[i].sec_n);

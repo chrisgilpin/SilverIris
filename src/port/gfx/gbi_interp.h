@@ -27,6 +27,9 @@ typedef struct {
     uint32_t sec_n;
     uintptr_t vtx;
     float ox, oy, oz;
+    float yaw;     /* degrees; model +Z onto pad.look */
+    float scale;   /* 0 or 1 = identity */
+    uintptr_t seg5; /* model file base (0x05) */
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

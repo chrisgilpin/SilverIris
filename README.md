@@ -57,13 +57,17 @@ cap used to reject them as misses) and inflates Rare lookup /
 Huffman / Huffman-lookup / RLE-lookup / blur methods plus RGB15.
 Huffman uses Rare's tree and accepts niter up to 16KB. Facility
 room GDLs are MIPMAP/TILE_PRESWAPPED only (no DETAIL second id).
-HUD walked/cur report that walk; texMiss splits abs vs dec. Native tests
-prove synthetic IA8/IA4, two SETTEX ids, a near-plane floor that
-must not wipe a distant marker, a close black portal that must not
-wipe a distant green wall, pSec, and a two-room pack whose neighbor
-magenta triangle is drawn only when a portal links the rooms. HUD
-settex / texOk / texMiss are honest — a miss stays a miss. No retail texels in git. Campaign is not v1. Title boot is not in this
-build.
+HUD walked/cur report that walk; texMiss splits abs vs dec. After the
+SETTEX/clip/portal walk, remaining grey in a doorway is missing
+**props** (doors), not another wall format. G1 now also inflates the
+stage setup (`UsetuparkZ`), walks PROPDEF_DOOR / PROP / glass, loads
+`P*Z` models (G1DL magic or Rare node GDL on segment 5), and rasters
+them at the pad with look-yaw through the same clip/SETTEX path.
+Rooms without a setup stay bit-identical on the greyscale G1 hash.
+Native tests prove a magenta door GDL at a known pad, a Rare node
+tree, far-pad cull, and empty-setup hash stability. No door
+open/close, no guards, no weapons. No retail texels in git. Campaign
+is not v1. Title boot is not in this build.
 
 Design:
 [`docs/SilverIris-browser-port-design.md`](docs/SilverIris-browser-port-design.md).

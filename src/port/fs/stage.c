@@ -7,6 +7,7 @@
 #include "rng/random.h"
 #include "player/move.h"
 #include "gfx/gbi_interp.h"
+#include "prop.h"
 
 #include "../../overrides/lv_clock.h"
 
@@ -21,6 +22,7 @@
 #define PORT_MAX_PORTALS 200
 #define PORT_WALK_DEPTH 2
 #define PORT_WALK_MAX 12
+#define PORT_DRAW_MAX (PORT_WALK_MAX + PORT_PROP_MAX_DRAW)
 
 typedef struct {
     int id;
@@ -164,6 +166,7 @@ static void clear_rooms(void)
     g_nportals = 0;
     g_cur_room = 0;
     g_rooms_walked = 0;
+    port_prop_unload();
 }
 
 static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_t start)
@@ -472,6 +475,7 @@ int port_stage_load(int level_id)
     g1_tex_set_pack(port_pack());
     port_rng_on_stage_load();
     port_player_spawn();
+    port_prop_load(level_id);
     return PORT_STAGE_OK;
 }
 
@@ -494,6 +498,12 @@ int port_stage_portal_count(void) { return g_nportals; }
 int port_stage_current_room(void) { return g_cur_room; }
 
 int port_stage_rooms_walked(void) { return g_rooms_walked; }
+
+int port_stage_prop_count(void) { return port_prop_count(); }
+
+int port_stage_prop_models(void) { return port_prop_models(); }
+
+int port_stage_props_drawn(void) { return port_prop_drawn(); }
 
 static int pick_current_room(void)
 {
@@ -589,8 +599,9 @@ static const uint8_t *room_sec(const PortBgRoom *rm)
 
 int port_stage_draw(void)
 {
-    G1RoomDl passes[PORT_WALK_MAX];
+    G1RoomDl passes[PORT_DRAW_MAX];
     uint8_t ids[PORT_WALK_MAX];
+    float rpos[PORT_MAX_BG_ROOMS * 3];
     int nsel, i, k;
     float ox, oy, oz;
 
@@ -608,6 +619,7 @@ int port_stage_draw(void)
         g1_set_segment(14, (uintptr_t)g_rm[1].vtx);
     g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
 
+    memset(passes, 0, sizeof passes);
     k = 0;
     for (i = 0; i < nsel; i++) {
         PortBgRoom *rm = &g_rm[ids[i]];
@@ -624,9 +636,21 @@ int port_stage_draw(void)
         passes[k].oz = rm->pos[2] - oz;
         k++;
     }
+    g_rooms_walked = k;
+    for (i = 1; i <= g_bg_rooms; i++) {
+        rpos[i * 3 + 0] = g_rm[i].pos[0];
+        rpos[i * 3 + 1] = g_rm[i].pos[1];
+        rpos[i * 3 + 2] = g_rm[i].pos[2];
+    }
+    {
+        float room1[3];
+        room1[0] = ox;
+        room1[1] = oy;
+        room1[2] = oz;
+        k += port_prop_fill_rooms(passes + k, PORT_DRAW_MAX - k, room1, rpos, nsel, ids);
+    }
     if (k == 0)
         return 1;
-    g_rooms_walked = k;
     if (k == 1)
         return g1_interpret_be_dl2(passes[0].pri, passes[0].pri_n, passes[0].sec, passes[0].sec_n);
     return g1_interpret_rooms(passes, k);
