@@ -1,0 +1,17 @@
+ALL RIGHTS RESERVED
+
+Copyright (c) 2026 SilverIris contributors.
+
+This license covers original SilverIris code only: src/port/, src/glue/,
+src/overrides/, native/, web/, services/, tools/, cmake/, and other files
+authored for this repository.
+
+Permission is not granted to copy, modify, merge, publish, distribute,
+sublicense, or sell copies of this original code except as the copyright
+holders may later allow in writing.
+
+This license does NOT apply to third_party/goldeneye_src/. That tree is a
+matching decompilation of GoldenEye 007. It is not licensed to the
+SilverIris project. See NOTICE.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

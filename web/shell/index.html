@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>SilverIris</title>
+  </head>
+  <body>
+    <header>
+      <h1>SilverIris</h1>
+      <p>
+        A fan-made browser port. Not an official Nintendo, Rare, Danjaq, Eon, or
+        MGM product. You must supply a legally obtained NTSC-U cartridge dump.
+        We do not provide a ROM.
+      </p>
+    </header>
+    <main>
+      <div id="drop" class="drop">
+        <span>Drop an NTSC-U <code>.z64</code> / <code>.n64</code> / <code>.v64</code> here</span>
+        <button type="button" id="pick">Choose file</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+      <div id="bar" class="bar" hidden><span id="barfill"></span></div>
+      <canvas id="view" class="view" width="320" height="240" hidden></canvas>
+      <section id="lobby" class="lobby" hidden>
+        <h2>Lobby</h2>
+        <p class="hint">Netplay flag is on. Host Start opens WebRTC and 2P lockstep (delay 1 LAN / 2 Internet). WASD+Z is this seat. WebRTC can reveal your IP to peers.</p>
+        <label>Nick <input id="nick" maxlength="16" value="Player" /></label>
+        <button type="button" id="create-room">Create room</button>
+        <label>Code <input id="join-code" maxlength="5" spellcheck="false" /></label>
+        <button type="button" id="join-room">Join</button>
+        <p id="lobby-status" class="status"></p>
+        <ul id="roster"></ul>
+        <button type="button" id="ready-btn" hidden>Ready</button>
+        <button type="button" id="start-btn" hidden>Start</button>
+        <p id="rtt" class="hint"></p>
+      </section>
+      <p>
+        <button type="button" id="report" hidden>Copy debug report</button>
+      </p>
+    </main>
+    <footer>
+      <p>
+        Unknown dumps are rejected. Japanese and European matching dumps are not
+        accepted in this version. <strong>US dump required.</strong>
+      </p>
+      <p>
+        The file stays in this tab. It is not uploaded. Assets are extracted
+        here and never sent to the server. WebRTC (when netplay is on) can
+        expose your IP to other players in the room.
+      </p>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

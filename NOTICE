@@ -1,0 +1,94 @@
+SilverIris
+==========
+
+This repository is a fan-made browser port project. It is not affiliated
+with, endorsed by, or licensed by Nintendo, Rare, Microsoft, Danjaq, Eon,
+MGM, or the GoldenEye 007 decompilation team.
+
+
+1. Original SilverIris code
+---------------------------
+
+Files authored for this repository (src/port, src/glue, src/overrides,
+native, web, services, tools, cmake, docs authored here) are All Rights
+Reserved. See LICENSE.
+
+
+2. Vendored decompilation (unlicensed-to-us)
+--------------------------------------------
+
+third_party/goldeneye_src is a git submodule of:
+
+  https://github.com/n64decomp/007
+  (mirror of https://gitlab.com/kholdfuzion/goldeneye_src)
+
+Pinned commit (100% matching, 2026-08-17, message "james bond will return."):
+
+  c4356466796c697dfd298010b9bed261f9ed8c6a
+
+That tree is a matching C decompilation of GoldenEye 007 (N64, 1997).
+n64decomp/007 publishes no license we can relicense from. Vendored
+decompiled C remains unlicensed-to-us. We consume it as translation
+units. We do not claim ownership, affiliation, endorsement, or a license
+grant.
+
+Credit (authors of the matching C, not of this port): KholdFuzion and
+the GoldenEye 007 decompilation contributors. See the submodule history.
+
+Bumping this pin requires a dedicated PR that (1) updates the SHA here
+and in .gitmodules, (2) re-runs the extractor against a private NTSC-U
+ROM, (3) re-runs RNG golden vectors, (4) replays at least one private
+tape native↔wasm.
+
+
+3. Four-party rights in GoldenEye 007 (facts, not permission)
+-------------------------------------------------------------
+
+GoldenEye 007 involves, among others:
+
+  - Nintendo
+  - Rare / Microsoft
+  - Danjaq / Eon
+  - MGM
+
+Listing those names records that the rights situation is not a simple
+single-holder grant. It is not permission to redistribute the game,
+assets, or a compiled engine.
+
+
+4. What this repo never contains
+--------------------------------
+
+- Nintendo 64 ROM images (.z64 / .n64 / .v64)
+- Extracted game assets (textures, models, audio, levels, text)
+- Links to ROM downloads
+
+Players must supply their own legally obtained NTSC-U dump. Requiring a
+user ROM does not make redistributing a compiled engine lawful. See
+docs/legal-posture.md.
+
+
+5. Retail dump hashes (allowlist / CI reject)
+---------------------------------------------
+
+These SHA-1s identify matching retail dumps. Product play (later PRs)
+accepts only NTSC-U. CI fails if any of these blobs appear in the tree.
+
+  NTSC-U  ge007.u.z64  abe01e4aeb033b6c0836819f549c791b26cfde83
+  NTSC-J  ge007.j.z64  2a5dade32f7fad6c73c659d2026994632c1b3174
+  PAL-E   ge007.e.z64  167c3c433dec1f1eb921736f7d53fac8cb45ee31
+
+
+6. Native bring-up ROM DMA (K18)
+--------------------------------
+
+`silveriris_bringup` is compiled with `PORT_BRINGUP_ROM_DMA`. It may fopen a
+developer-supplied local NTSC-U `.z64` and DMA from decomp `filelist.u.csv`
+offsets so title / `lvlStageLoad` can be brought up before the pack reader
+exists. That fopen is an explicit, flagged exception.
+
+`silveriris` and `game.wasm` are compiled **without** that flag and must not
+fopen a ROM. Product play loads a `.c0pack` only (`port_init` / `--pack`).
+`tools/pack/extract --rom` is a developer tool, not the product binary.
+Neither native binary is a public download. Do not add `fopen("*.z64")` under
+`#ifndef PORT_BRINGUP_ROM_DMA`.

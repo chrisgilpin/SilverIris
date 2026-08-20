@@ -1,0 +1,213 @@
+#include "move.h"
+
+#include "chr/patrol.h"
+#include "gun.h"
+#include "mp/score.h"
+#include "overrides/lv_clock.h"
+
+#include <math.h>
+
+/*
+ * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
+ * NTSC: deadzone 5, analogWalk/70, *1.08, vv_theta += speedtheta * dt * 3.5.
+ * Displacement matches tank/on-foot apply: dz += fwd * cos(theta) * dt
+ * with theta=0 facing +Z and N64 stick-up (negative Y) walking -Z.
+ * Full MoveBond still needs bondview2.c.
+ */
+
+#define STICK_DEAD 5
+#define STICK_DIV 70.0f
+#define FWD_BOOST 1.08f
+#define TURN_PER_DT 3.5f
+#define PI_F 3.1415927f
+
+/* NTSC viewports from bondview2.c / fr.h. */
+#define PORT_VP_FULL_W 320
+#define PORT_VP_1P_H 220
+#define PORT_VP_SPLIT_W 159
+#define PORT_VP_SPLIT_H 109
+#define PORT_VP_ULY_TOP 10
+#define PORT_VP_ULY_BOT 121
+#define PORT_VP_ULX_RIGHT 0xA1
+#define PORT_VP_ULY_1P 10
+
+static const float k_spawn_x[PORT_MAX_PLAYERS] = {0.0f, 40.0f, -40.0f, 0.0f};
+static const float k_spawn_z[PORT_MAX_PLAYERS] = {0.0f, 20.0f, 20.0f, 40.0f};
+
+typedef struct {
+    float x, y, z, theta;
+    int8_t pad_x, pad_y;
+    uint16_t pad_buttons;
+    int spawned;
+} PortPly;
+
+static PortPly g_p[PORT_MAX_PLAYERS];
+static int g_nplayers = 1;
+static int g_cur;
+
+static int analog_deadzone(int v)
+{
+    if (v < -STICK_DEAD)
+        return v + STICK_DEAD;
+    if (v > STICK_DEAD)
+        return v - STICK_DEAD;
+    return 0;
+}
+
+static float clampf(float v, float lo, float hi)
+{
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return hi;
+    return v;
+}
+
+void port_set_player_count(int n)
+{
+    if (n < 1)
+        n = 1;
+    if (n > PORT_MAX_PLAYERS)
+        n = PORT_MAX_PLAYERS;
+    g_nplayers = n;
+    if (g_cur >= g_nplayers)
+        g_cur = 0;
+}
+
+int port_player_count(void) { return g_nplayers; }
+
+int port_env_players(void)
+{
+    if (g_nplayers <= 1)
+        return PORT_ENV_PLAYERS_1;
+    if (g_nplayers == 2)
+        return PORT_ENV_PLAYERS_2;
+    if (g_nplayers == 3)
+        return PORT_ENV_PLAYERS_3;
+    return PORT_ENV_PLAYERS_4;
+}
+
+void port_set_cur_player(int seat)
+{
+    if (seat < 0)
+        seat = 0;
+    if (seat >= g_nplayers)
+        seat = g_nplayers - 1;
+    g_cur = seat;
+}
+
+int port_cur_player(void) { return g_cur; }
+
+void port_viewport(int seat, int *left, int *top, int *width, int *height)
+{
+    int l = 0, t = PORT_VP_ULY_1P, w = PORT_VP_FULL_W, h = PORT_VP_1P_H;
+
+    if (seat < 0)
+        seat = 0;
+    if (g_nplayers == 2) {
+        w = PORT_VP_FULL_W;
+        h = PORT_VP_SPLIT_H;
+        t = (seat == 0) ? PORT_VP_ULY_TOP : PORT_VP_ULY_BOT;
+    } else if (g_nplayers >= 3) {
+        w = PORT_VP_SPLIT_W;
+        h = PORT_VP_SPLIT_H;
+        if (seat == 1 || seat == 3)
+            l = PORT_VP_ULX_RIGHT;
+        t = (seat < 2) ? PORT_VP_ULY_TOP : PORT_VP_ULY_BOT;
+    }
+    if (left)
+        *left = l;
+    if (top)
+        *top = t;
+    if (width)
+        *width = w;
+    if (height)
+        *height = h;
+}
+
+void port_player_spawn(void)
+{
+    int i;
+    if (g_nplayers < 1)
+        g_nplayers = 1;
+    g_cur = 0;
+    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
+        g_p[i].x = k_spawn_x[i];
+        g_p[i].y = 0.0f;
+        g_p[i].z = k_spawn_z[i];
+        g_p[i].theta = 0.0f;
+        g_p[i].pad_x = 0;
+        g_p[i].pad_y = 0;
+        g_p[i].pad_buttons = 0;
+        g_p[i].spawned = 1;
+    }
+    port_gun_reset();
+    port_chr_reset();
+    port_score_reset();
+}
+
+void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    g_p[seat].pad_x = x;
+    g_p[seat].pad_y = y;
+    g_p[seat].pad_buttons = buttons;
+}
+
+void port_get_local_pad(int8_t *x, int8_t *y, uint16_t *buttons)
+{
+    if (x)
+        *x = g_p[g_cur].pad_x;
+    if (y)
+        *y = g_p[g_cur].pad_y;
+    if (buttons)
+        *buttons = g_p[g_cur].pad_buttons;
+}
+
+void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
+{
+    PortPly *p = &g_p[g_cur];
+    float dt = g_GlobalTimerDelta;
+    float walk, turn, fwd, rad;
+
+    (void)buttons;
+    if (!p->spawned)
+        return;
+
+    walk = (float)analog_deadzone((int)stick_y) / STICK_DIV;
+    turn = (float)analog_deadzone((int)stick_x) / STICK_DIV;
+    walk = clampf(walk, -1.0f, 1.0f);
+    turn = clampf(turn, -1.0f, 1.0f);
+    fwd = walk * FWD_BOOST;
+
+    p->theta += turn * TURN_PER_DT * dt;
+    while (p->theta < 0.0f)
+        p->theta += 360.0f;
+    while (p->theta >= 360.0f)
+        p->theta -= 360.0f;
+
+    rad = p->theta * (PI_F / 180.0f);
+    p->x += fwd * -sinf(rad) * dt;
+    p->z += fwd * cosf(rad) * dt;
+}
+
+int port_player_spawned(void) { return g_p[g_cur].spawned; }
+float port_player_x(void) { return g_p[g_cur].x; }
+float port_player_y(void) { return g_p[g_cur].y; }
+float port_player_z(void) { return g_p[g_cur].z; }
+float port_player_theta(void) { return g_p[g_cur].theta; }
+
+static int clamp_seat(int seat)
+{
+    if (seat < 0)
+        return 0;
+    if (seat >= PORT_MAX_PLAYERS)
+        return PORT_MAX_PLAYERS - 1;
+    return seat;
+}
+
+float port_player_x_at(int seat) { return g_p[clamp_seat(seat)].x; }
+float port_player_y_at(int seat) { return g_p[clamp_seat(seat)].y; }
+float port_player_z_at(int seat) { return g_p[clamp_seat(seat)].z; }
+float port_player_theta_at(int seat) { return g_p[clamp_seat(seat)].theta; }

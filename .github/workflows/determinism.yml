@@ -1,0 +1,24 @@
+name: determinism
+
+on:
+  push:
+  pull_request:
+
+# Public job: no ROM. Records/replays a synthetic TAPE1 and RNG goldens.
+# Private native-vs-wasm-vs-m32 against a retail pack is not in this workflow.
+
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: RNG golden vectors
+        run: make -C native rng-test
+      - name: TAPE1 record + replay
+        run: make -C native tape-test
+      - name: replay CLI on synthetic tape
+        run: make -C native replay-synth
+      - name: netplay stays default off
+        run: grep -q 'netplay: false' web/shell/src/flags.ts

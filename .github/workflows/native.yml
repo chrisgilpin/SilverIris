@@ -1,0 +1,53 @@
+name: native
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rng:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: RNG golden vectors
+        run: make -C native rng-test
+      - name: c0pack C builder
+        run: make -C tools/pack test
+      - name: pinned tick contract
+        run: make -C native tick-test
+      - name: joy playback
+        run: make -C native joy-playback
+      - name: ROM DMA filelist (no dump)
+        run: make -C native rom-dma
+      - name: product binary has no ROM fopen
+        run: make -C native product-no-rom-dma
+      - name: G0 dump (synthetic Gfx, no ROM)
+        run: make -C native g0-test
+      - name: G1 first picture (synthetic FB hash)
+        run: make -C native g1-test
+      - name: pack DMA (synthetic c0pack, no dump)
+        run: make -C native pack-dma
+      - name: port_api init hash + G1 FB
+        run: make -C native port-api
+      - name: audio mixer (silence, placeholder, no game RNG)
+        run: make -C native audio-test
+      - name: stage load + clock pin (synthetic Facility headers)
+        run: make -C native stage-test
+      - name: player 10s walk tape (dt=3)
+        run: make -C native player-test
+      - name: PP7 fire spends ammo and hits wall
+        run: make -C native gun-test
+      - name: guard patrol path + chrObjRandom in checksum
+        run: make -C native chr-test
+      - name: you-vs-nothing kill count
+        run: make -C native score-test
+      - name: local split-screen seats and NTSC viewports
+        run: make -C native split-test
+      - name: TAPE1 record/replay (synthetic, no ROM)
+        run: make -C native tape-test
+      - name: MatchConfig 160-byte pack
+        run: make -C native match-config
+      - name: 2P lockstep inject + checksum replay
+        run: make -C native lockstep-test

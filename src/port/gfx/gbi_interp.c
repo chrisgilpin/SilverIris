@@ -1,0 +1,325 @@
+#include "gfx/gbi_interp.h"
+
+#include "gfx/gbi_trace.h"
+#include "gfx/sw_raster.h"
+
+#include <string.h>
+
+#define G1_VTX 16
+#define G1_MV_STACK 10
+#define G1_MAX_DEPTH 32
+
+typedef struct {
+    float clip[4];
+    uint8_t r, g, b, a;
+} Slot;
+
+static GirList g_ir;
+static uint32_t g_seg[16];
+static float g_mv[4][4], g_proj[4][4], g_mvp[4][4];
+static float g_mvstack[G1_MV_STACK][4][4];
+static int g_mvsp;
+static Slot g_slot[G1_VTX];
+static uint8_t g_fill[4];
+
+static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
+static uint32_t gfx_w1(const Gfx *g) { return (uint32_t)g->words.w1; }
+static uint8_t gfx_cmd(const Gfx *g) { return (uint8_t)(gfx_w0(g) >> 24); }
+
+static void mtx_ident(float m[4][4])
+{
+    int i, j;
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            m[i][j] = (i == j) ? 1.f : 0.f;
+}
+
+static void mtx_mul(float out[4][4], const float a[4][4], const float b[4][4])
+{
+    float t[4][4];
+    int i, j, k;
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            float s = 0.f;
+            for (k = 0; k < 4; k++)
+                s += a[i][k] * b[k][j];
+            t[i][j] = s;
+        }
+    }
+    memcpy(out, t, sizeof t);
+}
+
+static void mtx_copy(float dst[4][4], const float src[4][4])
+{
+    memcpy(dst, src, 16 * sizeof(float));
+}
+
+static void rebuild_mvp(void) { mtx_mul(g_mvp, g_proj, g_mv); }
+
+static const void *resolve_addr(uint32_t addr32, uintptr_t full)
+{
+    uint32_t seg = (addr32 >> 24) & 0xF;
+    uint32_t off = addr32 & 0x00FFFFFFu;
+    if (g_seg[seg] != 0)
+        return (const void *)(uintptr_t)(g_seg[seg] + off);
+    return (const void *)full;
+}
+
+static void emit(const GirCmd *c)
+{
+    if (g_ir.ncmds >= G1_MAX_CMDS)
+        return;
+    g_ir.cmds[g_ir.ncmds++] = *c;
+}
+
+static void unpack_fill(uint32_t packed)
+{
+    uint16_t c = (uint16_t)packed;
+    unsigned r5 = (c >> 11) & 0x1f, g5 = (c >> 6) & 0x1f, b5 = (c >> 1) & 0x1f;
+    g_fill[0] = (uint8_t)((r5 << 3) | (r5 >> 2));
+    g_fill[1] = (uint8_t)((g5 << 3) | (g5 >> 2));
+    g_fill[2] = (uint8_t)((b5 << 3) | (b5 >> 2));
+    g_fill[3] = (c & 1) ? 255 : 0;
+}
+
+static void load_matrix(uint32_t w0, uintptr_t full)
+{
+    uint32_t params = (w0 >> 16) & 0xFF;
+    const Mtx *src = (const Mtx *)resolve_addr((uint32_t)full, full);
+    float nf[4][4];
+    if (!src)
+        return;
+    g0_mtx_l2f(src, nf);
+    if (params & G_MTX_PROJECTION) {
+        if (params & G_MTX_LOAD)
+            mtx_copy(g_proj, nf);
+        else
+            mtx_mul(g_proj, g_proj, nf);
+    } else {
+        if (params & G_MTX_PUSH && g_mvsp < G1_MV_STACK) {
+            mtx_copy(g_mvstack[g_mvsp], g_mv);
+            g_mvsp++;
+        }
+        if (params & G_MTX_LOAD)
+            mtx_copy(g_mv, nf);
+        else
+            mtx_mul(g_mv, g_mv, nf);
+    }
+    rebuild_mvp();
+}
+
+static void load_vtx(uint32_t w0, uintptr_t full)
+{
+    uint32_t param = (w0 >> 16) & 0xFF;
+    uint32_t n = (param >> 4) + 1;
+    uint32_t v0 = param & 0xF;
+    const Vtx *src = (const Vtx *)resolve_addr((uint32_t)full, full);
+    uint32_t i;
+    if (!src)
+        return;
+    for (i = 0; i < n && v0 + i < G1_VTX; i++) {
+        const Vtx_t *v = &src[i].v;
+        float x = (float)v->ob[0], y = (float)v->ob[1], z = (float)v->ob[2];
+        Slot *s = &g_slot[v0 + i];
+        s->clip[0] = g_mvp[0][0] * x + g_mvp[0][1] * y + g_mvp[0][2] * z + g_mvp[0][3];
+        s->clip[1] = g_mvp[1][0] * x + g_mvp[1][1] * y + g_mvp[1][2] * z + g_mvp[1][3];
+        s->clip[2] = g_mvp[2][0] * x + g_mvp[2][1] * y + g_mvp[2][2] * z + g_mvp[2][3];
+        s->clip[3] = g_mvp[3][0] * x + g_mvp[3][1] * y + g_mvp[3][2] * z + g_mvp[3][3];
+        s->r = v->cn[0];
+        s->g = v->cn[1];
+        s->b = v->cn[2];
+        s->a = v->cn[3];
+    }
+}
+
+static void emit_tri(uint32_t w1)
+{
+    uint32_t i0 = ((w1 >> 16) & 0xFF) / 10;
+    uint32_t i1 = ((w1 >> 8) & 0xFF) / 10;
+    uint32_t i2 = (w1 & 0xFF) / 10;
+    GirCmd c;
+    int k;
+    Slot *idx[3];
+    if (i0 >= G1_VTX || i1 >= G1_VTX || i2 >= G1_VTX)
+        return;
+    idx[0] = &g_slot[i0];
+    idx[1] = &g_slot[i1];
+    idx[2] = &g_slot[i2];
+    memset(&c, 0, sizeof c);
+    c.op = GIR_DRAW_TRIS;
+    for (k = 0; k < 3; k++) {
+        c.u.tri.v[k].x = idx[k]->clip[0];
+        c.u.tri.v[k].y = idx[k]->clip[1];
+        c.u.tri.v[k].z = idx[k]->clip[2];
+        c.u.tri.v[k].w = idx[k]->clip[3];
+        c.u.tri.v[k].r = idx[k]->r;
+        c.u.tri.v[k].g = idx[k]->g;
+        c.u.tri.v[k].b = idx[k]->b;
+        c.u.tri.v[k].a = idx[k]->a;
+    }
+    emit(&c);
+}
+
+static void emit_fillrect(uint32_t w0, uint32_t w1)
+{
+    GirCmd c;
+    memset(&c, 0, sizeof c);
+    c.op = GIR_DRAW_RECT;
+    c.u.rect.lrx = (int)((w0 >> 14) & 0x3FF);
+    c.u.rect.lry = (int)((w0 >> 2) & 0x3FF);
+    c.u.rect.ulx = (int)((w1 >> 14) & 0x3FF);
+    c.u.rect.uly = (int)((w1 >> 2) & 0x3FF);
+    c.u.rect.r = g_fill[0];
+    c.u.rect.g = g_fill[1];
+    c.u.rect.b = g_fill[2];
+    c.u.rect.a = g_fill[3];
+    emit(&c);
+}
+
+static void reset_state(void)
+{
+    GirCmd vp;
+    memset(&g_ir, 0, sizeof g_ir);
+    memset(g_seg, 0, sizeof g_seg);
+    memset(g_slot, 0, sizeof g_slot);
+    mtx_ident(g_mv);
+    mtx_ident(g_proj);
+    rebuild_mvp();
+    g_mvsp = 0;
+    g_fill[0] = g_fill[1] = g_fill[2] = 0;
+    g_fill[3] = 255;
+    memset(&vp, 0, sizeof vp);
+    vp.op = GIR_SET_VIEWPORT;
+    vp.u.viewport.scale_x = 160.f;
+    vp.u.viewport.scale_y = 120.f;
+    vp.u.viewport.trans_x = 160.f;
+    vp.u.viewport.trans_y = 120.f;
+    emit(&vp);
+}
+
+static void walk(const Gfx *start, uint32_t n_hint)
+{
+    const Gfx *stack[G1_MAX_DEPTH];
+    int sp = 0;
+    const Gfx *ip = start;
+    uint32_t steps = 0;
+    uint32_t limit = n_hint ? n_hint * 4u + 64u : 4096u;
+
+    while (ip && steps < limit) {
+        uint8_t cmd = gfx_cmd(ip);
+        uint32_t w0 = gfx_w0(ip);
+        uint32_t w1 = gfx_w1(ip);
+        steps++;
+
+        if (cmd == (uint8_t)G_MOVEWORD && (w0 & 0xFF) == G_MW_SEGMENT) {
+            uint32_t seg = ((w0 >> 8) & 0xFFFF) / 4;
+            if (seg < 16)
+                g_seg[seg] = w1;
+        } else if (cmd == (uint8_t)G_MTX) {
+            load_matrix(w0, ip->words.w1);
+        } else if (cmd == (uint8_t)G_VTX) {
+            load_vtx(w0, ip->words.w1);
+        } else if (cmd == (uint8_t)G_TRI1) {
+            emit_tri(w1);
+        } else if (cmd == G_SETFILLCOLOR) {
+            unpack_fill(w1);
+        } else if (cmd == G_FILLRECT) {
+            emit_fillrect(w0, w1);
+        } else if (cmd == (uint8_t)G_POPMTX) {
+            if (g_mvsp > 0) {
+                g_mvsp--;
+                mtx_copy(g_mv, g_mvstack[g_mvsp]);
+                rebuild_mvp();
+            }
+        } else if (cmd == (uint8_t)G_DL) {
+            uint32_t push = (w0 >> 16) & 0xFF;
+            const Gfx *child = (const Gfx *)resolve_addr(w1, ip->words.w1);
+            if (push == G_DL_NOPUSH) {
+                ip = child;
+                continue;
+            }
+            if (sp < G1_MAX_DEPTH && child) {
+                stack[sp++] = ip + 1;
+                ip = child;
+                continue;
+            }
+        } else if (cmd == (uint8_t)G_ENDDL) {
+            if (sp == 0)
+                break;
+            ip = stack[--sp];
+            continue;
+        }
+        ip++;
+        if (sp == 0 && n_hint && (ip < start || ip >= start + n_hint))
+            break;
+    }
+}
+
+int g1_interpret_dl(const Gfx *dl, uint32_t n_gfx)
+{
+    if (!dl)
+        return -1;
+    reset_state();
+    walk(dl, n_gfx);
+    sw_raster_clear(0, 0, 0, 255);
+    sw_raster_list(&g_ir);
+    return 0;
+}
+
+int g1_interpret_task(OSTask *task)
+{
+    uint32_t n;
+    if (!task || task->t.type != M_GFXTASK || !task->t.data_ptr)
+        return -1;
+    n = task->t.data_size / (uint32_t)sizeof(Gfx);
+    return g1_interpret_dl((const Gfx *)task->t.data_ptr, n);
+}
+
+int g1_run_synthetic(void)
+{
+    static Gfx dl[16];
+    static Vtx vtx[3];
+    static Mtx mv, proj;
+    Gfx *g;
+    float id[4][4];
+    int i, j;
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[0].v.cn[0] = 255;
+    vtx[0].v.cn[1] = 32;
+    vtx[0].v.cn[2] = 32;
+    vtx[0].v.cn[3] = 255;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.cn[0] = 32;
+    vtx[1].v.cn[1] = 255;
+    vtx[1].v.cn[2] = 32;
+    vtx[1].v.cn[3] = 255;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.cn[0] = 32;
+    vtx[2].v.cn[1] = 32;
+    vtx[2].v.cn[2] = 255;
+    vtx[2].v.cn[3] = 255;
+
+    g = dl;
+    gDPSetFillColor(g++, GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    gDPFillRectangle(g++, 0, 0, G1_FB_W, G1_FB_H);
+    gSPMatrix(g++, &mv, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPMatrix(g++, &proj, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPVertex(g++, vtx, 3, 0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gSPEndDisplayList(g++);
+    return g1_interpret_dl(dl, (uint32_t)(g - dl));
+}
+
+const GirList *g1_last_ir(void) { return &g_ir; }
+const uint8_t *g1_fb_rgba(void) { return sw_fb_rgba(); }
+void g1_fb_grey_sha256(uint8_t out[32]) { sw_fb_grey_sha256(out); }

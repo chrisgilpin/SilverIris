@@ -1,0 +1,12 @@
+# Local/compose. No basic-auth. Public URL product intent.
+:80 {
+	handle /ws* {
+		reverse_proxy signal:18787
+	}
+	handle /api/* {
+		reverse_proxy signal:18787
+	}
+	handle {
+		respond "silveriris" 200
+	}
+}

@@ -1,0 +1,50 @@
+# Build
+/build/
+/out/
+/dist/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.cache/
+
+# Node / Vite
+node_modules/
+web/shell/dist/
+web/extractor/dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# User-supplied dumps and extracted packs — never commit
+*.z64
+*.n64
+*.v64
+*.rom
+*.c0pack
+!testdata/pack/*.c0pack
+baserom.*
+ge007.*
+
+# Built game binaries
+*.wasm
+!testdata/**/*.wasm
+game.*.js
+silveriris
+silveriris_bringup
+silveriris_headless
+tools/pack/test_c0pack
+/build/
+
+# Decomp matching-build leftovers if someone configures the submodule
+third_party/goldeneye_src/build/
+third_party/goldeneye_src/*.z64

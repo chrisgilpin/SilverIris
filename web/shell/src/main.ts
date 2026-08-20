@@ -1,0 +1,832 @@
+import { extractRom } from "../../extractor/src/index.ts";
+import type { ExtractedFile } from "../../extractor/src/extract.ts";
+import { AudioPlayer, lastAudioError, unlockAudio } from "./audio/player.ts";
+import { buildReport, encodeTapeExcerpt } from "./det/report.ts";
+import { flags } from "./flags.ts";
+import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
+import { drawPortView, type PortChr, type PortHit } from "./game/view.ts";
+import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
+import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
+import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
+import { LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
+import { bytesFromHex, decodeMatchConfig } from "./net/match_config.ts";
+import { PeerMesh } from "./net/rtc.ts";
+import { buildPack } from "./pack.ts";
+import { pickRomFile, romFromDrop } from "./rom/pick.ts";
+import { verifyRom } from "./rom/verify.ts";
+import "./style.css";
+
+const drop = document.querySelector<HTMLDivElement>("#drop");
+const pickBtn = document.querySelector<HTMLButtonElement>("#pick");
+const statusEl = document.querySelector<HTMLParagraphElement>("#status");
+const bar = document.querySelector<HTMLDivElement>("#bar");
+const barfill = document.querySelector<HTMLSpanElement>("#barfill");
+const view = document.querySelector<HTMLCanvasElement>("#view");
+const reportBtn = document.querySelector<HTMLButtonElement>("#report");
+const lobbyEl = document.querySelector<HTMLElement>("#lobby");
+const nickEl = document.querySelector<HTMLInputElement>("#nick");
+const createRoomBtn = document.querySelector<HTMLButtonElement>("#create-room");
+const joinCodeEl = document.querySelector<HTMLInputElement>("#join-code");
+const joinRoomBtn = document.querySelector<HTMLButtonElement>("#join-room");
+const lobbyStatus = document.querySelector<HTMLParagraphElement>("#lobby-status");
+const rosterEl = document.querySelector<HTMLUListElement>("#roster");
+const readyBtn = document.querySelector<HTMLButtonElement>("#ready-btn");
+const startBtn = document.querySelector<HTMLButtonElement>("#start-btn");
+const rttEl = document.querySelector<HTMLParagraphElement>("#rtt");
+
+if (!drop || !pickBtn || !statusEl || !bar || !barfill || !view) {
+  throw new Error("shell markup missing");
+}
+
+const dropEl = drop;
+const status = statusEl;
+const progressBar = bar;
+const fill = barfill;
+const canvas = view;
+
+let game: GameBridge | null = null;
+let player: AudioPlayer | null = null;
+let raf = 0;
+let lastStageNote = "stage not loaded";
+const held = new Set<string>();
+let simN = 1;
+let accMs = 0;
+let lastPaint = 0;
+let seenHits = 0;
+const hitMarks: PortHit[] = [];
+const checksumLog: Array<{
+  tick: number;
+  rng_lo: number;
+  chr_rng_lo: number;
+  crc_players: number;
+  crc_chrs: number;
+  crc_objectives: number;
+  pads: Array<{ x: number; y: number; buttons: number }>;
+}> = [];
+let lastPackHash = "";
+const BUILD_ID = "silveriris-buildid!!";
+let signal: SignalClient | null = null;
+let lobbyReady = false;
+let mySeat = 0;
+let lastCfgHash = "";
+let lastRosterSeats: number[] = [];
+let mesh: PeerMesh | null = null;
+let lastCfgHex = "";
+let netLock: LockstepSession | null = null;
+let lastNackAt = 0;
+const pendingSdp: Array<{ from: number; desc: { type: "offer" | "answer"; sdp: string } }> = [];
+const pendingIce: Array<{ from: number; cand: { candidate: string; sdpMid?: string; sdpMLineIndex?: number } }> = [];
+
+function stickPad(opts: {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  fire: boolean;
+}): { x: number; y: number; buttons: number } {
+  let x = 0;
+  let y = 0;
+  let buttons = 0;
+  if (opts.up) y -= 70;
+  if (opts.down) y += 70;
+  if (opts.left) x -= 70;
+  if (opts.right) x += 70;
+  if (opts.fire) buttons |= 0x2000;
+  return { x, y, buttons };
+}
+
+function padFromGamepad(gp: Gamepad): { x: number; y: number; buttons: number } {
+  const ax = gp.axes[0] ?? 0;
+  const ay = gp.axes[1] ?? 0;
+  const fire = !!(gp.buttons[0]?.pressed || gp.buttons[6]?.pressed || gp.buttons[7]?.pressed);
+  return {
+    x: Math.max(-70, Math.min(70, Math.round(ax * 70))),
+    y: Math.max(-70, Math.min(70, Math.round(ay * 70))),
+    buttons: fire ? 0x2000 : 0,
+  };
+}
+
+function padP1(): { x: number; y: number; buttons: number } {
+  return stickPad({
+    up: held.has("KeyW"),
+    down: held.has("KeyS"),
+    left: held.has("KeyA"),
+    right: held.has("KeyD"),
+    fire: held.has("KeyZ") || held.has("Space"),
+  });
+}
+
+function padP2Keys(): { x: number; y: number; buttons: number } {
+  return stickPad({
+    up: held.has("ArrowUp"),
+    down: held.has("ArrowDown"),
+    left: held.has("ArrowLeft"),
+    right: held.has("ArrowRight"),
+    fire: held.has("Enter") || held.has("ShiftRight"),
+  });
+}
+
+function syncHits(): void {
+  if (!game?.ready()) return;
+  const n = game.gunHits();
+  if (n < seenHits) {
+    hitMarks.length = 0;
+    seenHits = n;
+  }
+  if (n > seenHits && game.gunHaveHit()) {
+    hitMarks.push({ x: game.gunHitX(), y: game.gunHitY(), z: game.gunHitZ() });
+    seenHits = n;
+  }
+}
+
+function drawHud(): void {
+  if (!game?.ready()) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  if (game.playerCount() > 1) return;
+  const x = game.playerX();
+  const z = game.playerZ();
+  const th = game.playerTheta();
+  ctx.fillStyle = "rgba(18,20,24,0.72)";
+  ctx.fillRect(0, 0, canvas.width, 48);
+  ctx.fillStyle = "#e8e6e1";
+  ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  θ ${th.toFixed(0)}°`, 8, 14);
+  ctx.fillText(
+    `PP7 ${game.gunMag()}/${game.gunReserve()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+    8,
+    28,
+  );
+  if (game.chrCount() > 0) {
+    ctx.fillText(
+      `kills ${game.kills()}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`,
+      8,
+      42,
+    );
+  }
+}
+
+function flashPew(): void {
+  canvas.classList.remove("pew");
+  void canvas.offsetWidth;
+  canvas.classList.add("pew");
+  window.setTimeout(() => canvas.classList.remove("pew"), 200);
+}
+
+function ensurePlayer(): AudioPlayer | null {
+  if (player) return player;
+  if (!game?.ready()) return null;
+  player = AudioPlayer.create((out, n) => {
+    game?.audioCb(out, n);
+  }, game.audioRate());
+  if (player) game.audioSetMusic(true);
+  return player;
+}
+
+async function bang(): Promise<void> {
+  flashPew();
+  const p = ensurePlayer();
+  if (!p) {
+    const why = lastAudioError() || (!game?.ready() ? "engine not ready" : "unknown");
+    setStatus("err", `Audio did not start (${why}).`);
+    return;
+  }
+  const ok = await p.resume();
+  if (!ok) {
+    setStatus("err", `Audio is still suspended (${lastAudioError() || "retry the click"}).`);
+    return;
+  }
+  game?.audioPlayGun();
+  p.kick();
+}
+
+function onAudioGesture(): void {
+  unlockAudio(game?.audioRate() ?? 22050);
+  void bang();
+}
+
+function paint(now: number): void {
+  if (!game?.ready()) return;
+  if (!lastPaint) lastPaint = now;
+  accMs += now - lastPaint;
+  lastPaint = now;
+  const n = game.playerCount();
+  const pads = [padP1()];
+  const gps = typeof navigator !== "undefined" ? navigator.getGamepads?.() ?? [] : [];
+  for (let seat = 1; seat < n; seat++) {
+    const gp = gps[seat - 1];
+    if (gp) pads[seat] = padFromGamepad(gp);
+    else if (seat === 1) pads[seat] = padP2Keys();
+    else pads[seat] = { x: 0, y: 0, buttons: 0 };
+  }
+  while (accMs >= 50) {
+    if (netLock) {
+      const evs = netLock.step(now, padP1(), typeof document !== "undefined" && document.hidden);
+      for (const ev of evs)
+        onLockEvent(ev);
+      if (mesh?.inpOpen() && netLock.history.length)
+        mesh.sendInp(encodeInputDatagram(mySeat, netLock.history));
+      if (rttEl && mesh)
+        rttEl.textContent = `${mesh.rttLine()}  lock t=${netLock.nextTick} d=${netLock.delay}${netLock.stalled ? " STALL" : ""}`;
+    } else {
+      for (let seat = 0; seat < n; seat++)
+        game.setPad(seat, pads[seat].x, pads[seat].y, pads[seat].buttons);
+      game.simTick(simN++);
+      checksumLog.push({
+        tick: simN - 1,
+        rng_lo: game.rngLo(),
+        chr_rng_lo: game.chrRngLo(),
+        crc_players: game.crcPlayers(),
+        crc_chrs: game.crcChrs(),
+        crc_objectives: game.crcObjectives(),
+        pads: pads.map((p) => ({ x: p.x, y: p.y, buttons: p.buttons })),
+      });
+      if (checksumLog.length > 32)
+        checksumLog.splice(0, checksumLog.length - 32);
+    }
+    accMs -= 50;
+    if (netLock?.halted)
+      break;
+  }
+  syncHits();
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const guard: PortChr[] =
+      game.chrCount() > 0
+        ? [{ x: game.chrX(), z: game.chrZ(), theta: game.chrTheta(), dead: game.chrAction() === 5 }]
+        : [];
+    for (let seat = 0; seat < n; seat++) {
+      const box = {
+        x: game.vpLeft(seat),
+        y: game.vpTop(seat),
+        w: game.vpWidth(seat),
+        h: game.vpHeight(seat),
+      };
+      const peers: PortChr[] = [];
+      for (let j = 0; j < n; j++) {
+        if (j === seat) continue;
+        peers.push({
+          x: game.playerXAt(j),
+          z: game.playerZAt(j),
+          theta: game.playerThetaAt(j),
+          peer: true,
+        });
+      }
+      drawPortView(
+        ctx,
+        { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat) },
+        seat === 0 ? hitMarks : [],
+        guard.concat(peers),
+        box,
+      );
+      ctx.fillStyle = "rgba(18,20,24,0.72)";
+      ctx.fillRect(box.x, box.y, box.w, 14);
+      ctx.fillStyle = "#e8e6e1";
+      ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText(
+        `P${seat + 1}  ${game.playerXAt(seat).toFixed(0)},${game.playerZAt(seat).toFixed(0)}`,
+        box.x + 4,
+        box.y + 11,
+      );
+    }
+  }
+  drawHud();
+  if (netLock?.overlay) {
+    const ctx2 = canvas.getContext("2d");
+    if (ctx2) {
+      ctx2.fillStyle = "rgba(0,0,0,0.62)";
+      ctx2.fillRect(0, canvas.height / 2 - 20, canvas.width, 40);
+      ctx2.fillStyle = "#e8e6e1";
+      ctx2.font = "13px ui-sans-serif, system-ui, sans-serif";
+      ctx2.fillText(netLock.overlay, 10, canvas.height / 2 + 5);
+    }
+  }
+  raf = requestAnimationFrame(paint);
+}
+
+async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<void> {
+  if (flags.netplay || flags.campaign) {
+    console.info("netplay/campaign are off in this build");
+  }
+  setStatus("", "Compiling engine…");
+  if (!game) {
+    game = await loadGame("/game.js");
+  }
+  lastPackHash = packHashHex;
+  await game.init(packBytes, packHashBytes(packHashHex));
+  if (player) {
+    player.stop();
+    player = null;
+  }
+  /* Do not construct AudioContext here: extract already consumed the
+   * user gesture. The first click / Z / Space unlocks Web Audio. */
+  game.audioSetMusic(true);
+  {
+    const FACILITY = 34;
+    const rc = game.loadStage(FACILITY);
+    if (rc === 0) {
+      game.simTick(0);
+      lastStageNote = `Facility loaded. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z, P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+    } else {
+      lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v2.`;
+    }
+  }
+  canvas.hidden = false;
+  simN = 1;
+  accMs = 0;
+  lastPaint = 0;
+  seenHits = 0;
+  hitMarks.length = 0;
+  checksumLog.length = 0;
+  if (reportBtn)
+    reportBtn.hidden = false;
+  if (flags.netplay && lobbyEl)
+    lobbyEl.hidden = false;
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(paint);
+}
+
+/** Last extract in this tab. Pack builder is PR-04. */
+let lastExtract: ExtractedFile[] | null = null;
+
+function setStatus(kind: "ok" | "err" | "", text: string): void {
+  status.className = `status${kind ? ` ${kind}` : ""}`;
+  status.textContent = text;
+}
+
+async function ingest(name: string, bytes: Uint8Array): Promise<void> {
+  progressBar.hidden = true;
+  fill.style.width = "0%";
+  setStatus("", `Checking ${name}…`);
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+  try {
+    const result = await verifyRom(bytes);
+    if (!result.ok) {
+      setStatus("err", result.message);
+      return;
+    }
+    try {
+      await kvSet("lastRegion", result.region);
+    } catch {
+      // IndexedDB is optional for verify; don't block the gate message.
+    }
+    setStatus("", "Extracting assets in this tab…");
+    progressBar.hidden = false;
+    fill.style.width = "0%";
+    lastExtract = await extractRom(result.z64, "U", (p) => {
+      const pct = p.total === 0 ? 0 : Math.round((100 * p.done) / p.total);
+      fill.style.width = `${pct}%`;
+      setStatus("", `Extracting ${p.done}/${p.total}  ${p.current}`);
+    });
+    setStatus("", "Building c0pack…");
+    const pack = await buildPack(lastExtract, "U", 0);
+    try {
+      await packPut(pack.packHash, {
+        region: "U",
+        romSha1: result.romSha1,
+        created: Date.now(),
+        blob: pack.bytes.buffer as ArrayBuffer,
+      });
+      await kvSet("lastPackHash", pack.packHash);
+      if (navigator.storage?.persist) {
+        void navigator.storage.persist();
+      }
+    } catch {
+      /* pack still usable in-memory this session */
+    }
+    const totalBytes = lastExtract.reduce((n, f) => n + f.bytes.byteLength, 0);
+    const hasArk = lastExtract.some((f) => f.path.includes("bg_ark_all_p"));
+    setStatus(
+      "ok",
+      `NTSC-U verified. Extracted ${lastExtract.length} files (${(totalBytes / (1024 * 1024)).toFixed(1)} MiB, ark=${hasArk ? "yes" : "no"}). Pack ${pack.packHash.slice(0, 16)}… stored. Starting engine…`,
+    );
+    try {
+      await startEngine(pack.bytes, pack.packHash);
+      setStatus(
+        "ok",
+        `NTSC-U verified. Pack ${pack.packHash.slice(0, 16)}… loaded. G1 picture. ${lastStageNote} Click picture or Z/Space for audio. netplay/campaign off.`,
+      );
+    } catch (eng) {
+      const msg = eng instanceof Error ? eng.message : String(eng);
+      setStatus("err", `Pack stored, but engine init failed (${msg}).`);
+    }
+  } catch (err) {
+    progressBar.hidden = true;
+    const msg = err instanceof Error ? err.message : String(err);
+    setStatus("err", `Could not verify or extract that file (${msg}).`);
+  }
+}
+
+canvas.addEventListener("pointerdown", () => {
+  onAudioGesture();
+});
+window.addEventListener("keydown", (ev) => {
+  if (ev.code === "Digit1" || ev.code === "Digit2" || ev.code === "Digit3" || ev.code === "Digit4") {
+    ev.preventDefault();
+    if (netLock)
+      return;
+    const n = Number(ev.code.slice(5));
+    if (game?.ready()) {
+      game.setPlayerCount(n);
+      lastStageNote = `${n}P local  ENV ${game.envPlayers()}. P1 WASD+Z; P2 arrows+Enter or gamepad.`;
+      setStatus("ok", lastStageNote);
+    }
+    return;
+  }
+  if (ev.code === "Space" || ev.code === "KeyZ" || ev.code === "Enter") {
+    ev.preventDefault();
+    held.add(ev.code);
+    onAudioGesture();
+    return;
+  }
+  if (
+    ev.code === "KeyW" ||
+    ev.code === "KeyA" ||
+    ev.code === "KeyS" ||
+    ev.code === "KeyD" ||
+    ev.code === "ArrowUp" ||
+    ev.code === "ArrowDown" ||
+    ev.code === "ArrowLeft" ||
+    ev.code === "ArrowRight" ||
+    ev.code === "ShiftRight"
+  ) {
+    ev.preventDefault();
+    held.add(ev.code);
+  }
+});
+window.addEventListener("keyup", (ev) => {
+  held.delete(ev.code);
+});
+
+function ensureSignal(): SignalClient {
+  if (signal)
+    return signal;
+  signal = new SignalClient({
+    onStatus(text) {
+      if (lobbyStatus)
+        lobbyStatus.textContent = text;
+    },
+    onCode(code, seat) {
+      mySeat = seat;
+      if (lobbyStatus)
+        lobbyStatus.textContent = `Room ${code} seat ${seat}`;
+      if (joinCodeEl)
+        joinCodeEl.value = code;
+      if (readyBtn)
+        readyBtn.hidden = false;
+      if (startBtn)
+        startBtn.hidden = seat !== 0;
+      if (seat === 0 && lastPackHash) {
+        const packed = packedLobbyCfg(lastPackHash);
+        lastCfgHash = packed.cfgHash;
+        lastCfgHex = packed.cfg;
+        signal?.send({ v: 1, t: "cfg", cfg: packed.cfg, cfgHash: packed.cfgHash });
+      }
+    },
+    onRoster(seats) {
+      lastRosterSeats = seats.map((s) => s.seat);
+      if (!rosterEl)
+        return;
+      rosterEl.replaceChildren();
+      for (const s of seats) {
+        const li = document.createElement("li");
+        li.textContent = `P${s.seat + 1} ${s.nick}${s.ready ? " ready" : ""}`;
+        rosterEl.append(li);
+      }
+    },
+    onError(code, msg) {
+      if (lobbyStatus) {
+        lobbyStatus.className = "status err";
+        lobbyStatus.textContent = `${code}: ${msg}`;
+      }
+    },
+    onCfg(cfg, cfgHash) {
+      lastCfgHash = cfgHash;
+      lastCfgHex = cfg;
+    },
+    onStart() {
+      void beginMesh();
+    },
+    onSdp(from, to, desc) {
+      if (to !== mySeat)
+        return;
+      if (mesh)
+        void mesh.handleSdp(from, desc);
+      else
+        pendingSdp.push({ from, desc });
+    },
+    onIce(from, to, cand) {
+      if (to !== mySeat)
+        return;
+      if (mesh)
+        void mesh.handleIce(from, cand);
+      else
+        pendingIce.push({ from, cand });
+    },
+  });
+  signal.connect(defaultSignalUrl());
+  return signal;
+}
+
+createRoomBtn?.addEventListener("click", () => {
+  if (!lastPackHash) {
+    setStatus("err", "Load a ROM first.");
+    return;
+  }
+  const nick = nickEl?.value.trim() || "Player";
+  ensureSignal().send({ v: 1, t: "create", nick, packHash: lastPackHash, region: "U", buildId: BUILD_ID });
+});
+
+joinRoomBtn?.addEventListener("click", () => {
+  if (!lastPackHash) {
+    setStatus("err", "Load a ROM first.");
+    return;
+  }
+  const nick = nickEl?.value.trim() || "Player";
+  const code = (joinCodeEl?.value || "").trim().toUpperCase();
+  ensureSignal().send({ v: 1, t: "join", code, nick, packHash: lastPackHash, region: "U", buildId: BUILD_ID });
+});
+
+readyBtn?.addEventListener("click", () => {
+  lobbyReady = !lobbyReady;
+  ensureSignal().send({ v: 1, t: "ready", seat: mySeat, ready: lobbyReady });
+  readyBtn.textContent = lobbyReady ? "Unready" : "Ready";
+});
+
+startBtn?.addEventListener("click", () => {
+  if (!lastCfgHash) {
+    setStatus("err", "No MatchConfig yet.");
+    return;
+  }
+  if (lastRosterSeats.length < 2) {
+    setStatus("err", "Need two players before Start.");
+    return;
+  }
+  ensureSignal().send({ v: 1, t: "start", cfgHash: lastCfgHash });
+});
+
+async function beginMesh(): Promise<void> {
+  if (mesh)
+    mesh.close();
+  const sig = ensureSignal();
+  mesh = new PeerMesh(
+    mySeat,
+    {
+      sendSdp(to, desc) {
+        if (desc.type === "offer" || desc.type === "answer")
+          sig.send({ v: 1, t: "sdp", from: mySeat, to, desc: { type: desc.type, sdp: desc.sdp || "" } });
+      },
+      sendIce(to, cand) {
+        sig.send({
+          v: 1,
+          t: "ice",
+          from: mySeat,
+          to,
+          cand: { candidate: cand.candidate || "", sdpMid: cand.sdpMid ?? undefined, sdpMLineIndex: cand.sdpMLineIndex ?? undefined },
+        });
+      },
+    },
+    flags.turnForce,
+    (s) => {
+      if (netLock && rttEl) {
+        rttEl.textContent = s;
+        return;
+      }
+      if (lobbyStatus)
+        lobbyStatus.textContent = s;
+    },
+  );
+  mesh.onInp = (_from, data) => {
+    const dg = decodeInputDatagram(data);
+    if (dg)
+      netLock?.ingest(dg.blocks);
+  };
+  mesh.onCtlMsg = (_from, msg) => {
+    if (!netLock)
+      return;
+    if (msg.t === "ck") {
+      const ev = netLock.acceptRemoteCk(msg);
+      if (ev)
+        onLockEvent(ev);
+    } else if (msg.t === "nack") {
+      mesh?.sendInp(encodeInputDatagram(mySeat, netLock.history));
+    } else if (msg.t === "desync") {
+      netLock.desynced = true;
+      netLock.overlay = `DESYNC at tick ${msg.tick}`;
+      onLockEvent({
+        t: "desync",
+        tick: msg.tick,
+        local: netLock.localCk.get(msg.tick) ?? {
+          tick: msg.tick,
+          rng_lo: 0,
+          chr_rng_lo: 0,
+          crc_players: 0,
+          crc_chrs: 0,
+          crc_objectives: 0,
+        },
+        remote: {
+          tick: msg.tick,
+          rng_lo: 0,
+          chr_rng_lo: 0,
+          crc_players: 0,
+          crc_chrs: 0,
+          crc_objectives: 0,
+        },
+      });
+    }
+  };
+  mesh.onInpOpen = () => {
+    if (mesh && netLock?.history.length)
+      mesh.sendInp(encodeInputDatagram(mySeat, netLock.history));
+  };
+  if (mySeat === 0) {
+    for (const seat of lastRosterSeats) {
+      if (seat !== 0)
+        await mesh.offerTo(seat);
+    }
+  }
+  for (const p of pendingSdp)
+    await mesh.handleSdp(p.from, p.desc);
+  pendingSdp.length = 0;
+  for (const p of pendingIce)
+    await mesh.handleIce(p.from, p.cand);
+  pendingIce.length = 0;
+  mesh.startPing();
+  startLockstep();
+  if (lobbyStatus)
+    lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2}. WASD+Z is this seat.`;
+}
+
+function lockEngine(): LockstepEngine {
+  return {
+    beginMatch(nseats, seed) {
+      game?.beginMatch(nseats, seed);
+    },
+    applyTick(tick, pads) {
+      if (!game)
+        return -1;
+      for (let i = 0; i < pads.length; i++)
+        game.setPad(i, pads[i].x, pads[i].y, pads[i].buttons);
+      return game.simTick(tick);
+    },
+    snapshot(tick) {
+      return {
+        tick,
+        rng_lo: game?.rngLo() ?? 0,
+        chr_rng_lo: game?.chrRngLo() ?? 0,
+        crc_players: game?.crcPlayers() ?? 0,
+        crc_chrs: game?.crcChrs() ?? 0,
+        crc_objectives: game?.crcObjectives() ?? 0,
+      };
+    },
+  };
+}
+
+function startLockstep(): void {
+  if (!game?.ready())
+    return;
+  const cfg = lastCfgHex ? decodeMatchConfig(bytesFromHex(lastCfgHex)) : null;
+  const nseats = Math.max(2, lastRosterSeats.length || 0, cfg?.nseats ?? 0);
+  const delay = Math.min(3, Math.max(1, cfg?.delayTicks ?? 2));
+  const seed = cfg?.rngSeed ?? 1;
+  netLock = new LockstepSession(mySeat, nseats, delay, lockEngine());
+  netLock.start(seed);
+  simN = 0;
+  accMs = 0;
+  lastPaint = 0;
+  seenHits = 0;
+  hitMarks.length = 0;
+  checksumLog.length = 0;
+  lastStageNote = `${nseats}P lockstep delay ${delay}. WASD+Z this seat (P${mySeat + 1}).`;
+  setStatus("ok", lastStageNote);
+}
+
+function onLockEvent(ev: LockstepEvent): void {
+  if (ev.t === "ran") {
+    simN = ev.tick + 1;
+    checksumLog.push({
+      tick: ev.tick,
+      rng_lo: ev.ck.rng_lo,
+      chr_rng_lo: ev.ck.chr_rng_lo,
+      crc_players: ev.ck.crc_players,
+      crc_chrs: ev.ck.crc_chrs,
+      crc_objectives: ev.ck.crc_objectives,
+      pads: [],
+    });
+    if (checksumLog.length > 32)
+      checksumLog.splice(0, checksumLog.length - 32);
+    mesh?.sendCtl({
+      t: "ck",
+      tick: ev.ck.tick,
+      rng_lo: ev.ck.rng_lo,
+      chr_rng_lo: ev.ck.chr_rng_lo,
+      crc_players: ev.ck.crc_players,
+      crc_chrs: ev.ck.crc_chrs,
+      crc_objectives: ev.ck.crc_objectives,
+    });
+    if (lobbyStatus && (lobbyStatus.textContent || "").includes("waiting"))
+      lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2}. WASD+Z is this seat.`;
+  } else if (ev.t === "stall") {
+    mesh?.sendCtl({ t: "stall", seat: ev.seat });
+    const t = performance.now();
+    if (t - lastNackAt > 200) {
+      lastNackAt = t;
+      mesh?.sendNack(netLock?.nextTick ?? 0, netLock?.nextTick ?? 0);
+    }
+    if (lobbyStatus)
+      lobbyStatus.textContent = netLock?.overlay ?? "";
+  } else if (ev.t === "drop") {
+    mesh?.sendCtl({ t: "bye" });
+    mesh?.close();
+    if (lobbyStatus)
+      lobbyStatus.textContent = netLock?.overlay ?? "";
+    setStatus("err", netLock?.overlay ?? "peer dropped");
+  } else if (ev.t === "desync") {
+    mesh?.sendCtl({ t: "desync", tick: ev.tick });
+    if (lobbyStatus)
+      lobbyStatus.textContent = netLock?.overlay ?? "";
+    setStatus("err", `${netLock?.overlay ?? "DESYNC"}. Copy the debug report (no ROM).`);
+  } else if (ev.t === "hidden") {
+    mesh?.sendCtl({ t: "stall", seat: mySeat });
+  }
+}
+
+reportBtn?.addEventListener("click", async () => {
+  if (!game?.ready()) return;
+  const json = JSON.stringify(
+    buildReport({
+      buildId: "shell",
+      packHash: lastPackHash,
+      nseats: netLock?.nseats ?? game.playerCount(),
+      seat: mySeat,
+      tick: simN,
+      delayTicks: netLock?.delay ?? 0,
+      checksums: checksumLog.map(({ pads: _p, ...cs }) => cs),
+      tapeExcerpt: encodeTapeExcerpt(
+        game.playerCount(),
+        checksumLog.map((s) => ({ tick: s.tick, pads: s.pads })),
+      ),
+      flags: {
+        netplay: flags.netplay,
+        turnForce: flags.turnForce,
+        wsRelay: flags.wsRelay,
+        widescreen: flags.widescreen,
+      },
+    }),
+    null,
+    2,
+  );
+  try {
+    await navigator.clipboard.writeText(json);
+    setStatus("ok", "Copied silveriris-report/1 (no ROM).");
+  } catch {
+    setStatus("err", "Could not copy debug report.");
+  }
+});
+
+pickBtn.addEventListener("pointerdown", () => {
+  unlockAudio();
+});
+pickBtn.addEventListener("click", () => {
+  void pickRomFile().then((picked) => {
+    if (picked) return ingest(picked.name, picked.bytes);
+  });
+});
+
+dropEl.addEventListener("dragover", (ev) => {
+  ev.preventDefault();
+  dropEl.classList.add("dragover");
+});
+dropEl.addEventListener("dragleave", () => dropEl.classList.remove("dragover"));
+dropEl.addEventListener("drop", async (ev) => {
+  ev.preventDefault();
+  unlockAudio();
+  dropEl.classList.remove("dragover");
+  const file = romFromDrop(ev.dataTransfer);
+  if (!file) return;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  void ingest(file.name, bytes);
+});
+
+void (async () => {
+  try {
+    const hash = await kvGet<string>("lastPackHash");
+    if (!hash) return;
+    const stored = await packGet(hash);
+    if (!stored) return;
+    setStatus("", "Loading pack already in this browser…");
+    await startEngine(new Uint8Array(stored.blob), hash);
+    setStatus(
+      "ok",
+      `Pack ${hash.slice(0, 16)}… from this browser. G1 picture. ${lastStageNote} netplay/campaign off.`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setStatus("", `Pack is in this browser. Engine not started (${msg}).`);
+  }
+})();
+void flags;
