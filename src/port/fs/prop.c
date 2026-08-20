@@ -15,7 +15,12 @@
 #define PORT_MODEL_SEG 5
 #define PORT_MODEL_BASE 0x05000000u
 #define PORT_PAD_BYTES 44
+#define PORT_BOUND_BYTES 68
+#define PORT_BOUND_BASE 10000
 #define PORT_SETUP_PTRS 10
+#define INTRO_SPAWN 0
+#define INTRO_END 9
+#define INTRO_MAX 10
 #define PORT_PROP_NEAR 4000.f
 #define PORT_NODE_MAX 96
 #define PORT_GDL_MAX 512
@@ -70,6 +75,14 @@ static int g_nprop;
 static PortModel g_mdl[PORT_MAX_MODELS];
 static int g_nmdl;
 static int g_drawn;
+static int g_intro_pad = -1;
+static int g_have_intro;
+static float g_intro_pos[3];
+static float g_intro_look[3];
+
+static const uint8_t k_intro_words[INTRO_MAX] = {
+    3, 4, 4, 8, 2, 2, 10, 3, 2, 1,
+};
 
 static const uint8_t k_pdef_words[PDEF_MAX] = {
     1,  64, 2,  32, 33, 32, 0x3b, 0x21, 0x22, 7,  0x40, 0x95, 32, 0x36, 3,
@@ -320,25 +333,110 @@ static float yaw_from_look(float lx, float lz)
     return atan2f(lx, lz) * (180.f / 3.14159265f);
 }
 
+static const uint8_t *pad_bytes(const uint8_t *st, size_t n, uint32_t pad_off,
+                                uint32_t bound_off, int npad, int nbound, int pad)
+{
+    size_t off;
+    if (pad >= PORT_BOUND_BASE) {
+        pad -= PORT_BOUND_BASE;
+        if (pad < 0 || pad >= nbound || !bound_off)
+            return NULL;
+        off = (size_t)bound_off + (size_t)pad * PORT_BOUND_BYTES;
+        if (off + PORT_PAD_BYTES > n)
+            return NULL;
+        return st + off;
+    }
+    /* Negative / attached: no object-parent walk. Facility intro is pad 167. */
+    if (pad < 0 || pad >= npad || !pad_off)
+        return NULL;
+    off = (size_t)pad_off + (size_t)pad * PORT_PAD_BYTES;
+    if (off + PORT_PAD_BYTES > n)
+        return NULL;
+    return st + off;
+}
+
+static void parse_intro(const uint8_t *st, size_t n, uint32_t pad_off, uint32_t bound_off,
+                        int npad, int nbound)
+{
+    uint32_t ioff;
+    const uint8_t *p;
+    int chosen = -1, first = -1;
+
+    g_have_intro = 0;
+    g_intro_pad = -1;
+    if (n < PORT_SETUP_PTRS * 4)
+        return;
+    ioff = be32(st + 8);
+    if (!ioff || ioff >= n)
+        return;
+    p = st + ioff;
+    while (p + 4 <= st + n) {
+        int type = (int)be32(p);
+        uint16_t words;
+        size_t bytes;
+        if (type == INTRO_END)
+            break;
+        if (type < 0 || type >= INTRO_END)
+            break;
+        words = k_intro_words[type];
+        bytes = (size_t)words * 4u;
+        if (p + bytes > st + n)
+            break;
+        if (type == INTRO_SPAWN && bytes >= 12) {
+            int pad = (int)be32(p + 4);
+            int demo = (int)be32(p + 8);
+            if (first < 0)
+                first = pad;
+            if (demo == 0 && chosen < 0)
+                chosen = pad;
+        }
+        p += bytes;
+    }
+    if (chosen < 0)
+        chosen = first;
+    if (chosen >= 0) {
+        const uint8_t *pd = pad_bytes(st, n, pad_off, bound_off, npad, nbound, chosen);
+        if (pd) {
+            g_intro_pad = chosen;
+            g_intro_pos[0] = be_f32(pd);
+            g_intro_pos[1] = be_f32(pd + 4);
+            g_intro_pos[2] = be_f32(pd + 8);
+            g_intro_look[0] = be_f32(pd + 24);
+            g_intro_look[1] = be_f32(pd + 28);
+            g_intro_look[2] = be_f32(pd + 32);
+            g_have_intro = 1;
+        }
+    }
+}
+
 static int parse_setup(const uint8_t *st, size_t n)
 {
-    uint32_t poff, pad_off, pad3_off;
+    uint32_t poff, pad_off, pad3_off, names_off;
     const uint8_t *p;
-    int npad;
+    int npad, nbound;
 
     g_nprop = 0;
+    g_have_intro = 0;
+    g_intro_pad = -1;
     if (n < PORT_SETUP_PTRS * 4)
         return -1;
     poff = be32(st + 12);
     pad_off = be32(st + 24);
     pad3_off = be32(st + 28);
+    names_off = be32(st + 32);
     if (!poff || poff >= n)
         return -1;
     npad = 0;
+    nbound = 0;
     if (pad_off && pad_off < n) {
         size_t end = pad3_off && pad3_off > pad_off && pad3_off <= n ? pad3_off : n;
         npad = (int)((end - pad_off) / PORT_PAD_BYTES);
     }
+    if (pad3_off && pad3_off < n) {
+        size_t end = names_off && names_off > pad3_off && names_off <= n ? names_off : n;
+        nbound = (int)((end - pad3_off) / PORT_BOUND_BYTES);
+    }
+    parse_intro(st, n, pad_off, pad3_off, npad, nbound);
     p = st + poff;
     while (p + 4 <= st + n && g_nprop < PORT_MAX_PROPS) {
         uint8_t type = p[3];
@@ -395,6 +493,8 @@ void port_prop_unload(void)
     g_nprop = 0;
     g_nmdl = 0;
     g_drawn = 0;
+    g_have_intro = 0;
+    g_intro_pad = -1;
 }
 
 int port_prop_load(int level_id)
@@ -431,6 +531,27 @@ int port_prop_count(void) { return g_nprop; }
 int port_prop_models(void) { return g_nmdl; }
 
 int port_prop_drawn(void) { return g_drawn; }
+
+int port_prop_intro_pad(void) { return g_have_intro ? g_intro_pad : -1; }
+
+int port_prop_intro(float pos[3], float look[3], int *pad_out)
+{
+    if (!g_have_intro)
+        return -1;
+    if (pos) {
+        pos[0] = g_intro_pos[0];
+        pos[1] = g_intro_pos[1];
+        pos[2] = g_intro_pos[2];
+    }
+    if (look) {
+        look[0] = g_intro_look[0];
+        look[1] = g_intro_look[1];
+        look[2] = g_intro_look[2];
+    }
+    if (pad_out)
+        *pad_out = g_intro_pad;
+    return 0;
+}
 
 int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                          const float *room_xyz, int nrooms, const uint8_t *room_ids)

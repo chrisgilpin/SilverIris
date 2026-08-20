@@ -65,7 +65,11 @@ stage setup (`UsetuparkZ`), walks PROPDEF_DOOR / PROP / glass, loads
 them at the pad with look-yaw through the same clip/SETTEX path.
 Rooms without a setup stay bit-identical on the greyscale G1 hash.
 Native tests prove a magenta door GDL at a known pad, a Rare node
-tree, far-pad cull, and empty-setup hash stability. No door
+tree, far-pad cull, and empty-setup hash stability. The player now
+spawns at the setup intro pad (first INTROTYPE_SPAWN with demo=0;
+10000+ remaps onto boundpads) so the first frame is that corridor,
+not room-1 origin. Proof: player x/z/θ match the pad (0.01 / 0.1°)
+and a nearby door still draws. No door
 open/close, no guards, no weapons. No retail texels in git. Campaign
 is not v1. Title boot is not in this build.
 

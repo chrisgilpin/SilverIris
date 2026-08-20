@@ -35,6 +35,7 @@ int port_stage_rooms_walked(void);
 int port_stage_prop_count(void);
 int port_stage_prop_models(void);
 int port_stage_props_drawn(void);
+int port_stage_intro_pad(void);
 int port_stage_draw(void);
 const uint8_t *port_stage_bg(size_t *size_out);
 const uint8_t *port_stage_stan(size_t *size_out);

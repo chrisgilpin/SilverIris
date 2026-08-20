@@ -12,6 +12,7 @@
 #define PORT_ENV_PLAYERS_4 400
 
 void port_player_spawn(void);
+void port_player_set_pose(float x, float y, float z, float theta);
 void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons);
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons);
 void port_get_local_pad(int8_t *x, int8_t *y, uint16_t *buttons);

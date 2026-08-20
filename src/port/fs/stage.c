@@ -11,6 +11,7 @@
 
 #include "../../overrides/lv_clock.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -476,6 +477,24 @@ int port_stage_load(int level_id)
     port_rng_on_stage_load();
     port_player_spawn();
     port_prop_load(level_id);
+    {
+        float pos[3], look[3];
+        if (g_bg_rooms >= 1 && port_prop_intro(pos, look, NULL) == 0) {
+            float lx = look[0], lz = look[2], th;
+            float x = pos[0] - g_rm[1].pos[0];
+            float y = pos[1] - g_rm[1].pos[1];
+            float z = pos[2] - g_rm[1].pos[2];
+            if (lx * lx + lz * lz < 1e-8f)
+                th = 0.f;
+            else {
+                /* G1 / port theta=0 faces -Z: forward=(sin θ, -cos θ). */
+                th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+                if (th < 0.f)
+                    th += 360.f;
+            }
+            port_player_set_pose(x, y, z, th);
+        }
+    }
     return PORT_STAGE_OK;
 }
 
@@ -504,6 +523,8 @@ int port_stage_prop_count(void) { return port_prop_count(); }
 int port_stage_prop_models(void) { return port_prop_models(); }
 
 int port_stage_props_drawn(void) { return port_prop_drawn(); }
+
+int port_stage_intro_pad(void) { return port_prop_intro_pad(); }
 
 static int pick_current_room(void)
 {

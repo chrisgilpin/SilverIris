@@ -239,6 +239,22 @@ void port_player_spawn(void)
     port_score_reset();
 }
 
+void port_player_set_pose(float x, float y, float z, float theta)
+{
+    int i;
+    while (theta < 0.0f)
+        theta += 360.0f;
+    while (theta >= 360.0f)
+        theta -= 360.0f;
+    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
+        g_p[i].x = x + k_spawn_x[i];
+        g_p[i].y = y;
+        g_p[i].z = z + k_spawn_z[i];
+        g_p[i].theta = theta;
+        g_p[i].spawned = 1;
+    }
+}
+
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons)
 {
     if (seat < 0 || seat >= PORT_MAX_PLAYERS)

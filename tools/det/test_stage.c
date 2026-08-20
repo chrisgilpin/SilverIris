@@ -2424,6 +2424,155 @@ static int test_prop_door_far_culled(void)
                          "prop_door_far");
 }
 
+/* Player x/z/θ must match the intro pad (room-1 local = world when room1 is
+ * origin). Epsilon: 0.01 world units, 0.1 degrees. */
+#define INTRO_EPS_XZ 0.01f
+#define INTRO_EPS_TH 0.1f
+#define PORT_PAD_OFF 44
+
+static int near_f(float a, float b, float eps)
+{
+    float d = a - b;
+    if (d < 0.f)
+        d = -d;
+    return d <= eps;
+}
+
+static void wr_intro_spawn(uint8_t *p, int pad, int demo)
+{
+    wr_be32(p, 0); /* INTROTYPE_SPAWN */
+    wr_be32(p + 4, (uint32_t)pad);
+    wr_be32(p + 8, (uint32_t)demo);
+}
+
+static void wr_intro_end(uint8_t *p)
+{
+    wr_be32(p, 9); /* INTROTYPE_END */
+}
+
+static void build_intro_door_setup(uint8_t *st, int spawn_pad, float sx, float sy,
+                                   float sz, float slx, float slz, float dx,
+                                   float dy, float dz)
+{
+    uint32_t intro = 0x28;
+    uint32_t defs = intro + 16;
+    uint32_t end = defs + 256;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 8, intro);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_intro_spawn(st + intro, spawn_pad, 0);
+    wr_intro_end(st + intro + 12);
+    wr_door_header(st + defs, 158, 1);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, sx, sy, sz, slx, 0.f, slz);
+    wr_pad(st + pads + PORT_PAD_OFF, dx, dy, dz, slx, 0.f, slz);
+}
+
+static void build_intro_bound_setup(uint8_t *st, float sx, float sy, float sz,
+                                    float slx, float slz, float dx, float dy,
+                                    float dz)
+{
+    uint32_t intro = 0x28;
+    uint32_t defs = intro + 16;
+    uint32_t end = defs + 256;
+    uint32_t pads = end + 4;
+    uint32_t bound = pads + PORT_PAD_OFF;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 8, intro);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_be32(st + 28, bound);
+    wr_intro_spawn(st + intro, 10000, 0);
+    wr_intro_end(st + intro + 12);
+    wr_door_header(st + defs, 158, 0);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, dx, dy, dz, slx, 0.f, slz);
+    wr_pad(st + bound, sx, sy, sz, slx, 0.f, slz);
+}
+
+static int run_intro_pack(const uint8_t *setup, const uint8_t *model, int want_pad,
+                          float want_x, float want_z, float want_th,
+                          unsigned min_mag, const char *tag)
+{
+    uint8_t bg[BG_SIZE], stan[256];
+    C0File files[4];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    unsigned mag;
+    float x, z, th;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    build_g1dl_bg(bg);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = PROP_SETUP_SIZE;
+    files[3].path = PROP_MDL_PATH;
+    files[3].bytes = model;
+    files[3].size = PROP_MODEL_SIZE;
+    if (c0pack_build(files, 4, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("intro pack build");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("intro port_api init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("intro stage load");
+    if (port_stage_intro_pad() != want_pad)
+        return fail("intro pad index");
+    x = port_api_player_x();
+    z = port_api_player_z();
+    th = port_api_player_theta();
+    if (!near_f(x, want_x, INTRO_EPS_XZ) || !near_f(z, want_z, INTRO_EPS_XZ) ||
+        !near_f(th, want_th, INTRO_EPS_TH)) {
+        fprintf(stderr, "FAIL: %s pose got x=%.4f z=%.4f th=%.4f want %.4f %.4f %.4f\n",
+                tag, x, z, th, want_x, want_z, want_th);
+        return 1;
+    }
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("intro last_draw");
+    if (port_stage_props_drawn() != 1)
+        return fail("intro door not drawn");
+    mag = count_magenta();
+    if (mag < min_mag)
+        return fail("intro magenta");
+    printf("%s pad=%d x=%.3f z=%.3f th=%.3f drawn=%d magenta=%u eps_xz=%.2f eps_th=%.1f\n",
+           tag, port_stage_intro_pad(), x, z, th, port_stage_props_drawn(), mag,
+           INTRO_EPS_XZ, INTRO_EPS_TH);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
+static int test_intro_spawn_pad(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    /* look -X → port θ=270 (G1 forward = (sin θ, -cos θ)). */
+    build_intro_door_setup(st, 0, 100.f, 40.f, -200.f, -1.f, 0.f, 20.f, 40.f,
+                           -200.f);
+    build_magenta_g1dl_model(mdl);
+    return run_intro_pack(st, mdl, 0, 100.f, -200.f, 270.f, 80, "intro_spawn_pad");
+}
+
+static int test_intro_spawn_bound(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    /* Bound pad 10000 → boundpads[0]. look -Z → port θ=0. */
+    build_intro_bound_setup(st, 80.f, 40.f, -150.f, 0.f, -1.f, 80.f, 40.f,
+                            -280.f);
+    build_magenta_g1dl_model(mdl);
+    return run_intro_pack(st, mdl, 10000, 80.f, -150.f, 0.f, 80,
+                          "intro_spawn_bound");
+}
+
 
 int main(int argc, char **argv)
 {
@@ -2703,6 +2852,10 @@ int main(int argc, char **argv)
     if (test_prop_door_rare_nodes() != 0)
         return 1;
     if (test_prop_door_far_culled() != 0)
+        return 1;
+    if (test_intro_spawn_pad() != 0)
+        return 1;
+    if (test_intro_spawn_bound() != 0)
         return 1;
     return 0;
 }
