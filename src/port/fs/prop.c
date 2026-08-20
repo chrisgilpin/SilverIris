@@ -45,6 +45,12 @@
 #define PDEF_TINTED 47
 #define PDEF_END 48
 #define PDEF_MAX 49
+#define DOORTYPE_SLIDING 0
+#define DOORTYPE_VERTICAL 4
+#define DOORTYPE_SWINGING 5
+#define PORT_DOOR_OPEN_YAW 90.f
+#define PORT_DOOR_SLIDE 180.f
+#define PORT_DOOR_HALF_W 90.f
 
 #define PI_F 3.14159265f
 
@@ -89,6 +95,8 @@ typedef struct {
     float look[3];
     float scale;
     float yaw;
+    int door_type;
+    float max_frac;
     PortModel *mdl;
     PortModel *head;
     float head_off[3];
@@ -750,6 +758,11 @@ static int parse_setup(const uint8_t *st, size_t n)
                 const PortPropCat *cat = cat_by_id(model);
                 fill_pad_prop(pr, type, model, pad, pd,
                               (extra ? (float)extra / 256.f : 1.f) * (cat ? cat->scale : 1.f));
+                if (type == PDEF_DOOR && bytes >= 0x9c) {
+                    /* Rare 16.16 at 0x84; doorType u16 at 0x9a. */
+                    pr->max_frac = (float)(int32_t)be32(p + 0x84) / 65536.f;
+                    pr->door_type = (int)be16(p + 0x9a);
+                }
                 pr->mdl = load_model(model);
                 if (pr->mdl)
                     g_nprop++;
@@ -906,7 +919,8 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 
 static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const PortModel *mdl,
                       const float room1[3], float extra_x, float extra_y, float extra_z,
-                      float extra_rx, float extra_ry, float extra_rz)
+                      float extra_rx, float extra_ry, float extra_rz, float add_yaw,
+                      float wdx, float wdy, float wdz)
 {
     int p;
     float th, c, s;
@@ -939,10 +953,10 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].pri_n = pt->pri_n;
         out[k].sec = pt->sec;
         out[k].sec_n = pt->sec_n;
-        out[k].ox = pr->pos[0] - room1[0] + wx;
-        out[k].oy = pr->pos[1] - room1[1] + ly;
-        out[k].oz = pr->pos[2] - room1[2] + wz;
-        out[k].yaw = pr->yaw;
+        out[k].ox = pr->pos[0] - room1[0] + wx + wdx;
+        out[k].oy = pr->pos[1] - room1[1] + ly + wdy;
+        out[k].oz = pr->pos[2] - room1[2] + wz + wdz;
+        out[k].yaw = pr->yaw + add_yaw;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
         out[k].rx = rx;
@@ -951,6 +965,63 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         k++;
     }
     return k;
+}
+
+/*
+ * Instant open pose from pad + Rare doorType. Facility start doors
+ * (UsetuparkZ index 32+, pads 66+) are DOORTYPE_SWINGING / maxFrac=90.
+ * Hinge is pad + HALF_W along look-tangent (not boundpad bbox). Swing
+ * sign is away from the player recorded at use. Sliding parks along
+ * that tangent by 2*HALF_W. Vertical lifts. No accel / clip-to-bbox.
+ */
+static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float *dy,
+                           float *dz)
+{
+    float lx = pr->look[0], lz = pr->look[2];
+    float len = sqrtf(lx * lx + lz * lz);
+    float nx, nz, tx, tz, hw = PORT_DOOR_HALF_W;
+    int side = port_stan_door_side_at(pr->pos[0], pr->pos[2]);
+    int dtype = pr->door_type;
+
+    *add_yaw = *dx = *dy = *dz = 0.f;
+    if (len < 1e-4f) {
+        nx = 0.f;
+        nz = 1.f;
+    } else {
+        nx = lx / len;
+        nz = lz / len;
+    }
+    tx = -nz;
+    tz = nx;
+
+    if (dtype == DOORTYPE_SLIDING) {
+        float s = (side >= 0) ? 1.f : -1.f;
+        *dx = tx * PORT_DOOR_SLIDE * s;
+        *dz = tz * PORT_DOOR_SLIDE * s;
+        return;
+    }
+    if (dtype == DOORTYPE_VERTICAL) {
+        *dy = PORT_DOOR_SLIDE;
+        return;
+    }
+    /* SWINGING and every other type: 90° around the +T hinge. */
+    {
+        float ang = (side > 0) ? PORT_DOOR_OPEN_YAW : -PORT_DOOR_OPEN_YAW;
+        float th, c, s, relx, relz, rx, rz;
+        if (pr->max_frac > 1.f && pr->max_frac <= 180.f)
+            ang = (ang < 0.f) ? -pr->max_frac : pr->max_frac;
+        th = ang * (PI_F / 180.f);
+        c = cosf(th);
+        s = sinf(th);
+        /* H = P + hw T; new = H + R*(P-H); delta = hw T - R*(hw T). */
+        relx = hw * tx;
+        relz = hw * tz;
+        rx = c * relx + s * relz;
+        rz = -s * relx + c * relz;
+        *dx = relx - rx;
+        *dz = relz - rz;
+        *add_yaw = ang;
+    }
 }
 
 int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
@@ -962,17 +1033,19 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
         return 0;
     for (i = 0; i < g_nprop && k < cap; i++) {
         PortProp *pr = &g_prop[i];
+        float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
         if (!pr->mdl || pr->mdl->npart == 0)
-            continue;
-        /* Open door: unlatch. No swing pose in this slice — hide the slab. */
-        if (pr->type == PDEF_DOOR && port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
             continue;
-        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+        if (pr->type == PDEF_DOOR && port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
+            door_open_pose(pr, &add_yaw, &odx, &ody, &odz);
+        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                       add_yaw, odx, ody, odz);
         if (pr->head && pr->head->npart)
             k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0], pr->head_off[1],
-                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz);
+                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz, add_yaw,
+                           odx, ody, odz);
     }
     g_drawn = k;
     return k;

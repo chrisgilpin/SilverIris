@@ -33,6 +33,8 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
 void port_stan_set_door_open(int i, int open);
 int port_stan_door_is_open(int i);
 int port_stan_door_is_open_at(float world_x, float world_z);
+/* Last use: +1 player was on +look, -1 on -look, 0 never used. */
+int port_stan_door_side_at(float world_x, float world_z);
 
 /* Room-local xz. Returns 0 and writes floor+eye (room-local) if a tile owns xz. */
 int port_stan_eye_y(float local_x, float local_z, float *y_out);

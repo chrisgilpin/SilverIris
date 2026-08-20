@@ -1607,6 +1607,27 @@ static unsigned count_magenta(void)
     return n;
 }
 
+static unsigned magenta_centroid_x(float *cx)
+{
+    const uint8_t *fb = g1_fb_rgba();
+    double sx = 0.0;
+    unsigned n = 0;
+    int x, y;
+    for (y = 0; y < G1_FB_H; y++) {
+        for (x = 0; x < G1_FB_W; x++) {
+            int i = y * G1_FB_W + x;
+            unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+            if (r > 180 && g < 50 && b > 180) {
+                sx += (double)x;
+                n++;
+            }
+        }
+    }
+    if (cx)
+        *cx = n ? (float)(sx / (double)n) : 0.f;
+    return n;
+}
+
 static void build_two_room_bg(uint8_t *bg, int with_portal)
 {
     Vtx vtx[3];
@@ -2221,6 +2242,13 @@ static void wr_door_header(uint8_t *p, int model, int pad)
     wr_be32(p, 0x01000001u);
     wr_be16(p + 4, (uint16_t)model);
     wr_be16(p + 6, (uint16_t)pad);
+}
+
+static void wr_door_swing(uint8_t *p, int model, int pad)
+{
+    wr_door_header(p, model, pad);
+    wr_be32(p + 0x84, 0x005a0000u); /* maxFrac 90 in Rare 16.16 */
+    wr_be16(p + 0x9a, 5);           /* DOORTYPE_SWINGING */
 }
 
 static void wr_guard_header(uint8_t *p, int pad, int body)
@@ -2864,6 +2892,207 @@ static int test_stan_floor_walk(void)
     return 0;
 }
 
+
+static void build_thick_magenta_door(uint8_t *m)
+{
+    Vtx vtx[3];
+    int i, ngfx;
+    uint32_t vtx_off;
+    memset(m, 0, PROP_MODEL_SIZE);
+    wr_be32(m, PORT_BG_MAGIC_G1DL);
+    memset(vtx, 0, sizeof vtx);
+    /* Thickness in Z so a 90° yaw is not a zero-area edge-on sliver. */
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = 0;
+    vtx[0].v.ob[2] = -25;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = 0;
+    vtx[1].v.ob[2] = 25;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 180;
+    vtx[2].v.ob[2] = 0;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+    }
+    ngfx = 0;
+    vtx_off = 4 + 24;
+    wr_be32(m + 4 + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(m + 4 + ngfx * 8 + 4, 0x05000000u | vtx_off);
+    ngfx++;
+    wr_be32(m + 4 + ngfx * 8, 0xB1000002u);
+    wr_be32(m + 4 + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(m + 4 + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(m + 4 + ngfx * 8 + 4, 0);
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(m + vtx_off + (size_t)i * 16, &vtx[i]);
+}
+
+static void build_intro_swing_door(uint8_t *st, float sx, float sy, float sz,
+                                   float slx, float slz, float dx, float dy,
+                                   float dz, float dlx, float dlz)
+{
+    uint32_t intro = 0x28;
+    uint32_t defs = intro + 16;
+    uint32_t end = defs + 256;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 8, intro);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_intro_spawn(st + intro, 0, 0);
+    wr_intro_end(st + intro + 12);
+    wr_door_swing(st + defs, 158, 1);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, sx, sy, sz, slx, 0.f, slz);
+    wr_pad(st + pads + PORT_PAD_OFF, dx, dy, dz, dlx, 0.f, dlz);
+}
+
+/* Closed slab still blocks at x=300; Z parks the GDL (pixels remain, centroid
+ * moves); walk-through works; reclose restores block + closed pixels. */
+static int test_door_open_pose(void)
+{
+    uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    C0File files[4];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y, x1, cx_closed, cx_open, cx_re;
+    unsigned mag_closed, mag_open, mag_re;
+    int i;
+
+    build_g1dl_bg(bg);
+    build_corridor_stan_stage(stan, sizeof stan);
+    build_intro_swing_door(setup, 200.f, 50.f, 0.f, 1.f, 0.f, 300.f, 50.f, 0.f,
+                           1.f, 0.f);
+    build_thick_magenta_door(mdl);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    files[3].path = PROP_MDL_PATH;
+    files[3].bytes = mdl;
+    files[3].size = sizeof mdl;
+    if (c0pack_build(files, 4, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("open-pose pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("open-pose init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("open-pose load");
+    if (port_stage_prop_count() != 1)
+        return fail("open-pose door count");
+    if (port_stan_door_count() != 1 || port_stan_door_is_open(0))
+        return fail("open-pose starts closed");
+    y = port_api_player_y();
+
+    /* Closed: walk +X stops short of the slab at 300 (half_t=15). */
+    port_player_set_pose(200.f, y, 0.f, 90.f);
+    port_api_set_pad(0, 0, -70, 0);
+    for (i = 0; i < 80; i++) {
+        if (port_api_sim_tick((uint32_t)(900 + i)) != 0)
+            return fail("open-pose closed tick");
+    }
+    x1 = port_api_player_x();
+    if (x1 >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "open-pose closed leaked x=%g\n", (double)x1);
+        return fail("open-pose closed block");
+    }
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_draw();
+    mag_closed = magenta_centroid_x(&cx_closed);
+    if (mag_closed < 20)
+        return fail("open-pose closed pixels");
+    printf("door_open_pose closed x=%.1f mag=%u cx=%.1f drawn=%d\n", (double)x1,
+           mag_closed, (double)cx_closed, port_stage_props_drawn());
+
+    /* Face +X and press Z. */
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_set_pad(0, 0, 0, 0);
+    if (port_api_sim_tick(1000) != 0)
+        return fail("open-pose face idle");
+    port_api_set_pad(0, 0, 0, 0x2000);
+    if (port_api_sim_tick(1001) != 0)
+        return fail("open-pose face z");
+    if (!port_stan_door_is_open(0))
+        return fail("open-pose did not open");
+
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_draw();
+    if (port_stage_props_drawn() < 1)
+        return fail("open-pose hidden");
+    mag_open = magenta_centroid_x(&cx_open);
+    if (mag_open < 20) {
+        fprintf(stderr, "open-pose vanished mag=%u\n", mag_open);
+        return fail("open-pose open pixels");
+    }
+    if (fabsf(cx_open - cx_closed) < 8.f) {
+        fprintf(stderr, "open-pose centroid stuck closed=%.1f open=%.1f mag=%u\n",
+                (double)cx_closed, (double)cx_open, mag_open);
+        return fail("open-pose pixels not offset");
+    }
+
+    port_player_set_pose(200.f, y, 0.f, 90.f);
+    port_api_set_pad(0, 0, -70, 0);
+    for (i = 0; i < 80; i++) {
+        if (port_api_sim_tick((uint32_t)(1010 + i)) != 0)
+            return fail("open-pose walk tick");
+    }
+    x1 = port_api_player_x();
+    if (x1 <= 300.0f) {
+        fprintf(stderr, "open-pose still blocked x=%g\n", (double)x1);
+        return fail("open-pose walk");
+    }
+    printf("door_open_pose open x=%.1f mag=%u cx=%.1f drawn=%d\n", (double)x1, mag_open,
+           (double)cx_open, port_stage_props_drawn());
+
+    /* Second Z closes. */
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_set_pad(0, 0, 0, 0);
+    if (port_api_sim_tick(1100) != 0)
+        return fail("open-pose close idle");
+    port_api_set_pad(0, 0, 0, 0x2000);
+    if (port_api_sim_tick(1101) != 0)
+        return fail("open-pose close z");
+    if (port_stan_door_is_open(0))
+        return fail("open-pose did not close");
+
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_draw();
+    mag_re = magenta_centroid_x(&cx_re);
+    if (mag_re < 20)
+        return fail("open-pose reclose pixels");
+    if (fabsf(cx_re - cx_closed) > 6.f) {
+        fprintf(stderr, "open-pose reclose cx=%.1f want ~%.1f\n", (double)cx_re,
+                (double)cx_closed);
+        return fail("open-pose reclose pixels drifted");
+    }
+
+    port_player_set_pose(200.f, y, 0.f, 90.f);
+    port_api_set_pad(0, 0, -70, 0);
+    for (i = 0; i < 80; i++) {
+        if (port_api_sim_tick((uint32_t)(1110 + i)) != 0)
+            return fail("open-pose reclose tick");
+    }
+    x1 = port_api_player_x();
+    if (x1 >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "open-pose reclose leaked x=%g\n", (double)x1);
+        return fail("open-pose reclose block");
+    }
+    printf("door_open_pose reclosed x=%.1f mag=%u cx=%.1f\n", (double)x1, mag_re,
+           (double)cx_re);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -3156,6 +3385,8 @@ int main(int argc, char **argv)
     if (test_intro_spawn_bound() != 0)
         return 1;
     if (test_stan_floor_walk() != 0)
+        return 1;
+    if (test_door_open_pose() != 0)
         return 1;
     return 0;
 }

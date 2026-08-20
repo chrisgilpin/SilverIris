@@ -27,6 +27,7 @@ typedef struct {
 typedef struct {
     float x, z, nx, nz, tx, tz;
     int open;
+    int side;
 } StanDoor;
 
 static StanTile g_tile[PORT_STAN_MAX_TILES];
@@ -101,6 +102,7 @@ void port_stan_add_door(float world_x, float world_z, float look_x, float look_z
     d->tx = -d->nz;
     d->tz = d->nx;
     d->open = 0;
+    d->side = 0;
 }
 
 int port_stan_door_is_open(int i)
@@ -125,6 +127,18 @@ int port_stan_door_is_open_at(float world_x, float world_z)
         float dz = world_z - g_door[i].z;
         if (dx * dx + dz * dz <= 1.0f)
             return g_door[i].open;
+    }
+    return 0;
+}
+
+int port_stan_door_side_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = world_x - g_door[i].x;
+        float dz = world_z - g_door[i].z;
+        if (dx * dx + dz * dz <= 1.0f)
+            return g_door[i].side;
     }
     return 0;
 }
@@ -166,6 +180,11 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
     }
     if (best < 0)
         return 0;
+    if (!g_door[best].open) {
+        float along = (wx - g_door[best].x) * g_door[best].nx +
+                      (wz - g_door[best].z) * g_door[best].nz;
+        g_door[best].side = (along >= 0.0f) ? 1 : -1;
+    }
     g_door[best].open = !g_door[best].open;
     return 1;
 }
