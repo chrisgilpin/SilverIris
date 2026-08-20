@@ -11,6 +11,7 @@ WorkingDirectory=/home/grok/GoldenEye/services/signal
 Environment=HOME=/home/grok
 Environment=HOST=127.0.0.1
 Environment=PORT=18787
+EnvironmentFile=-/etc/silveriris/turn.env
 # Bind localhost only — nginx proxies /ws and /api here. Do not use 0.0.0.0.
 ExecStart=/usr/bin/node src/server.js
 Restart=always

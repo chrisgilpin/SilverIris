@@ -8,8 +8,29 @@ services:
     environment:
       PORT: "18787"
       HOST: "0.0.0.0"
+      TURN_AUTH_SECRET: ${TURN_AUTH_SECRET:-}
+      TURN_HOST: ${TURN_HOST:-localhost}
     ports:
       - "18787:18787"
+  turn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49152
+      - --max-port=49200
+      - --fingerprint
+      - --lt-cred-mech
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_AUTH_SECRET:-}
+      - --realm=${TURN_HOST:-localhost}
+      - --no-cli
+      - --no-multicast-peers
+      - --no-rfc5780
+    depends_on:
+      - signal
   caddy:
     image: caddy:2-alpine
     volumes:

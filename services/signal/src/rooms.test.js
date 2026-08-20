@@ -137,6 +137,10 @@ test("relay before start is rejected; after start is forwarded", () => {
   st.onMessage(host, JSON.stringify({ v: 1, t: "start", cfgHash }));
   guest.inbox.length = 0;
   st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: "aabb" }));
+  assert.equal(host.inbox.at(-1).code, "BAD_CFG");
+  st.onMessage(host, JSON.stringify({ v: 1, t: "ice_fail" }));
+  guest.inbox.length = 0;
+  st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: "aabb" }));
   const rel = guest.inbox.find((m) => m.t === "relay");
   assert.equal(rel.kind, "inp");
   assert.equal(rel.data, "aabb");
@@ -164,6 +168,7 @@ test("relay rate-limit is 64KB/s per room", () => {
   const cfgHash = createHash("sha256").update(good).digest("hex");
   st.onMessage(host, JSON.stringify({ v: 1, t: "cfg", cfg: cfgHex, cfgHash }));
   st.onMessage(host, JSON.stringify({ v: 1, t: "start", cfgHash }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "ice_fail" }));
   const payload = "ab".repeat(400);
   let limited = false;
   for (let i = 0; i < 120; i++) {
@@ -174,4 +179,53 @@ test("relay rate-limit is 64KB/s per room", () => {
     }
   }
   assert.equal(limited, true);
+});
+
+test("created/joined mint room-scoped TURN when secret is set", () => {
+  const st = createStore({ turnSecret: "unit-test-turn-secret-not-for-prod", turnHost: "007.goodhouseinc.com" });
+  const host = client();
+  const guest = client();
+  st.onMessage(host, JSON.stringify({ v: 1, t: "create", nick: "H", packHash: HASH, region: "U", buildId: BUILD }));
+  const created = host.inbox.find((m) => m.t === "created");
+  assert.ok(created.turn);
+  assert.ok(created.turn.username.endsWith(`:${created.code}`));
+  assert.ok(created.turn.credential);
+  assert.ok(created.turn.urls.some((u) => u.includes("3478")));
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "join", code: created.code, nick: "G", packHash: HASH, region: "U", buildId: BUILD }));
+  const joined = guest.inbox.find((m) => m.t === "joined");
+  assert.ok(joined.turn);
+  assert.equal(joined.turn.username.split(":")[1], created.code);
+});
+
+test("no secret means no TURN blob (never a static password)", () => {
+  const st = createStore({ turnSecret: "" });
+  const host = client();
+  st.onMessage(host, JSON.stringify({ v: 1, t: "create", nick: "H", packHash: HASH, region: "U", buildId: BUILD }));
+  const created = host.inbox.find((m) => m.t === "created");
+  assert.equal(created.turn, undefined);
+});
+
+test("ice_ok and ice_fail increment metrics; ws_relay_used after ice_fail", () => {
+  const st = createStore();
+  const host = client();
+  const guest = client();
+  st.onMessage(host, JSON.stringify({ v: 1, t: "create", nick: "H", packHash: HASH, region: "U", buildId: BUILD }));
+  const code = host.inbox.find((m) => m.t === "created").code;
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "join", code, nick: "G", packHash: HASH, region: "U", buildId: BUILD }));
+  const good = Buffer.alloc(160);
+  good.writeUInt16LE(1, 0);
+  good[3] = 2;
+  good[4] = 2;
+  good[5] = 3;
+  const cfgHex = good.toString("hex");
+  const cfgHash = createHash("sha256").update(good).digest("hex");
+  st.onMessage(host, JSON.stringify({ v: 1, t: "cfg", cfg: cfgHex, cfgHash }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "start", cfgHash }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "ice_ok", path: "srflx" }));
+  st.onMessage(guest, JSON.stringify({ v: 1, t: "ice_fail" }));
+  st.onMessage(host, JSON.stringify({ v: 1, t: "relay", kind: "inp", data: "abcd" }));
+  const m = st.metrics();
+  assert.equal(m.ice_ok_srflx, 1);
+  assert.equal(m.ice_fail, 1);
+  assert.equal(m.ws_relay_used, 1);
 });

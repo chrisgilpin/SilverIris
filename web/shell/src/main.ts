@@ -73,6 +73,8 @@ let lastCfgHash = "";
 let lastRosterSeats: number[] = [];
 let mesh: PeerMesh | null = null;
 let lastCfgHex = "";
+let lastTurn: { username: string; credential: string } | null = null;
+let iceFailSent = false;
 let netLock: LockstepSession | null = null;
 let lastNackAt = 0;
 const pendingSdp: Array<{ from: number; desc: { type: "offer" | "answer"; sdp: string } }> = [];
@@ -475,18 +477,43 @@ function meshNeedsRelay(): boolean {
   return !mesh || !mesh.meshFullyUp();
 }
 
+function shouldWsRelay(): boolean {
+  return flags.wsRelay || meshNeedsRelay();
+}
+
+function declareIceFail(): void {
+  if (iceFailSent)
+    return;
+  iceFailSent = true;
+  signal?.send({ v: 1, t: "ice_fail" });
+  void postIceMetric("ice_fail");
+}
+
+function postIceMetric(name: string): void {
+  const body: Record<string, number> = { [name]: 1 };
+  void fetch("/api/m", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => undefined);
+}
+
 function sendInpAll(buf: Uint8Array): void {
   if (mesh)
     mesh.sendInp(buf);
-  if (meshNeedsRelay())
+  if (shouldWsRelay()) {
+    declareIceFail();
     signal?.send({ v: 1, t: "relay", from: mySeat, kind: "inp", data: hexBytes(buf) });
+  }
 }
 
 function sendCtlAll(msg: CtlMsg): void {
   if (mesh)
     mesh.sendCtl(msg);
-  if (meshNeedsRelay())
+  if (shouldWsRelay()) {
+    declareIceFail();
     signal?.send({ v: 1, t: "relay", from: mySeat, kind: "ctl", data: JSON.stringify(msg) });
+  }
 }
 
 function handleCtl(from: number, msg: CtlMsg): void {
@@ -604,6 +631,10 @@ function ensureSignal(): SignalClient {
       else
         pendingIce.push({ from, cand });
     },
+    onTurn(turn) {
+      if (turn.username && turn.credential)
+        lastTurn = { username: turn.username, credential: turn.credential };
+    },
     onRelay(from, kind, data) {
       if (from === mySeat)
         return;
@@ -665,6 +696,7 @@ startBtn?.addEventListener("click", () => {
 });
 
 async function beginMesh(): Promise<void> {
+  iceFailSent = false;
   if (mesh)
     mesh.close();
   const sig = ensureSignal();
@@ -694,6 +726,7 @@ async function beginMesh(): Promise<void> {
       if (lobbyStatus)
         lobbyStatus.textContent = s;
     },
+    lastTurn,
   );
   mesh.onInp = (_from, data) => {
     const dg = decodeInputDatagram(data);
@@ -701,6 +734,10 @@ async function beginMesh(): Promise<void> {
       netLock?.ingest(dg.blocks);
   };
   mesh.onCtlMsg = (from, msg) => handleCtl(from, msg);
+  mesh.onIcePath = (path) => {
+    signal?.send({ v: 1, t: "ice_ok", path });
+    void postIceMetric(`ice_ok_${path}`);
+  };
   mesh.onInpOpen = () => {
     if (netLock)
       netLock.markLinked();

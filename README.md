@@ -42,7 +42,7 @@ Design:
 | `web/shell/` | Browser UI (later) |
 | `native/` | Developer/CI host only — not a public desktop player |
 | `tools/guard/` | No-ROM / no-asset scanner |
-| `services/` | Signaling + Caddy + coturn (later) |
+| `services/` | Signaling + Caddy + coturn |
 
 Decomp C is compiled by path from the submodule. Do not copy `src/game` into
 this tree.
@@ -86,7 +86,7 @@ If the host disconnects, the match ends. A guest that goes silent after the
 mesh (or the signal WebSocket relay) has carried input stalls for 350 ms,
 then the match ends after 10 s (v1 does not drop to 3 mid-sim). If WebRTC
 never opens, the overlay says the peers could not connect — not that someone
-left. Same-origin `/ws` relays `inp`/`ctl` after Start so Chrome+Safari or
+left. This box runs coturn (STUN/TURN on 3478) with ephemeral room-scoped creds — no open TURN. Same-origin `/ws` relays `inp`/`ctl` after Start when ICE fails so Chrome+Safari or
 two tabs on one Mac still lockstep when ICE is blocked (Safari private,
 no TURN). Two Chrome tabs is the reliable same-machine test; Safari private
 often shows an Apple privacy banner and gathers only `.local` host

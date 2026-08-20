@@ -1,9 +1,18 @@
+export type TurnIce = {
+  urls: string[];
+  username: string;
+  credential: string;
+  ttl?: number;
+};
+
 export type SignalMsg =
   | { v: 1; t: "hello"; proto: 1 }
   | { v: 1; t: "create"; nick: string; packHash: string; region: "U" | "J" | "E"; buildId: string }
-  | { v: 1; t: "created"; code: string; seat: 0 }
+  | { v: 1; t: "created"; code: string; seat: 0; turn?: TurnIce }
   | { v: 1; t: "join"; code: string; nick: string; packHash: string; region: "U" | "J" | "E"; buildId: string }
-  | { v: 1; t: "joined"; code: string; seat: 1 | 2 | 3; hostNick: string }
+  | { v: 1; t: "joined"; code: string; seat: 1 | 2 | 3; hostNick: string; turn?: TurnIce }
+  | { v: 1; t: "ice_fail" }
+  | { v: 1; t: "ice_ok"; path: "host" | "srflx" | "relay" }
   | { v: 1; t: "roster"; seats: RosterSeat[] }
   | { v: 1; t: "cfg"; cfg: string; cfgHash: string }
   | { v: 1; t: "ready"; seat: number; ready: boolean }

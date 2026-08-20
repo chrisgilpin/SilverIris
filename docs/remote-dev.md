@@ -58,3 +58,19 @@ npm run preview
 
 Change `proxy_pass` in the nginx file from `5173` to `4173`, then
 `sudo nginx -t && sudo systemctl reload nginx`.
+
+## 5. coturn STUN/TURN
+
+System `coturn` (not Docker) on this box. Config source: `services/turn/turnserver.conf`.
+Live file: `/etc/turnserver.conf` plus `static-auth-secret` from `/etc/silveriris/turn.env`.
+
+| Port | Proto | Role |
+| --- | --- | --- |
+| 3478 | udp+tcp | STUN + TURN |
+| 5349 | tcp | TURNS (same Let’s Encrypt cert as nginx) |
+| 49152-49200 | udp+tcp | bounded TURN relay |
+
+`silveriris-signal` mints ephemeral room-scoped REST creds (`expiry:room` + HMAC-SHA1)
+on create/join. **No anonymous allocate.** Default ICE is `all`; `?ff_turnForce=1` is
+optional. `wsRelay` stays the ICE-fail fallback. ufw allows only the ports above;
+do not change 22/80/443.

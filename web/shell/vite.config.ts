@@ -10,7 +10,7 @@ const publicHost =
   process.env.SILVERIRIS_PUBLIC_HOST ?? "007.goodhouseinc.com";
 
 const csp =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' stun:007.goodhouseinc.com:3478 turn:007.goodhouseinc.com:3478 stun:stun.l.google.com:19302; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' stun:007.goodhouseinc.com:3478 turn:007.goodhouseinc.com:3478 turns:007.goodhouseinc.com:5349 stun:stun.l.google.com:19302; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';";
 
 export default defineConfig({
   root: ".",

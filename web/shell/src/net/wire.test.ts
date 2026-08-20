@@ -34,4 +34,16 @@ describe("signal wire", () => {
     const m = parseSignalFrame(JSON.stringify({ v: 1, t: "relay", from: 0, kind: "inp", data: "aa" }));
     expect(m.t).toBe("relay");
   });
+
+  it("parses ice_fail and created.turn", () => {
+    const fail = parseSignalFrame(JSON.stringify({ v: 1, t: "ice_fail" }));
+    expect(fail.t).toBe("ice_fail");
+    const created = parseSignalFrame(JSON.stringify({
+      v: 1, t: "created", code: "ABCDE", seat: 0,
+      turn: { urls: ["turn:007.goodhouseinc.com:3478"], username: "1:ABCDE", credential: "x" },
+    }));
+    expect(created.t).toBe("created");
+    if (created.t === "created")
+      expect(created.turn?.username).toBe("1:ABCDE");
+  });
 });

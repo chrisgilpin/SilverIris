@@ -48,3 +48,6 @@ tools/pack/test_c0pack
 # Decomp matching-build leftovers if someone configures the submodule
 third_party/goldeneye_src/build/
 third_party/goldeneye_src/*.z64
+
+# Generated TURN REST material (never commit)
+/services/turn/.auth-secret

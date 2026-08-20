@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { codeOk, randomRoomCode } from "./codes.js";
+import { turnIce } from "./turncred.js";
 
 const UNUSED_MS = 30 * 60 * 1000;
 const IDLE_MS = 2 * 60 * 60 * 1000;
@@ -23,14 +24,28 @@ function now() {
   return Date.now();
 }
 
-export function createStore() {
+export function createStore(opts = {}) {
+  const turnSecret = typeof opts.turnSecret === "string" ? opts.turnSecret : (process.env.TURN_AUTH_SECRET || "");
+  const turnHost = typeof opts.turnHost === "string" ? opts.turnHost : (process.env.TURN_HOST || "007.goodhouseinc.com");
+
   /** @type {Map<string, any>} */
   const rooms = new Map();
   /** @type {Map<string, number[]>} */
   const creates = new Map();
   /** @type {Map<string, number[]>} */
   const joins = new Map();
-  const counters = { creates: 0, joins: 0, errors: 0, relays: 0 };
+  const counters = {
+    creates: 0,
+    joins: 0,
+    errors: 0,
+    relays: 0,
+    ice_ok_host: 0,
+    ice_ok_srflx: 0,
+    ice_ok_relay: 0,
+    ice_fail: 0,
+    ws_relay_used: 0,
+  };
+
 
   function pruneHits(map, ip) {
     const t = now();
@@ -161,7 +176,11 @@ export function createStore() {
       client.seat = 0;
       rooms.set(code, room);
       counters.creates += 1;
-      send(client, { v: 1, t: "created", code, seat: 0 });
+      const created = { v: 1, t: "created", code, seat: 0 };
+      const minted = turnIce(turnSecret, code, turnHost);
+      if (minted)
+        created.turn = minted;
+      send(client, created);
       return send(client, { v: 1, t: "roster", seats: roster(room) });
     }
 
@@ -189,7 +208,11 @@ export function createStore() {
       client.room = room.code;
       client.seat = seat;
       counters.joins += 1;
-      send(client, { v: 1, t: "joined", code: room.code, seat, hostNick: room.seats[0].nick });
+      const joined = { v: 1, t: "joined", code: room.code, seat, hostNick: room.seats[0].nick };
+      const minted = turnIce(turnSecret, room.code, turnHost);
+      if (minted)
+        joined.turn = minted;
+      send(client, joined);
       broadcast(room, { v: 1, t: "roster", seats: roster(room) });
       if (room.cfgHex)
         send(client, { v: 1, t: "cfg", cfg: room.cfgHex, cfgHash: room.cfgHash });
@@ -279,15 +302,34 @@ export function createStore() {
       return;
     }
 
+    if (msg.t === "ice_fail") {
+      if (!room.inProgress)
+        return err(client, "BAD_CFG", "ice_fail before start");
+      if (!room.ice_fail) {
+        room.ice_fail = true;
+        counters.ice_fail += 1;
+      }
+      return;
+    }
+
+    if (msg.t === "ice_ok") {
+      const path = msg.path;
+      if (path === "host" || path === "srflx" || path === "relay")
+        counters[`ice_ok_${path}`] += 1;
+      return;
+    }
+
     if (msg.t === "relay") {
       if (!room.inProgress)
         return err(client, "BAD_CFG", "relay before start");
+      if (!room.ice_fail)
+        return err(client, "BAD_CFG", "relay requires ice_fail");
       if (!validateRelay(msg.kind, msg.data))
         return err(client, "BAD_CFG", "relay");
       if (!allowRelay(room, raw.length))
         return err(client, "RATE_LIMIT", "relay");
-      room.ice_fail = true;
       counters.relays = (counters.relays || 0) + 1;
+      counters.ws_relay_used += 1;
       const out = { v: 1, t: "relay", from: client.seat, kind: msg.kind, data: msg.data };
       const destSeat = msg.to;
       if (destSeat != null) {

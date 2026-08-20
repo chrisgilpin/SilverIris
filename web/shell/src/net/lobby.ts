@@ -1,6 +1,6 @@
 import { encodeMatchConfig, hexBytes, MATCH_CONFIG_REGION_U } from "./match_config.ts";
 import { sha256Software } from "../../../extractor/src/sha256.ts";
-import type { RosterSeat, SignalMsg } from "./wire.ts";
+import type { RosterSeat, SignalMsg, TurnIce } from "./wire.ts";
 import { parseSignalFrame } from "./wire.ts";
 
 export type LobbyHandlers = {
@@ -13,6 +13,7 @@ export type LobbyHandlers = {
   onSdp(from: number, to: number, desc: { type: "offer" | "answer"; sdp: string }): void;
   onIce(from: number, to: number, cand: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): void;
   onRelay(from: number, kind: "inp" | "ctl", data: string): void;
+  onTurn?(turn: TurnIce): void;
 };
 
 export function defaultSignalUrl(): string {
@@ -105,10 +106,15 @@ export class SignalClient {
   private dispatch(msg: SignalMsg): void {
     if (msg.t === "error")
       this.handlers.onError(msg.code, msg.msg);
-    else if (msg.t === "created")
+    else if (msg.t === "created") {
       this.handlers.onCode(msg.code, 0);
-    else if (msg.t === "joined")
+      if (msg.turn)
+        this.handlers.onTurn?.(msg.turn);
+    } else if (msg.t === "joined") {
       this.handlers.onCode(msg.code, msg.seat);
+      if (msg.turn)
+        this.handlers.onTurn?.(msg.turn);
+    }
     else if (msg.t === "roster")
       this.handlers.onRoster(msg.seats);
     else if (msg.t === "cfg")

@@ -1,4 +1,4 @@
-import { rtcConfiguration } from "./ice.ts";
+import { icePathFromStats, rtcConfiguration, type TurnCred } from "./ice.ts";
 import { validateIce, validateSdp } from "./wire.ts";
 
 /** Lower seat offers to every higher seat: C(n,2) links, 2 channels each. */
@@ -38,18 +38,21 @@ export class PeerMesh {
   onPeerLost: ((seat: number, state: string) => void) | null = null;
   private pingTimer = 0;
 
+  onIcePath: ((path: "host" | "srflx" | "relay") => void) | null = null;
+
   constructor(
     readonly mySeat: number,
     private readonly signal: SignalSink,
     private readonly turnForce: boolean,
     private readonly onLog: (s: string) => void,
+    private readonly turn: TurnCred | null = null,
   ) {}
 
   private pc(remote: number): RTCPeerConnection {
     let pc = this.pcs.get(remote);
     if (pc)
       return pc;
-    pc = new RTCPeerConnection(rtcConfiguration({ turnForce: this.turnForce }));
+    pc = new RTCPeerConnection(rtcConfiguration({ turnForce: this.turnForce, turn: this.turn }));
     this.pcs.set(remote, pc);
     pc.onicecandidate = (ev) => {
       if (ev.candidate && validateIce({ candidate: ev.candidate.candidate }))
@@ -61,6 +64,12 @@ export class PeerMesh {
       /* connecting / checking / disconnected are not "player left". */
       if (st === "failed" || st === "closed")
         this.onPeerLost?.(remote, st);
+      if (st === "connected")
+        void pc!.getStats().then((stats) => {
+          const path = icePathFromStats(stats.values());
+          if (path)
+            this.onIcePath?.(path);
+        }).catch(() => undefined);
     };
     pc.ondatachannel = (ev) => this.bindChan(remote, ev.channel);
     return pc;
