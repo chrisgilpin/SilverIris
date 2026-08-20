@@ -52,7 +52,9 @@ stamp a center-covering black rectangle over the gun.
 Transparent IA (alpha 0) does not stamp black. A SETTEX miss still
 paints vertex grey. G1 now walks the current room plus Rare portal
 neighbors (depth 2, cap 12) so a doorway shows the next room's GDL
-instead of a hole. HUD walked/cur report that walk. Native tests
+instead of a hole. SETTEX now binds 64x64 RGBA16/RGB15 (the 4KB TMEM
+cap used to reject them as misses) and inflates Rare lookup /
+Huffman-lookup / RLE-lookup / blur methods plus RGB15. HUD walked/cur report that walk. Native tests
 prove synthetic IA8/IA4, two SETTEX ids, a near-plane floor that
 must not wipe a distant marker, a close black portal that must not
 wipe a distant green wall, pSec, and a two-room pack whose neighbor

@@ -1716,6 +1716,155 @@ static int run_two_room(int with_portal, int want_walked, unsigned min_magenta, 
     return 0;
 }
 
+/* 64x64 RGBA16 used to miss: need=8192 > 4KB TMEM cap. */
+static size_t build_rare_rgba16(uint8_t *dst, const uint8_t *tex, unsigned w, unsigned h)
+{
+    size_t need = (size_t)w * h * 2u;
+    dst[0] = 0x01;
+    dst[1] = (uint8_t)((1u << 4) | ((w >> 4) & 0x0fu));
+    dst[2] = (uint8_t)((w << 4) | ((h >> 4) & 0x0fu));
+    dst[3] = (uint8_t)((h << 4) | 0u);
+    memcpy(dst + 4, tex, need);
+    return 4u + need;
+}
+
+static void fill_rgba16_checker(uint8_t *dst, int w, int h, uint16_t a, uint16_t b)
+{
+    int y, x;
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            uint16_t c = ((x ^ y) & 1) ? b : a;
+            dst[(y * w + x) * 2] = (uint8_t)(c >> 8);
+            dst[(y * w + x) * 2 + 1] = (uint8_t)c;
+        }
+    }
+}
+
+static void wr_bits(uint8_t *dst, size_t *bitpos, int n, uint32_t v)
+{
+    int i;
+    for (i = n - 1; i >= 0; i--) {
+        size_t p = *bitpos;
+        if (v & (1u << (unsigned)i))
+            dst[p / 8u] |= (uint8_t)(1u << (7u - (unsigned)(p % 8u)));
+        (*bitpos)++;
+    }
+}
+
+/* RGB15 lookup (method 5) used to return -1 in inflate_lookup. */
+static size_t build_rare_rgb15_lookup(uint8_t *dst, unsigned w, unsigned h)
+{
+    size_t bitpos = 0;
+    unsigned x, y;
+    memset(dst, 0, 64);
+    wr_bits(dst, &bitpos, 8, 0x01); /* flags: non-zlib lod1 */
+    wr_bits(dst, &bitpos, 4, G1_TEX_RGB15);
+    wr_bits(dst, &bitpos, 8, w);
+    wr_bits(dst, &bitpos, 8, h);
+    wr_bits(dst, &bitpos, 4, G1_TEXCOMP_LOOKUP);
+    wr_bits(dst, &bitpos, 11, 2); /* ncol */
+    wr_bits(dst, &bitpos, 15, 0x7C00); /* red 555 without A */
+    wr_bits(dst, &bitpos, 15, 0x03E0); /* green */
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            wr_bits(dst, &bitpos, 1, (x ^ y) & 1u);
+    return (bitpos + 7u) / 8u;
+}
+
+static int test_settex_rgba16_64(void)
+{
+    static uint8_t tex[64 * 64 * 2];
+    static uint8_t bank[64 * 64 * 2 + 16];
+    uint8_t vtx_be[48];
+    C0File files[1];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0, n;
+    uint8_t hash[32];
+    C0Pack opened;
+    unsigned red = 0, grn = 0, i, np;
+    const uint8_t *fb;
+
+    fill_rgba16_checker(tex, 64, 64, 0xF801, 0x07C1);
+    n = build_rare_rgba16(bank, tex, 64, 64);
+    files[0].path = "assets/images/split/image21.bin";
+    files[0].bytes = bank;
+    files[0].size = n;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("rgba16-64 pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("rgba16-64 pack open");
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(21, vtx_be) != 0)
+        return fail("rgba16-64 dl");
+    if (g1_tex_ok_count() < 1 || g1_tex_miss_count() != 0)
+        return fail("rgba16-64 SETTEX must bind (was 4KB TMEM miss)");
+    fb = g1_fb_rgba();
+    np = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    for (i = 0; i < np; i++) {
+        if (fb[i * 4] > 160 && fb[i * 4 + 1] < 80)
+            red++;
+        if (fb[i * 4 + 1] > 160 && fb[i * 4] < 80)
+            grn++;
+    }
+    if (red < 200 || grn < 200)
+        return fail("rgba16-64 not sampled (still vertex grey)");
+    printf("settex pack image21.bin RGBA16-64x64 red=%u green=%u ok=%u miss=%u\n", red, grn,
+           g1_tex_ok_count(), g1_tex_miss_count());
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    return 0;
+}
+
+static int test_settex_rgb15_lookup(void)
+{
+    uint8_t bank[64];
+    uint8_t vtx_be[48];
+    C0File files[1];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0, n;
+    uint8_t hash[32];
+    C0Pack opened;
+    unsigned red = 0, grn = 0, i, np;
+    const uint8_t *fb;
+
+    n = build_rare_rgb15_lookup(bank, 8, 8);
+    if (!n)
+        return fail("rgb15 lookup bank");
+    files[0].path = "assets/images/split/image22.bin";
+    files[0].bytes = bank;
+    files[0].size = n;
+    if (c0pack_build(files, 1, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("rgb15 pack build");
+    if (c0pack_open(pack, pack_len, &opened) != 0)
+        return fail("rgb15 pack open");
+    g1_tex_unload();
+    g1_tex_set_pack(&opened);
+    if (run_tex_dl(22, vtx_be) != 0)
+        return fail("rgb15 dl");
+    if (g1_tex_ok_count() < 1 || g1_tex_miss_count() != 0)
+        return fail("rgb15 SETTEX must bind (was lookup RGB15 miss)");
+    fb = g1_fb_rgba();
+    np = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    for (i = 0; i < np; i++) {
+        if (fb[i * 4] > 160 && fb[i * 4 + 1] < 80)
+            red++;
+        if (fb[i * 4 + 1] > 160 && fb[i * 4] < 80)
+            grn++;
+    }
+    if (red < 200 || grn < 200)
+        return fail("rgb15 lookup not sampled");
+    printf("settex pack image22.bin RGB15-lookup red=%u green=%u ok=%u miss=%u\n", red, grn,
+           g1_tex_ok_count(), g1_tex_miss_count());
+    g1_tex_set_pack(NULL);
+    g1_tex_unload();
+    c0pack_close(&opened);
+    free(pack);
+    return 0;
+}
+
 static int test_neighbor_no_portal(void)
 {
     /* Two rooms, no portal: only room 1 is walked; magenta marker stays off-screen. */
@@ -1980,6 +2129,10 @@ int main(int argc, char **argv)
     if (test_settex_rare_bank_pack() != 0)
         return 1;
     if (test_settex_miss_stays_grey() != 0)
+        return 1;
+    if (test_settex_rgba16_64() != 0)
+        return 1;
+    if (test_settex_rgb15_lookup() != 0)
         return 1;
     if (test_neighbor_no_portal() != 0)
         return 1;

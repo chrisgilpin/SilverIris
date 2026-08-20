@@ -11,7 +11,7 @@ typedef struct {
     uint8_t cms, cmt;
     uint8_t tlut_ia;
     uint16_t id;
-    uint8_t texels[G1_TMEM_BYTES];
+    uint8_t texels[G1_TEX_MAX_BYTES];
     size_t ntex;
     uint16_t tlut[256];
     unsigned ntlut;
@@ -125,10 +125,10 @@ int g1_tex_load_raw(unsigned id, uint8_t fmt, unsigned w, unsigned h, const uint
     Tile *t;
     uint8_t store = fmt;
 
-    if (!texels || !w || !h || w > 64 || h > 64 || !fmt_ok(fmt))
+    if (!texels || !w || !h || w > G1_TEX_MAX_W || h > G1_TEX_MAX_H || !fmt_ok(fmt))
         return -1;
     need = texel_need(fmt, w, h);
-    if (!need || ntex < need || need > G1_TMEM_BYTES)
+    if (!need || ntex < need || need > G1_TEX_MAX_BYTES)
         return -1;
     if ((fmt == G1_TEX_CI4 || fmt == G1_TEX_CI8 || fmt == G1_TEX_IA16_CI4 ||
          fmt == G1_TEX_IA16_CI8) &&

@@ -43,7 +43,7 @@ typedef struct {
     uint8_t w, h;
     uint8_t zlib;
     int8_t method;
-    uint8_t texels[4096];
+    uint8_t texels[16384];
     size_t ntex;
     uint16_t tlut[256];
     unsigned ntlut;

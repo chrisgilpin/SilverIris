@@ -39,4 +39,7 @@ does not stamp black, and walking `pSecMappingBin` after the primary GDL.
 
 Retail Facility banks use the same *container*. After 3550dc9 a w-only
 clip could project a black screen-space sliver over brick and the gun.
-HUD `texOk` / `texMiss` stay honest. Do not commit retail texels.
+HUD `texOk` / `texMiss` stay honest. A 64x64 RGBA16 bank and an 8x8
+RGB15 lookup bank now bind and sample (they used to miss: 4KB tile
+cap, lookup RGB15 rejected). Huffman-lookup / RLE-lookup / blur
+inflate for remaining retail walls. Do not commit retail texels.

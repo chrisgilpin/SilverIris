@@ -22,6 +22,10 @@
 #define G1_TEX_IA16_CI4 0x0c
 
 #define G1_TMEM_BYTES 4096
+/* Software tile cache: N64 TMEM is 4KB, but Rare banks can be 64x64 RGBA16. */
+#define G1_TEX_MAX_W 128
+#define G1_TEX_MAX_H 128
+#define G1_TEX_MAX_BYTES 16384
 #define G1_TEX_SLOTS 64
 #define G1_SITX_MAGIC "SITX"
 
