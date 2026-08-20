@@ -17,6 +17,10 @@
 #define BG_SEG_BIAS 0xF1000000u
 #define BG_ROOM_BYTES 24
 #define BG_HDR_BYTES 64
+#define PORT_MAX_BG_ROOMS 256
+#define PORT_MAX_PORTALS 200
+#define PORT_WALK_DEPTH 2
+#define PORT_WALK_MAX 12
 
 typedef struct {
     int id;
@@ -24,6 +28,30 @@ typedef struct {
     const char *bg;
     const char *stan;
 } StageFiles;
+
+typedef struct {
+    float pos[3];
+    size_t pri_off;
+    size_t pri_csize;
+    uint32_t pri_ngfx;
+    uint8_t *pri;
+    size_t pri_len;
+    int pri_raw;
+    int pri_c0;
+    size_t vtx_off;
+    size_t vtx_csize;
+    uint8_t *vtx;
+    size_t vtx_len;
+    size_t sec_off;
+    size_t sec_csize;
+    uint32_t sec_ngfx;
+    uint8_t *sec;
+    size_t sec_len;
+} PortBgRoom;
+
+typedef struct {
+    uint8_t a, b;
+} PortPortal;
 
 static const StageFiles k_stages[] = {
     {PORT_LEVEL_FACILITY, PORT_LEVEL_FACILITY, "assets/obseg/bg/bg_ark_all_p.bin",
@@ -43,22 +71,13 @@ static int g_rooms;
 static int g_bg_rooms;
 static int g_gdl_raw;
 static int g_gdl_c0;
-static size_t g_gdl_off;
-static size_t g_gdl_csize;
-static uint32_t g_gdl_ngfx;
-static uint8_t *g_gdl;
-static size_t g_gdl_len;
-static uint8_t *g_vtx;
-static size_t g_vtx_len;
 static int g_gdl_vtx;
 static int g_gdl_sec;
-static size_t g_vtx_off;
-static size_t g_vtx_csize;
-static uint8_t *g_sec;
-static size_t g_sec_len;
-static uint32_t g_sec_ngfx;
-static size_t g_sec_off;
-static size_t g_sec_csize;
+static PortBgRoom g_rm[PORT_MAX_BG_ROOMS];
+static PortPortal g_portals[PORT_MAX_PORTALS];
+static int g_nportals;
+static int g_cur_room;
+static int g_rooms_walked;
 static void *g_first_room;
 static char g_stage_err[160];
 
@@ -74,6 +93,14 @@ static void set_stage_err(const char *s)
 static uint32_t be32(const uint8_t *p)
 {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static float be_f32(const uint8_t *p)
+{
+    uint32_t u = be32(p);
+    float f;
+    memcpy(&f, &u, 4);
+    return f;
 }
 
 static uint32_t seg_to_off(uint32_t off)
@@ -123,14 +150,58 @@ static int copy_named(const char *name, uint8_t **out, size_t *out_len)
     return PORT_STAGE_OK;
 }
 
+static void clear_rooms(void)
+{
+    int i;
+    for (i = 0; i < PORT_MAX_BG_ROOMS; i++) {
+        if (g_rm[i].pri_c0)
+            free(g_rm[i].pri);
+        free(g_rm[i].vtx);
+        if (g_rm[i].sec && g_rm[i].sec_csize)
+            free(g_rm[i].sec);
+        memset(&g_rm[i], 0, sizeof g_rm[i]);
+    }
+    g_nportals = 0;
+    g_cur_room = 0;
+    g_rooms_walked = 0;
+}
+
+static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_t start)
+{
+    size_t end = n;
+    int j, f;
+    for (j = i; j < PORT_MAX_BG_ROOMS; j++) {
+        uint8_t *r = rooms + (size_t)j * BG_ROOM_BYTES;
+        if (r + BG_ROOM_BYTES > bg + n)
+            break;
+        for (f = 0; f < 3; f++) {
+            uint32_t cand = be32(r + (size_t)f * 4);
+            uint32_t rel;
+            if (!cand || !maybe_ptr(bg, n, cand))
+                continue;
+            rel = seg_to_off(cand);
+            if (rel > start && rel < end)
+                end = rel;
+        }
+        if (j > i)
+            break;
+    }
+    return end;
+}
+
 /*
  * Rare load_bg_file: word[1] is the room table (bg_room_data[]), room 0 is
- * dummy, rooms 1..n until pPriMappingBin == 0. word[2] is the portal table.
- * Pointers stay segmented (K17); we resolve at access time.
+ * dummy, rooms 1..n until pPriMappingBin == 0. word[2] is the portal table
+ * (bg_portal_data_entry: offset, roomA, roomB, control). Pointers stay
+ * segmented (K17); we resolve at access time.
  *
- * word[0] == PORT_BG_MAGIC_G1DL means room 1's primary mapping is an
- * uncompressed big-endian Fast3D GDL (synthetic CI only). Retail files use
- * 0 and a 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
+ * word[0] == PORT_BG_MAGIC_G1DL means primary mappings are uncompressed
+ * big-endian Fast3D GDLs (synthetic CI only). Retail files use 0 and a
+ * 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
+ *
+ * Draw walks the current room plus portal neighbors (depth 2). Room 1
+ * stays the greyscale / SETTEX / clip path; neighbors use the same
+ * interpreter with a look-at offset of (room.pos - room1.pos).
  */
 static int fixup_bg(uint8_t *bg, size_t n)
 {
@@ -143,14 +214,8 @@ static int fixup_bg(uint8_t *bg, size_t n)
     g_gdl_c0 = 0;
     g_gdl_vtx = 0;
     g_gdl_sec = 0;
-    g_gdl_off = 0;
-    g_gdl_csize = 0;
-    g_gdl_ngfx = 0;
-    g_vtx_off = 0;
-    g_vtx_csize = 0;
-    g_sec_off = 0;
-    g_sec_csize = 0;
-    g_sec_ngfx = 0;
+    g_nportals = 0;
+    memset(g_rm, 0, sizeof g_rm);
 
     if (n < BG_HDR_BYTES)
         return PORT_STAGE_ERR_FORMAT;
@@ -161,11 +226,12 @@ static int fixup_bg(uint8_t *bg, size_t n)
     if (!rooms)
         return PORT_STAGE_ERR_FORMAT;
 
-    for (i = 1; i < 512; i++) {
+    for (i = 1; i < PORT_MAX_BG_ROOMS; i++) {
         uint8_t *r = rooms + (size_t)i * BG_ROOM_BYTES;
-        uint32_t pri, next_pri;
-        uint8_t *gdl;
+        uint32_t pri, point, sec;
+        uint8_t *gdl, *pt, *sp;
         size_t gdl_off, gdl_end;
+        PortBgRoom *rm = &g_rm[i];
 
         if (r + BG_ROOM_BYTES > bg + n)
             break;
@@ -176,89 +242,51 @@ static int fixup_bg(uint8_t *bg, size_t n)
         if (!gdl)
             break;
         g_bg_rooms++;
-        if (i == 1 && magic == PORT_BG_MAGIC_G1DL) {
-            next_pri = 0;
-            if (r + 2 * BG_ROOM_BYTES <= bg + n)
-                next_pri = be32(r + BG_ROOM_BYTES + 4);
-            gdl_off = (size_t)(gdl - bg);
-            if (next_pri && maybe_ptr(bg, n, next_pri))
-                gdl_end = seg_to_off(next_pri);
-            else
-                gdl_end = n;
-            if (gdl_end > gdl_off) {
-                g_gdl_off = gdl_off;
-                g_gdl_ngfx = (uint32_t)((gdl_end - gdl_off) / 8u);
-                g_gdl_raw = 1;
-            }
-        } else if (i == 1 && magic == 0) {
-            uint32_t point, next_point;
-            uint8_t *pt;
-            next_pri = 0;
-            if (r + 2 * BG_ROOM_BYTES <= bg + n)
-                next_pri = be32(r + BG_ROOM_BYTES + 4);
-            gdl_off = (size_t)(gdl - bg);
-            if (next_pri && maybe_ptr(bg, n, next_pri))
-                gdl_end = seg_to_off(next_pri);
-            else
-                gdl_end = n;
-            if (gdl_end > gdl_off + PORT_INFLATE1172_HEADER && gdl[0] == 0x11 &&
-                gdl[1] == 0x72) {
-                g_gdl_off = gdl_off;
-                g_gdl_csize = gdl_end - gdl_off;
-            }
-            /* pPointTableBin is a separate 1172 Vtx table (SPSEGMENT_BG_VTX=14). */
-            point = be32(r + 0);
-            pt = (uint8_t *)maybe_ptr(bg, n, point);
-            if (pt && pt + PORT_INFLATE1172_HEADER <= bg + n && pt[0] == 0x11 &&
-                pt[1] == 0x72) {
-                size_t vtx_end;
-                next_point = 0;
-                if (r + 2 * BG_ROOM_BYTES <= bg + n)
-                    next_point = be32(r + BG_ROOM_BYTES);
-                if (pri && maybe_ptr(bg, n, pri) && seg_to_off(pri) > (size_t)(pt - bg))
-                    vtx_end = seg_to_off(pri);
-                else if (next_point && maybe_ptr(bg, n, next_point))
-                    vtx_end = seg_to_off(next_point);
-                else
-                    vtx_end = n;
-                if (vtx_end > (size_t)(pt - bg) + PORT_INFLATE1172_HEADER) {
-                    g_vtx_off = (size_t)(pt - bg);
-                    g_vtx_csize = vtx_end - g_vtx_off;
-                }
+        rm->pos[0] = be_f32(r + 12);
+        rm->pos[1] = be_f32(r + 16);
+        rm->pos[2] = be_f32(r + 20);
+
+        gdl_off = (size_t)(gdl - bg);
+        gdl_end = next_field_end(bg, n, rooms, i, gdl_off);
+        if (gdl_end > gdl_off) {
+            if (magic == PORT_BG_MAGIC_G1DL) {
+                rm->pri_off = gdl_off;
+                rm->pri_ngfx = (uint32_t)((gdl_end - gdl_off) / 8u);
+                rm->pri_raw = 1;
+                if (i == 1)
+                    g_gdl_raw = 1;
+            } else if (magic == 0 && gdl_end > gdl_off + PORT_INFLATE1172_HEADER &&
+                       gdl[0] == 0x11 && gdl[1] == 0x72) {
+                rm->pri_off = gdl_off;
+                rm->pri_csize = gdl_end - gdl_off;
             }
         }
-        if (i == 1) {
-            uint32_t sec = be32(r + 8);
-            uint8_t *sp = sec ? (uint8_t *)maybe_ptr(bg, n, sec) : NULL;
-            if (sec && sp) {
-                size_t sec_off = (size_t)(sp - bg);
-                size_t sec_end = n;
-                uint32_t cand[3];
-                int ci;
-                cand[0] = 0;
-                cand[1] = 0;
-                cand[2] = 0;
-                if (r + 2 * BG_ROOM_BYTES <= bg + n) {
-                    cand[0] = be32(r + BG_ROOM_BYTES + 0);
-                    cand[1] = be32(r + BG_ROOM_BYTES + 4);
-                    cand[2] = be32(r + BG_ROOM_BYTES + 8);
-                }
-                for (ci = 0; ci < 3; ci++) {
-                    uint32_t rel;
-                    if (!cand[ci] || !maybe_ptr(bg, n, cand[ci]))
-                        continue;
-                    rel = seg_to_off(cand[ci]);
-                    if (rel > sec_off && rel < sec_end)
-                        sec_end = rel;
-                }
-                if (sec_end > sec_off + 8) {
-                    g_sec_off = sec_off;
-                    if (magic == 0 && sp[0] == 0x11 && sp[1] == 0x72)
-                        g_sec_csize = sec_end - sec_off;
-                    else if (magic == PORT_BG_MAGIC_G1DL) {
-                        g_sec_ngfx = (uint32_t)((sec_end - sec_off) / 8u);
+
+        point = be32(r + 0);
+        pt = (uint8_t *)maybe_ptr(bg, n, point);
+        if (pt && pt + PORT_INFLATE1172_HEADER <= bg + n && pt[0] == 0x11 &&
+            pt[1] == 0x72) {
+            size_t vtx_off = (size_t)(pt - bg);
+            size_t vtx_end = next_field_end(bg, n, rooms, i, vtx_off);
+            if (vtx_end > vtx_off + PORT_INFLATE1172_HEADER) {
+                rm->vtx_off = vtx_off;
+                rm->vtx_csize = vtx_end - vtx_off;
+            }
+        }
+
+        sec = be32(r + 8);
+        sp = sec ? (uint8_t *)maybe_ptr(bg, n, sec) : NULL;
+        if (sec && sp) {
+            size_t sec_off = (size_t)(sp - bg);
+            size_t sec_end = next_field_end(bg, n, rooms, i, sec_off);
+            if (sec_end > sec_off + 8) {
+                rm->sec_off = sec_off;
+                if (magic == 0 && sp[0] == 0x11 && sp[1] == 0x72)
+                    rm->sec_csize = sec_end - sec_off;
+                else if (magic == PORT_BG_MAGIC_G1DL) {
+                    rm->sec_ngfx = (uint32_t)((sec_end - sec_off) / 8u);
+                    if (i == 1)
                         g_gdl_sec = 1;
-                    }
                 }
             }
         }
@@ -267,17 +295,22 @@ static int fixup_bg(uint8_t *bg, size_t n)
     /* Portal list: walk until offset_portal == 0. Do not rewrite u32s (LP64). */
     if (portal_seg) {
         uint8_t *p = (uint8_t *)maybe_ptr(bg, n, portal_seg);
-        int nport = 0;
-        while (p && p + 8 <= bg + n && nport < 200) {
+        while (p && p + 8 <= bg + n && g_nportals < PORT_MAX_PORTALS) {
             uint32_t off = be32(p);
+            uint8_t a, b;
             if (off == 0)
                 break;
             if (!maybe_ptr(bg, n, off))
                 break;
-            nport++;
+            a = p[4];
+            b = p[5];
+            if (a && b) {
+                g_portals[g_nportals].a = a;
+                g_portals[g_nportals].b = b;
+                g_nportals++;
+            }
             p += 8;
         }
-        (void)nport;
     }
     return PORT_STAGE_OK;
 }
@@ -320,6 +353,7 @@ void port_stage_unload(void)
 {
     g1_tex_set_pack(NULL);
     g1_tex_unload();
+    clear_rooms();
     free(g_bg);
     free(g_stan);
     g_bg = NULL;
@@ -329,28 +363,33 @@ void port_stage_unload(void)
     g_level = -1;
     g_rooms = 0;
     g_bg_rooms = 0;
-    free(g_gdl);
-    g_gdl = NULL;
-    g_gdl_len = 0;
-    free(g_vtx);
-    g_vtx = NULL;
-    g_vtx_len = 0;
-    free(g_sec);
-    g_sec = NULL;
-    g_sec_len = 0;
-    g_sec_ngfx = 0;
     g_gdl_raw = 0;
     g_gdl_c0 = 0;
     g_gdl_vtx = 0;
     g_gdl_sec = 0;
-    g_vtx_off = 0;
-    g_vtx_csize = 0;
-    g_sec_off = 0;
-    g_sec_csize = 0;
-    g_gdl_off = 0;
-    g_gdl_csize = 0;
-    g_gdl_ngfx = 0;
     g_first_room = NULL;
+}
+
+static int inflate_blob(const uint8_t *src, size_t csize, uint8_t **out, size_t *out_len)
+{
+    size_t need = 0;
+    uint8_t *exp;
+    int rc;
+
+    rc = bgDecompress(src, csize, NULL, 0, &need);
+    if (rc != PORT_INFLATE1172_OK || need == 0)
+        return -1;
+    exp = (uint8_t *)malloc(need);
+    if (!exp)
+        return -2;
+    rc = bgDecompress(src, csize, exp, need, &need);
+    if (rc != PORT_INFLATE1172_OK) {
+        free(exp);
+        return -1;
+    }
+    *out = exp;
+    *out_len = need;
+    return 0;
 }
 
 int port_stage_load(int level_id)
@@ -358,7 +397,7 @@ int port_stage_load(int level_id)
     const StageFiles *st = find_stage(level_id);
     uint8_t *bg = NULL, *stan = NULL;
     size_t bg_len = 0, stan_len = 0;
-    int rc;
+    int rc, i;
 
     if (!st) {
         set_stage_err("unknown level id");
@@ -393,72 +432,33 @@ int port_stage_load(int level_id)
         return rc;
     }
 
-    if (g_gdl_csize) {
-        size_t need = 0;
-        uint8_t *exp = NULL;
-        rc = bgDecompress(bg + g_gdl_off, g_gdl_csize, NULL, 0, &need);
-        if (rc != PORT_INFLATE1172_OK) {
-            free(bg);
-            free(stan);
-            set_stage_err("bg 1172 inflate failed");
-            return PORT_STAGE_ERR_FORMAT;
-        }
-        exp = (uint8_t *)malloc(need);
-        if (!exp) {
-            free(bg);
-            free(stan);
-            set_stage_err("bg 1172 oom");
-            return PORT_STAGE_ERR_OOM;
-        }
-        rc = bgDecompress(bg + g_gdl_off, g_gdl_csize, exp, need, &need);
-        if (rc != PORT_INFLATE1172_OK) {
-            free(exp);
-            free(bg);
-            free(stan);
-            set_stage_err("bg 1172 inflate failed");
-            return PORT_STAGE_ERR_FORMAT;
-        }
-        g_gdl = exp;
-        g_gdl_len = need;
-        g_gdl_ngfx = (uint32_t)(need / 8u);
-        g_gdl_c0 = 1;
-    }
-
-    if (g_vtx_csize) {
-        size_t need = 0;
-        uint8_t *exp = NULL;
-        rc = bgDecompress(bg + g_vtx_off, g_vtx_csize, NULL, 0, &need);
-        if (rc == PORT_INFLATE1172_OK && need) {
-            exp = (uint8_t *)malloc(need);
-            if (exp) {
-                rc = bgDecompress(bg + g_vtx_off, g_vtx_csize, exp, need, &need);
-                if (rc == PORT_INFLATE1172_OK) {
-                    g_vtx = exp;
-                    g_vtx_len = need;
-                    g_gdl_vtx = 1;
-                } else {
-                    free(exp);
-                }
+    for (i = 1; i <= g_bg_rooms; i++) {
+        PortBgRoom *rm = &g_rm[i];
+        if (rm->pri_csize) {
+            rc = inflate_blob(bg + rm->pri_off, rm->pri_csize, &rm->pri, &rm->pri_len);
+            if (rc == 0) {
+                rm->pri_ngfx = (uint32_t)(rm->pri_len / 8u);
+                rm->pri_c0 = 1;
+                if (i == 1)
+                    g_gdl_c0 = 1;
+            } else if (i == 1) {
+                free(bg);
+                free(stan);
+                set_stage_err(rc == -2 ? "bg 1172 oom" : "bg 1172 inflate failed");
+                return rc == -2 ? PORT_STAGE_ERR_OOM : PORT_STAGE_ERR_FORMAT;
             }
         }
-    }
-
-    if (g_sec_csize) {
-        size_t need = 0;
-        uint8_t *exp = NULL;
-        rc = bgDecompress(bg + g_sec_off, g_sec_csize, NULL, 0, &need);
-        if (rc == PORT_INFLATE1172_OK && need) {
-            exp = (uint8_t *)malloc(need);
-            if (exp) {
-                rc = bgDecompress(bg + g_sec_off, g_sec_csize, exp, need, &need);
-                if (rc == PORT_INFLATE1172_OK) {
-                    g_sec = exp;
-                    g_sec_len = need;
-                    g_sec_ngfx = (uint32_t)(need / 8u);
+        if (rm->vtx_csize) {
+            if (inflate_blob(bg + rm->vtx_off, rm->vtx_csize, &rm->vtx, &rm->vtx_len) == 0) {
+                if (i == 1)
+                    g_gdl_vtx = 1;
+            }
+        }
+        if (rm->sec_csize) {
+            if (inflate_blob(bg + rm->sec_off, rm->sec_csize, &rm->sec, &rm->sec_len) == 0) {
+                rm->sec_ngfx = (uint32_t)(rm->sec_len / 8u);
+                if (i == 1)
                     g_gdl_sec = 1;
-                } else {
-                    free(exp);
-                }
             }
         }
     }
@@ -489,26 +489,147 @@ int port_stage_gdl_vtx(void) { return g_gdl_vtx; }
 
 int port_stage_gdl_sec(void) { return g_gdl_sec; }
 
+int port_stage_portal_count(void) { return g_nportals; }
+
+int port_stage_current_room(void) { return g_cur_room; }
+
+int port_stage_rooms_walked(void) { return g_rooms_walked; }
+
+static int pick_current_room(void)
+{
+    float ox, oy, oz, px, py, pz, best, d;
+    int i, cur;
+
+    if (g_bg_rooms < 1)
+        return 0;
+    ox = g_rm[1].pos[0];
+    oy = g_rm[1].pos[1];
+    oz = g_rm[1].pos[2];
+    px = port_player_x() + ox;
+    py = port_player_y() + oy;
+    pz = port_player_z() + oz;
+    cur = 1;
+    best = (g_rm[1].pos[0] - px) * (g_rm[1].pos[0] - px) +
+           (g_rm[1].pos[1] - py) * (g_rm[1].pos[1] - py) +
+           (g_rm[1].pos[2] - pz) * (g_rm[1].pos[2] - pz);
+    for (i = 2; i <= g_bg_rooms; i++) {
+        float dx = g_rm[i].pos[0] - px;
+        float dy = g_rm[i].pos[1] - py;
+        float dz = g_rm[i].pos[2] - pz;
+        d = dx * dx + dy * dy + dz * dz;
+        if (d < best) {
+            best = d;
+            cur = i;
+        }
+    }
+    return cur;
+}
+
+static int select_rooms(uint8_t *out, int cap)
+{
+    uint8_t seen[PORT_MAX_BG_ROOMS];
+    uint8_t q[PORT_MAX_BG_ROOMS];
+    uint8_t depth[PORT_MAX_BG_ROOMS];
+    int qh = 0, qt = 0, n = 0, i;
+    int cur = pick_current_room();
+
+    g_cur_room = cur;
+    if (cur < 1 || cap < 1)
+        return 0;
+    memset(seen, 0, sizeof seen);
+    q[qt] = (uint8_t)cur;
+    depth[qt] = 0;
+    qt++;
+    seen[cur] = 1;
+    while (qh < qt && n < cap) {
+        int r = q[qh];
+        int d = depth[qh];
+        qh++;
+        out[n++] = (uint8_t)r;
+        if (d >= PORT_WALK_DEPTH)
+            continue;
+        for (i = 0; i < g_nportals; i++) {
+            int o = 0;
+            if (g_portals[i].a == r)
+                o = g_portals[i].b;
+            else if (g_portals[i].b == r)
+                o = g_portals[i].a;
+            else
+                continue;
+            if (o < 1 || o > g_bg_rooms || seen[o])
+                continue;
+            seen[o] = 1;
+            if (qt >= PORT_MAX_BG_ROOMS)
+                break;
+            q[qt] = (uint8_t)o;
+            depth[qt] = (uint8_t)(d + 1);
+            qt++;
+        }
+    }
+    return n;
+}
+
+static const uint8_t *room_pri(const PortBgRoom *rm)
+{
+    if (rm->pri_c0 && rm->pri)
+        return rm->pri;
+    if (rm->pri_raw && g_bg && rm->pri_off)
+        return g_bg + rm->pri_off;
+    return NULL;
+}
+
+static const uint8_t *room_sec(const PortBgRoom *rm)
+{
+    if (rm->sec && rm->sec_ngfx)
+        return rm->sec;
+    if (rm->sec_ngfx && g_bg && rm->sec_off)
+        return g_bg + rm->sec_off;
+    return NULL;
+}
+
 int port_stage_draw(void)
 {
-    const uint8_t *dl = NULL;
-    if (!g_bg || g_gdl_ngfx == 0)
+    G1RoomDl passes[PORT_WALK_MAX];
+    uint8_t ids[PORT_WALK_MAX];
+    int nsel, i, k;
+    float ox, oy, oz;
+
+    g_rooms_walked = 0;
+    g_cur_room = 0;
+    if (!g_bg || g_bg_rooms < 1)
         return 1;
-    if (g_gdl_c0 && g_gdl)
-        dl = g_gdl;
-    else if (g_gdl_raw)
-        dl = g_bg + g_gdl_off;
-    if (!dl)
-        return 1;
+
+    nsel = select_rooms(ids, PORT_WALK_MAX);
+    ox = g_rm[1].pos[0];
+    oy = g_rm[1].pos[1];
+    oz = g_rm[1].pos[2];
     g1_set_segment(0xF, (uintptr_t)g_bg);
-    if (g_vtx)
-        g1_set_segment(14, (uintptr_t)g_vtx);
+    if (g_rm[1].vtx)
+        g1_set_segment(14, (uintptr_t)g_rm[1].vtx);
     g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
-    if (g_gdl_sec && g_sec && g_sec_ngfx)
-        return g1_interpret_be_dl2(dl, g_gdl_ngfx, g_sec, g_sec_ngfx);
-    if (g_gdl_sec && g_sec_ngfx && g_bg && g_sec_off)
-        return g1_interpret_be_dl2(dl, g_gdl_ngfx, g_bg + g_sec_off, g_sec_ngfx);
-    return g1_interpret_be_dl(dl, g_gdl_ngfx);
+
+    k = 0;
+    for (i = 0; i < nsel; i++) {
+        PortBgRoom *rm = &g_rm[ids[i]];
+        const uint8_t *dl = room_pri(rm);
+        if (!dl || rm->pri_ngfx == 0)
+            continue;
+        passes[k].pri = dl;
+        passes[k].pri_n = rm->pri_ngfx;
+        passes[k].sec = room_sec(rm);
+        passes[k].sec_n = rm->sec_ngfx;
+        passes[k].vtx = rm->vtx ? (uintptr_t)rm->vtx : 0;
+        passes[k].ox = rm->pos[0] - ox;
+        passes[k].oy = rm->pos[1] - oy;
+        passes[k].oz = rm->pos[2] - oz;
+        k++;
+    }
+    if (k == 0)
+        return 1;
+    g_rooms_walked = k;
+    if (k == 1)
+        return g1_interpret_be_dl2(passes[0].pri, passes[0].pri_n, passes[0].sec, passes[0].sec_n);
+    return g1_interpret_rooms(passes, k);
 }
 
 const uint8_t *port_stage_bg(size_t *size_out)

@@ -550,6 +550,57 @@ int g1_interpret_be_dl2(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_
     return interpret_be_common(a, na, b, nb);
 }
 
+int g1_interpret_rooms(const G1RoomDl *rooms, int n)
+{
+    uintptr_t saved[16];
+    float eye[3];
+    int i, walked;
+
+    if (!rooms || n < 1)
+        return -1;
+
+    /* One room, no neighbor offset: identical to the pre-walk path so the
+     * G1 greyscale hash and room-1 SETTEX/clip tests stay bit-identical. */
+    if (n == 1 && rooms[0].pri && rooms[0].pri_n) {
+        if (rooms[0].vtx)
+            g1_set_segment(14, rooms[0].vtx);
+        if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f)
+            return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
+                                       rooms[0].sec_n);
+    }
+
+    memcpy(saved, g_seg, sizeof saved);
+    eye[0] = g_cam_eye[0];
+    eye[1] = g_cam_eye[1];
+    eye[2] = g_cam_eye[2];
+    reset_state();
+    memcpy(g_seg, saved, sizeof saved);
+
+    walked = 0;
+    for (i = 0; i < n; i++) {
+        if (!rooms[i].pri || rooms[i].pri_n == 0)
+            continue;
+        if (rooms[i].vtx)
+            g_seg[14] = rooms[i].vtx;
+        g_cam_eye[0] = eye[0] - rooms[i].ox;
+        g_cam_eye[1] = eye[1] - rooms[i].oy;
+        g_cam_eye[2] = eye[2] - rooms[i].oz;
+        apply_stored_camera();
+        walk_be(rooms[i].pri, rooms[i].pri_n);
+        if (rooms[i].sec && rooms[i].sec_n)
+            walk_be(rooms[i].sec, rooms[i].sec_n);
+        walked++;
+    }
+    g_cam_eye[0] = eye[0];
+    g_cam_eye[1] = eye[1];
+    g_cam_eye[2] = eye[2];
+    if (!walked)
+        return -1;
+    sw_raster_clear(0, 0, 0, 255);
+    sw_raster_list(&g_ir);
+    return 0;
+}
+
 int g1_interpret_task(OSTask *task)
 {
     uint32_t n;

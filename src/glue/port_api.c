@@ -167,6 +167,10 @@ PORT_KEEP int port_api_gdl_c0(void) { return port_stage_gdl_c0(); }
 
 PORT_KEEP int port_api_gdl_vtx(void) { return port_stage_gdl_vtx(); }
 
+PORT_KEEP int port_api_portal_count(void) { return port_stage_portal_count(); }
+PORT_KEEP int port_api_current_room(void) { return port_stage_current_room(); }
+PORT_KEEP int port_api_rooms_walked(void) { return port_stage_rooms_walked(); }
+
 PORT_KEEP unsigned port_api_fb_nonzero(void) { return g1_fb_nonzero(); }
 
 PORT_KEEP unsigned port_api_settex(void) { return g1_tex_settex_count(); }

@@ -1579,6 +1579,155 @@ static int test_secondary_gdl(void)
 #undef OFF_SEC
 }
 
+/* Current + portal-neighbor walk: two rooms, one magenta marker in room 2. */
+#define NR_OFF_ROOMS  0x040
+#define NR_OFF_ROOM1  0x058
+#define NR_OFF_ROOM2  0x070
+#define NR_OFF_PORTAL 0x0A0
+#define NR_OFF_PGEOM  0x0B0
+#define NR_OFF_VTX1   0x0E0
+#define NR_OFF_GDL1   0x140
+#define NR_OFF_VTX2   0x1C0
+#define NR_OFF_GDL2   0x220
+#define NR_BG_SIZE    0x300
+
+static unsigned count_magenta(void)
+{
+    const uint8_t *fb = g1_fb_rgba();
+    unsigned n = 0;
+    int i;
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        if (r > 180 && g < 50 && b > 180)
+            n++;
+    }
+    return n;
+}
+
+static void build_two_room_bg(uint8_t *bg, int with_portal)
+{
+    Vtx vtx[3];
+    int i, ngfx;
+
+    memset(bg, 0, NR_BG_SIZE);
+    wr_be32(bg + 0, PORT_BG_MAGIC_G1DL);
+    wr_be32(bg + 4, SEG(NR_OFF_ROOMS));
+    wr_be32(bg + 8, SEG(NR_OFF_PORTAL));
+
+    wr_be32(bg + NR_OFF_ROOM1 + 0, SEG(NR_OFF_VTX1));
+    wr_be32(bg + NR_OFF_ROOM1 + 4, SEG(NR_OFF_GDL1));
+    wr_be32(bg + NR_OFF_ROOM2 + 0, SEG(NR_OFF_VTX2));
+    wr_be32(bg + NR_OFF_ROOM2 + 4, SEG(NR_OFF_GDL2));
+    /* room 3 terminator: pri == 0 */
+
+    if (with_portal) {
+        wr_be32(bg + NR_OFF_PORTAL, SEG(NR_OFF_PGEOM));
+        bg[NR_OFF_PORTAL + 4] = 1;
+        bg[NR_OFF_PORTAL + 5] = 2;
+        bg[NR_OFF_PGEOM] = 3;
+    }
+
+    /* Room 1: fill only (no magenta). */
+    ngfx = 0;
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8 + 4,
+            (uint32_t)GPACK_RGBA5551(12, 28, 48, 1) |
+                ((uint32_t)GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8,
+            ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(bg + NR_OFF_GDL1 + ngfx * 8 + 4, 0);
+
+    /* Room 2: magenta triangle in front of the camera (theta=0 faces -Z). */
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = -60;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = -60;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 70;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(bg + NR_OFF_VTX2 + (size_t)i * 16, &vtx[i]);
+    }
+    ngfx = 0;
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8 + 4, SEG(NR_OFF_VTX2));
+    ngfx++;
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8, 0xB1000002u);
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(bg + NR_OFF_GDL2 + ngfx * 8 + 4, 0);
+}
+
+static int run_two_room(int with_portal, int want_walked, unsigned min_magenta, unsigned max_magenta, const char *tag)
+{
+    uint8_t bg[NR_BG_SIZE], stan[256];
+    C0File files[2];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    unsigned mag;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    build_two_room_bg(bg, with_portal);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    if (c0pack_build(files, 2, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("neighbor pack build");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("neighbor port_api init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("neighbor stage load");
+    if (port_stage_bg_rooms() != 2)
+        return fail("neighbor expected 2 bg rooms");
+    if (port_stage_portal_count() != (with_portal ? 1 : 0))
+        return fail("neighbor portal count");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("neighbor last_draw");
+    if (port_stage_current_room() != 1)
+        return fail("neighbor current room");
+    if (port_stage_rooms_walked() != want_walked)
+        return fail("neighbor rooms_walked");
+    mag = count_magenta();
+    if (mag < min_magenta || mag > max_magenta)
+        return fail("neighbor magenta pixels");
+    printf("%s rooms=%d portals=%d walked=%d cur=%d magenta=%u\n", tag,
+           port_stage_bg_rooms(), port_stage_portal_count(),
+           port_stage_rooms_walked(), port_stage_current_room(), mag);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
+static int test_neighbor_no_portal(void)
+{
+    /* Two rooms, no portal: only room 1 is walked; magenta marker stays off-screen. */
+    return run_two_room(0, 1, 0, 0, "neighbor no-portal");
+}
+
+static int test_neighbor_portal_pixels(void)
+{
+    /* Portal 1-2: walk both GDLs; room 2's magenta triangle must hit the FB. */
+    return run_two_room(1, 2, 1000, 0xFFFFFFFFu, "neighbor portal");
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -1831,6 +1980,10 @@ int main(int argc, char **argv)
     if (test_settex_rare_bank_pack() != 0)
         return 1;
     if (test_settex_miss_stays_grey() != 0)
+        return 1;
+    if (test_neighbor_no_portal() != 0)
+        return 1;
+    if (test_neighbor_portal_pixels() != 0)
         return 1;
     return 0;
 }

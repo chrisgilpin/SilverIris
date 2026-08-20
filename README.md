@@ -50,11 +50,14 @@ IA/RGBA32, inflates the secondary GDL, and clips homogeneous
 and a door/portal closer than the projection near plane cannot
 stamp a center-covering black rectangle over the gun.
 Transparent IA (alpha 0) does not stamp black. A SETTEX miss still
-paints vertex grey. Native tests prove synthetic IA8/IA4, two SETTEX
-ids, a near-plane floor that must not wipe a distant marker, a close
-black portal that must not wipe a distant green wall, and
-`pSec`. HUD `settex` / `texOk` / `texMiss` are honest — a miss stays
-a miss. No retail texels in git. Campaign is not v1. Title boot is not in this
+paints vertex grey. G1 now walks the current room plus Rare portal
+neighbors (depth 2, cap 12) so a doorway shows the next room's GDL
+instead of a hole. HUD walked/cur report that walk. Native tests
+prove synthetic IA8/IA4, two SETTEX ids, a near-plane floor that
+must not wipe a distant marker, a close black portal that must not
+wipe a distant green wall, pSec, and a two-room pack whose neighbor
+magenta triangle is drawn only when a portal links the rooms. HUD
+settex / texOk / texMiss are honest — a miss stays a miss. No retail texels in git. Campaign is not v1. Title boot is not in this
 build.
 
 Design:

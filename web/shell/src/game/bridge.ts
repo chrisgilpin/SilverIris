@@ -17,10 +17,15 @@ export function formatStageDebug(opts: {
   settex?: number;
   texOk?: number;
   texMiss?: number;
+  walked?: number;
+  cur?: number;
 }): string {
   let s = `last_draw ${lastDrawLabel(opts.lastDraw)}  rooms ${opts.rooms}  gdlC0 ${opts.gdlC0 ? 1 : 0}  fbNonzero ${opts.fbNonzero}`;
   if (opts.settex !== undefined) {
     s += `  settex ${opts.settex}  texOk ${opts.texOk ?? 0}  texMiss ${opts.texMiss ?? 0}`;
+  }
+  if (opts.walked !== undefined) {
+    s += `  walked ${opts.walked}  cur ${opts.cur ?? 0}`;
   }
   return s;
 }
@@ -54,6 +59,9 @@ export type GameModule = {
   _port_api_gdl_raw: () => number;
   _port_api_gdl_c0: () => number;
   _port_api_gdl_vtx?: () => number;
+  _port_api_portal_count?: () => number;
+  _port_api_current_room?: () => number;
+  _port_api_rooms_walked?: () => number;
   _port_api_fb_nonzero?: () => number;
   _port_api_settex?: () => number;
   _port_api_tex_ok?: () => number;
@@ -126,6 +134,9 @@ export type GameBridge = {
   gdlRaw(): boolean;
   gdlC0(): boolean;
   gdlVtx(): boolean;
+  portalCount(): number;
+  currentRoom(): number;
+  roomsWalked(): number;
   fbNonzero(): number;
   settex(): number;
   texOk(): number;
@@ -338,6 +349,15 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     gdlVtx(): boolean {
       return !!(alive && M._port_api_gdl_vtx && M._port_api_gdl_vtx());
+    },
+    portalCount(): number {
+      return alive && M._port_api_portal_count ? M._port_api_portal_count() : 0;
+    },
+    currentRoom(): number {
+      return alive && M._port_api_current_room ? M._port_api_current_room() : 0;
+    },
+    roomsWalked(): number {
+      return alive && M._port_api_rooms_walked ? M._port_api_rooms_walked() : 0;
     },
     fbNonzero(): number {
       return alive && M._port_api_fb_nonzero ? M._port_api_fb_nonzero() : 0;
