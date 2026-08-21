@@ -208,7 +208,8 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  * big-endian Fast3D GDLs (synthetic CI only). Retail files use 0 and a
  * 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
  *
- * Draw walks the current room plus portal neighbors (depth 3, cap 24).
+ * Draw walks the current room plus portal neighbors (depth 3, cap 24;
+ * depth 5 when current is r13/r15 so neighbor-GDL rooms stay in frame).
  * Current room follows the camera eye on stacked xz so an upstairs
  * pose (r13/r15 eye ~737) is not pinned to the ground tile underfoot.
  * A ground-room BFS at the old cap never reached the catwalk. Room 1
@@ -834,7 +835,7 @@ static int select_rooms(uint8_t *out, int cap)
     uint8_t seen[PORT_MAX_BG_ROOMS];
     uint8_t q[PORT_MAX_BG_ROOMS];
     uint8_t depth[PORT_MAX_BG_ROOMS];
-    int qh = 0, qt = 0, n = 0, i, pass;
+    int qh = 0, qt = 0, n = 0, i, pass, maxd;
     int cur = pick_current_room();
 
     g_cur_room = cur;
@@ -850,7 +851,12 @@ static int select_rooms(uint8_t *out, int cap)
         int d = depth[qh];
         qh++;
         out[n++] = (uint8_t)r;
-        if (d >= PORT_WALK_DEPTH)
+        /* r13/r15 need extra depth so a neighbor GDL (r12/r14) and its
+         * rooms stay in frame. Spawn r71 stays depth 3. */
+        maxd = PORT_WALK_DEPTH;
+        if (cur == 13 || cur == 15)
+            maxd = 5;
+        if (d >= maxd)
             continue;
         /* Same-floor portals first so a 24-room cap cannot fill with
          * downstairs halls when the camera is on r13/r15. */
