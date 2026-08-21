@@ -472,6 +472,118 @@ static int stairs_climb_proof(float spawn_x, float spawn_z)
     return 0;
 }
 
+
+static int shot_one(const char *out_dir, const char *tag);
+
+/* Hold the camera on a climbed upstairs tile and draw that room GDL.
+ * place() would snap Y to the lowest stacked floor (~86.8). */
+static void place_at_eye(float x, float y, float z, float th)
+{
+    if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
+        y = PORT_EYE_HEIGHT;
+    port_player_set_pose(x, y, z, th);
+}
+
+static int upstairs_gdl_proof(const char *out_dir)
+{
+    float p13[3], p15[3], ex = 0.f, ez = 0.f, ey = 0.f;
+    uint32_t n13 = 0, n15 = 0;
+    int er = 0, rc13, rc15, cur, walked, i, nbg, ok = 0;
+    unsigned texok, nz;
+    const float pads[2][2] = { {158.f, -2777.f}, {-650.f, -3050.f} };
+
+    memset(p13, 0, sizeof p13);
+    memset(p15, 0, sizeof p15);
+    rc13 = port_stage_room_gdl(13, &n13, p13);
+    rc15 = port_stage_room_gdl(15, &n15, p15);
+    printf("upstairs_gdl r13 rc=%d ngfx=%u pos=%.1f,%.1f,%.1f  r15 rc=%d ngfx=%u pos=%.1f,%.1f,%.1f\n",
+           rc13, n13, (double)p13[0], (double)p13[1], (double)p13[2],
+           rc15, n15, (double)p15[0], (double)p15[1], (double)p15[2]);
+    nbg = port_stage_bg_rooms();
+    for (i = 1; i <= nbg; i++) {
+        if (port_stage_rooms_adjacent(13, i))
+            printf("upstairs_portal r13-%d\n", i);
+        if (port_stage_rooms_adjacent(15, i))
+            printf("upstairs_portal r15-%d\n", i);
+    }
+    if ((rc13 != 0 || n13 == 0) && (rc15 != 0 || n15 == 0)) {
+        fprintf(stderr, "upstairs rooms 13/15 have no GDL — stop\n");
+        return -2;
+    }
+
+    if (port_stan_climb_along_links(R3_STAIR_X, R3_STAIR_Z, &ex, &ez, &ey, &er) == 0 &&
+        ey > 600.f && (er == 13 || er == 15)) {
+        ok = 1;
+        printf("upstairs_cam climb xz=%.1f,%.1f eye=%.1f room=%d\n",
+               (double)ex, (double)ez, (double)ey, er);
+    }
+    if (!ok) {
+        for (i = 0; i < 2; i++) {
+            float py = 737.4f;
+            int rm = port_stan_tile_room_at_eye(pads[i][0], pads[i][1], py);
+            printf("upstairs_pad %.1f,%.1f eye=737.4 tile_eye=%d lowest=%d\n",
+                   (double)pads[i][0], (double)pads[i][1], rm,
+                   port_stan_tile_room(pads[i][0], pads[i][1]));
+            port_stan_debug_at(pads[i][0], pads[i][1]);
+            if (rm == 13 || rm == 15) {
+                ex = pads[i][0];
+                ez = pads[i][1];
+                ey = py;
+                er = rm;
+                ok = 1;
+                break;
+            }
+        }
+    }
+    if (!ok) {
+        fprintf(stderr, "upstairs_cam no r13/r15 pose\n");
+        return -1;
+    }
+    port_stan_debug_at(ex, ez);
+
+    /* Look along the catwalk toward the other known pad / room origin. */
+    {
+        float tx = pads[1][0], tz = pads[1][1], dx, dz, th;
+        if (er == 15 && (p15[0] != 0.f || p15[2] != 0.f)) {
+            float r1[3];
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            tx = p15[0] - r1[0];
+            tz = p15[2] - r1[2];
+        } else if ((ex - pads[1][0]) * (ex - pads[1][0]) +
+                   (ez - pads[1][1]) * (ez - pads[1][1]) < 40.f * 40.f) {
+            tx = pads[0][0];
+            tz = pads[0][1];
+        }
+        dx = tx - ex;
+        dz = tz - ez;
+        th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+        if (th < 0.f)
+            th += 360.f;
+        place_at_eye(ex, ey, ez, th);
+        port_player_set_pitch(-8.f);
+    }
+
+    if (shot_one(out_dir, "upstairs") != 0)
+        return -1;
+    cur = port_api_current_room();
+    walked = port_api_rooms_walked();
+    texok = port_api_tex_ok();
+    nz = port_api_fb_nonzero();
+    printf("upstairs_proof cur=%d walked=%d texOk=%u fb_nz=%u eye=%.1f xz=%.1f,%.1f\n",
+           cur, walked, texok, nz, (double)port_api_player_y(),
+           (double)port_api_player_x(), (double)port_api_player_z());
+    if (cur != 13 && cur != 15) {
+        fprintf(stderr, "upstairs cur=%d (want 13 or 15)\n", cur);
+        return -1;
+    }
+    if (texok == 0 || nz == 0) {
+        fprintf(stderr, "upstairs blank texOk=%u nz=%u\n", texok, nz);
+        return -1;
+    }
+    return 0;
+}
+
 static void place(float x, float z, float th)
 {
     float ey = PORT_EYE_HEIGHT;
@@ -983,6 +1095,11 @@ int main(int argc, char **argv)
         goto done;
     if (stairs_climb_proof(spawn_x, spawn_z) != 0)
         goto done;
+    {
+        int urc = upstairs_gdl_proof(out_dir);
+        if (urc != 0)
+            goto done;
+    }
     if (probe_eye_band("bathroom_after_stairs", -491.9f, -2238.5f, 70.f, 110.f) != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does

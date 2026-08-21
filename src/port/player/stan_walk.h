@@ -58,6 +58,10 @@ int port_stan_eye_y(float local_x, float local_z, float *y_out);
 int port_stan_on_tile(float local_x, float local_z);
 /* Room id of the lowest overlapping tile at room-local xz, or 0 if none. */
 int port_stan_tile_room(float local_x, float local_z);
+/* Overlapping tile whose floor+eye is closest to eye_y (slack 150).
+ * Else the lowest-floor tile. Camera on a stacked upper (r13/r15 eye
+ * ~737) must not report the ground room under the same xz. */
+int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y);
 /* Off-mesh: room of the nearest low-band tile within max_dist, or 0. */
 int port_stan_nearest_tile_room(float local_x, float local_z, float max_dist);
 /* On-mesh: same lowest-floor eye as port_stan_eye_y / tile_at_world.

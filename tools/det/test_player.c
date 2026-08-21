@@ -311,6 +311,41 @@ static int test_tile_room_lowest_floor(void)
     return 0;
 }
 
+/* Same stacked xz: G1 current room follows the camera eye, not always
+ * the lowest tile. Low eye stays 71; high eye (upper floor+175) is 14. */
+static int test_tile_room_at_eye_stacked(void)
+{
+    uint8_t stan[512];
+    float lo, hi;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 0, 100, 225, 0, 100);
+    stan[0x80 + 3] = 14;
+    wr_unit_quad(stan, 0xA8, 0, 100, -88, 0, 100);
+    stan[0xA8 + 3] = 71;
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("eye_room load");
+    lo = -88.0f + PORT_EYE_HEIGHT;
+    hi = 225.0f + PORT_EYE_HEIGHT;
+    if (port_stan_tile_room_at_eye(50.0f, 50.0f, lo) != 71)
+        return fail("eye_room low not 71");
+    if (port_stan_tile_room_at_eye(50.0f, 50.0f, hi) != 14)
+        return fail("eye_room high not 14");
+    /* Lowest-floor pin is unchanged. */
+    if (port_stan_tile_room(50.0f, 50.0f) != 71)
+        return fail("eye_room lowest pin lost");
+    printf("tile_room_at_eye low=%d high=%d (lowest still %d)\n",
+           port_stan_tile_room_at_eye(50.0f, 50.0f, lo),
+           port_stan_tile_room_at_eye(50.0f, 50.0f, hi),
+           port_stan_tile_room(50.0f, 50.0f));
+    port_stan_unload();
+    return 0;
+}
+
 /* Linked upstairs tile with no low overlap must keep the high eye.
  * Do not flatten every Facility walkway to ground. */
 static int test_nearest_eye_keeps_linked_upper(void)
@@ -1247,6 +1282,8 @@ int main(void)
     if (test_snap_walkable_prefers_hall() != 0)
         return 1;
     if (test_tile_room_lowest_floor() != 0)
+        return 1;
+    if (test_tile_room_at_eye_stacked() != 0)
         return 1;
     if (test_nearest_eye_keeps_linked_upper() != 0)
         return 1;

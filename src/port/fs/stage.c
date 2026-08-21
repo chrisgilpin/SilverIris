@@ -22,8 +22,8 @@
 #define BG_HDR_BYTES 64
 #define PORT_MAX_BG_ROOMS 256
 #define PORT_MAX_PORTALS 200
-#define PORT_WALK_DEPTH 2
-#define PORT_WALK_MAX 12
+#define PORT_WALK_DEPTH 3
+#define PORT_WALK_MAX 24
 #define PORT_DRAW_MAX (PORT_WALK_MAX + PORT_PROP_MAX_DRAW)
 
 typedef struct {
@@ -208,7 +208,10 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  * big-endian Fast3D GDLs (synthetic CI only). Retail files use 0 and a
  * 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
  *
- * Draw walks the current room plus portal neighbors (depth 2). Room 1
+ * Draw walks the current room plus portal neighbors (depth 3, cap 24).
+ * Current room follows the camera eye on stacked xz so an upstairs
+ * pose (r13/r15 eye ~737) is not pinned to the ground tile underfoot.
+ * A ground-room BFS at the old cap never reached the catwalk. Room 1
  * stays the greyscale / SETTEX / clip path; neighbors use the same
  * interpreter with a look-at offset of (room.pos - room1.pos).
  */
@@ -812,8 +815,16 @@ int port_stage_rooms_adjacent(int a, int b)
 
 static int pick_current_room(void)
 {
+    int rm;
     if (g_bg_rooms < 1)
         return 0;
+    /* Eye-matched tile: stacked catwalk xz must draw r13/r15, not the
+     * ground hall under the same xz. Hear/fire keep room_at_local
+     * (lowest floor) so bathroom hall cannot snap to 12/14. */
+    rm = port_stan_tile_room_at_eye(port_player_x(), port_player_z(),
+                                    port_player_y());
+    if (rm >= 1 && rm <= g_bg_rooms)
+        return rm;
     return port_stage_room_at_local(port_player_x(), port_player_y(),
                                     port_player_z());
 }
@@ -823,7 +834,7 @@ static int select_rooms(uint8_t *out, int cap)
     uint8_t seen[PORT_MAX_BG_ROOMS];
     uint8_t q[PORT_MAX_BG_ROOMS];
     uint8_t depth[PORT_MAX_BG_ROOMS];
-    int qh = 0, qt = 0, n = 0, i;
+    int qh = 0, qt = 0, n = 0, i, pass;
     int cur = pick_current_room();
 
     g_cur_room = cur;
@@ -841,22 +852,36 @@ static int select_rooms(uint8_t *out, int cap)
         out[n++] = (uint8_t)r;
         if (d >= PORT_WALK_DEPTH)
             continue;
-        for (i = 0; i < g_nportals; i++) {
-            int o = 0;
-            if (g_portals[i].a == r)
-                o = g_portals[i].b;
-            else if (g_portals[i].b == r)
-                o = g_portals[i].a;
-            else
-                continue;
-            if (o < 1 || o > g_bg_rooms || seen[o])
-                continue;
-            seen[o] = 1;
-            if (qt >= PORT_MAX_BG_ROOMS)
-                break;
-            q[qt] = (uint8_t)o;
-            depth[qt] = (uint8_t)(d + 1);
-            qt++;
+        /* Same-floor portals first so a 24-room cap cannot fill with
+         * downstairs halls when the camera is on r13/r15. */
+        for (pass = 0; pass < 2; pass++) {
+            for (i = 0; i < g_nportals; i++) {
+                int o = 0;
+                float dy;
+                int same;
+                if (g_portals[i].a == r)
+                    o = g_portals[i].b;
+                else if (g_portals[i].b == r)
+                    o = g_portals[i].a;
+                else
+                    continue;
+                if (o < 1 || o > g_bg_rooms || seen[o])
+                    continue;
+                dy = g_rm[o].pos[1] - g_rm[r].pos[1];
+                if (dy < 0.f)
+                    dy = -dy;
+                same = dy <= 400.f;
+                if (pass == 0 && !same)
+                    continue;
+                if (pass == 1 && same)
+                    continue;
+                seen[o] = 1;
+                if (qt >= PORT_MAX_BG_ROOMS)
+                    break;
+                q[qt] = (uint8_t)o;
+                depth[qt] = (uint8_t)(d + 1);
+                qt++;
+            }
         }
     }
     return n;
@@ -878,6 +903,24 @@ static const uint8_t *room_sec(const PortBgRoom *rm)
     if (rm->sec_ngfx && g_bg && rm->sec_off)
         return g_bg + rm->sec_off;
     return NULL;
+}
+
+int port_stage_room_gdl(int room, uint32_t *ngfx, float pos[3])
+{
+    const PortBgRoom *rm;
+    if (room < 1 || room > g_bg_rooms)
+        return -1;
+    rm = &g_rm[room];
+    if (pos) {
+        pos[0] = rm->pos[0];
+        pos[1] = rm->pos[1];
+        pos[2] = rm->pos[2];
+    }
+    if (ngfx)
+        *ngfx = rm->pri_ngfx;
+    if (!room_pri(rm) || rm->pri_ngfx == 0)
+        return -1;
+    return 0;
 }
 
 int port_stage_draw(void)

@@ -38,6 +38,8 @@ int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, i
 int port_stage_current_room(void);
 /* Lowest-floor tile, else nearby ground tile, else nearest bg centre. */
 int port_stage_room_at_local(float lx, float ly, float lz);
+/* 0 if room has a primary GDL. Writes command count and Rare room pos. */
+int port_stage_room_gdl(int room, uint32_t *ngfx, float pos[3]);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
 int port_stage_rooms_walked(void);

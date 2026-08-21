@@ -633,6 +633,40 @@ int port_stan_tile_room(float local_x, float local_z)
     return (int)t->room;
 }
 
+#define PORT_STAN_EYE_SLACK 150.0f
+
+int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y)
+{
+    float wx, wz, want, best_d;
+    const StanTile *best;
+    int i;
+
+    if (g_ntile <= 0 || !(eye_y == eye_y) || eye_y > 1.0e20f || eye_y < -1.0e20f)
+        return port_stan_tile_room(local_x, local_z);
+    local_to_world(local_x, local_z, &wx, &wz);
+    want = (eye_y + g_oy) - PORT_EYE_HEIGHT;
+    best = NULL;
+    best_d = 1.0e30f;
+    for (i = 0; i < g_ntile; i++) {
+        float fy, d;
+        if (!point_in_tile(&g_tile[i], wx, wz))
+            continue;
+        fy = tile_floor_y(&g_tile[i], wx, wz);
+        if (!finite_f(fy))
+            continue;
+        d = fy - want;
+        if (d < 0.0f)
+            d = -d;
+        if (d < best_d) {
+            best_d = d;
+            best = &g_tile[i];
+        }
+    }
+    if (!best || best->room < 1 || best_d > PORT_STAN_EYE_SLACK)
+        return port_stan_tile_room(local_x, local_z);
+    return (int)best->room;
+}
+
 int port_stan_eye_y(float local_x, float local_z, float *y_out)
 {
     float wx, wz, y;
