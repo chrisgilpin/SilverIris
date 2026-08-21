@@ -40,7 +40,7 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 
-/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15.
+/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15 / ground r2-r3 / r3-r5 / r5-r4 / r10-r11 / r21-r22 / r72-r3 / r73-r11.
  * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
 {
@@ -78,15 +78,42 @@ static int path_unlatch_proof(void)
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     no = port_stage_opening_count();
-    /* Prefer the new catwalk r14-r15 Rare quad (new facing use).
-     * r14-r13 is bound, but its yaw-0 slab sits west of the r13 stan
-     * mesh; r14-r15 yaw-90 is face-on from the r13 tile at x~-626. */
-    for (i = 0; i < no; i++) {
-        if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
-            continue;
-        if ((ra == 14 && rb == 15) || (ra == 15 && rb == 14)) {
-            found = 1;
-            break;
+    /* Prefer one new nearby-ground facing use (dump-verified this pass).
+     * Require a 120-unit stand on a stan tile so the Z-unlatch is real. */
+    {
+        static const int pick[][2] = {
+            {3, 5}, {5, 3}, {10, 11}, {11, 10}, {5, 4}, {4, 5},
+            {2, 3}, {3, 2}, {21, 22}, {22, 21}, {72, 3}, {3, 72},
+            {73, 11}, {11, 73},
+        };
+        int p;
+        for (p = 0; p < (int)(sizeof pick / sizeof pick[0]) && !found; p++) {
+            for (i = 0; i < no; i++) {
+                float sx, sz, slx, slz, ox0, oz0;
+                if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                    continue;
+                if (ra != pick[p][0] || rb != pick[p][1])
+                    continue;
+                ox0 = pos[0] - r1[0];
+                oz0 = pos[2] - r1[2];
+                if (yaw == 90.f) {
+                    slx = 1.f;
+                    slz = 0.f;
+                } else {
+                    slx = 0.f;
+                    slz = -1.f;
+                }
+                sx = ox0 - slx * 120.f;
+                sz = oz0 - slz * 120.f;
+                if (!port_stan_on_tile(sx, sz)) {
+                    sx = ox0 + slx * 120.f;
+                    sz = oz0 + slz * 120.f;
+                }
+                if (!port_stan_on_tile(sx, sz))
+                    continue;
+                found = 1;
+                break;
+            }
         }
     }
     if (!found) {

@@ -741,10 +741,11 @@ void port_stage_dump_portals(void)
 int port_stage_path_opening(int ra, int rb)
 {
     /* Door-sized Rare quads only. Dump first; do not invent slabs.
-     * Added catwalk r14-r13 / r14-r15 (doorlike w=128 tall=129 thin=0).
+     * Added nearby ground r2-r3 / r3-r5 / r5-r4 / r10-r11 / r21-r22
+     * and ground doorlike r72-r3 / r73-r11 (y=-513, not stacked).
      * Skip r15-r12 (tall=0, not doorlike). Skip stacked same-xz r8-r6
      * (over r8-r7, y=-128), r8-r9, r6-r71.
-     * Unbound: r6 island, gas-plant, alcove. */
+     * Unbound: r6 island, gas-plant r23+/r49+, farther r74-r77 ring. */
     return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
            (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
@@ -758,7 +759,14 @@ int port_stage_path_opening(int ra, int rb)
            (ra == 8 && rb == 10) || (ra == 10 && rb == 8) ||
            (ra == 13 && rb == 15) || (ra == 15 && rb == 13) ||
            (ra == 14 && rb == 13) || (ra == 13 && rb == 14) ||
-           (ra == 14 && rb == 15) || (ra == 15 && rb == 14);
+           (ra == 14 && rb == 15) || (ra == 15 && rb == 14) ||
+           (ra == 2 && rb == 3) || (ra == 3 && rb == 2) ||
+           (ra == 3 && rb == 5) || (ra == 5 && rb == 3) ||
+           (ra == 5 && rb == 4) || (ra == 4 && rb == 5) ||
+           (ra == 10 && rb == 11) || (ra == 11 && rb == 10) ||
+           (ra == 21 && rb == 22) || (ra == 22 && rb == 21) ||
+           (ra == 72 && rb == 3) || (ra == 3 && rb == 72) ||
+           (ra == 73 && rb == 11) || (ra == 11 && rb == 73);
 }
 
 static void bind_path_openings(void)
