@@ -3777,9 +3777,10 @@ static int test_tex_slot_high(void)
     vtx[1].v.ob[1] = -1;
     vtx[2].v.ob[1] = 1;
     for (i = 0; i < 3; i++) {
-        vtx[i].v.cn[0] = 180;
-        vtx[i].v.cn[1] = 180;
-        vtx[i].v.cn[2] = 180;
+        /* Full-bright shade so this test is about slot wrap, not modulate. */
+        vtx[i].v.cn[0] = 255;
+        vtx[i].v.cn[1] = 255;
+        vtx[i].v.cn[2] = 255;
         vtx[i].v.cn[3] = 255;
         vtx[i].v.tc[0] = 16;
         vtx[i].v.tc[1] = 16;
@@ -3982,9 +3983,10 @@ static int run_persp_floor(float cam_z, int *edge_x, unsigned *nred, unsigned *n
     vtx[3].v.tc[0] = 256;
     vtx[3].v.tc[1] = 256;
     for (i = 0; i < 4; i++) {
-        vtx[i].v.cn[0] = 180;
-        vtx[i].v.cn[1] = 180;
-        vtx[i].v.cn[2] = 180;
+        /* Full-bright: this test is 1/w ST, not SHADE*TEXEL. */
+        vtx[i].v.cn[0] = 255;
+        vtx[i].v.cn[1] = 255;
+        vtx[i].v.cn[2] = 255;
         vtx[i].v.cn[3] = 255;
         wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
     }
@@ -4318,6 +4320,146 @@ static int test_stan_offtile_spawn_y(void)
     return 0;
 }
 
+/* White I8 * Vtx.cn=80 must darken. cn=0 and g1_set_shade_modulate(0) stay albedo
+ * so the G1 greyscale hash / SETTEX checkers keep a no-light path. */
+static int test_shade_modulate(void)
+{
+    uint8_t vtx_be[48];
+    static Vtx vtx[3];
+    int i;
+    unsigned mid = 0, full = 0, k, n;
+    const uint8_t *fb;
+    uint8_t white[64];
+    uint8_t gdl[80];
+    uint8_t host[0x300];
+    static Mtx mv, proj;
+    float id[4][4];
+    int r, c;
+    uint32_t ngfx;
+
+    memset(white, 0xff, sizeof white);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.tc[0] = 256;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.tc[1] = 256;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 80;
+        vtx[i].v.cn[1] = 80;
+        vtx[i].v.cn[2] = 80;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+
+    g1_tex_unload();
+    if (g1_tex_load_raw(1, G1_TEX_I8, 8, 8, white, 64, NULL, 0) != 0)
+        return fail("shade load white");
+    if (!g1_shade_modulate())
+        return fail("shade default off");
+
+    for (r = 0; r < 4; r++)
+        for (c = 0; c < 4; c++)
+            id[r][c] = (r == c) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+    memcpy(host + 0x280, vtx_be, 48);
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(gdl + ngfx * 8 + 4,
+            GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000200u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000240u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000280u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 1);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_clear_lookat();
+    g1_set_segment(0xF, (uintptr_t)host);
+    g1_set_shade_modulate(1);
+    if (g1_interpret_be_dl(gdl, ngfx) != 0)
+        return fail("shade cn80 interpret");
+    fb = g1_fb_rgba();
+    n = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    mid = 0;
+    full = 0;
+    for (k = 0; k < n; k++) {
+        unsigned pr = fb[k * 4];
+        if (pr >= 60 && pr <= 100)
+            mid++;
+        if (pr >= 200)
+            full++;
+    }
+    if (mid < 1000)
+        return fail("white*cn80 must land near 80");
+    if (full > 80)
+        return fail("white*cn80 left raw albedo");
+
+    /* cn=0: no-light path (same as SETTEX checkers / G1 synthetic verts). */
+    memset(host + 0x280, 0, 48);
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 0;
+        vtx[i].v.cn[1] = 0;
+        vtx[i].v.cn[2] = 0;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(host + 0x280 + (size_t)i * 16, &vtx[i]);
+    }
+    if (g1_interpret_be_dl(gdl, ngfx) != 0)
+        return fail("shade cn0 interpret");
+    fb = g1_fb_rgba();
+    full = 0;
+    for (k = 0; k < n; k++) {
+        if (fb[k * 4] >= 200)
+            full++;
+    }
+    if (full < 1000)
+        return fail("cn=0 must stay no-light albedo");
+
+    /* explicit off with cn=80 still raw texel */
+    memcpy(host + 0x280, vtx_be, 48);
+    g1_set_shade_modulate(0);
+    if (g1_interpret_be_dl(gdl, ngfx) != 0)
+        return fail("shade off interpret");
+    fb = g1_fb_rgba();
+    full = 0;
+    for (k = 0; k < n; k++) {
+        if (fb[k * 4] >= 200)
+            full++;
+    }
+    if (full < 1000)
+        return fail("shade off must be raw albedo");
+    g1_set_shade_modulate(1);
+    g1_tex_unload();
+    printf("shade modulate mid=%u (cn80) no-light/off keep albedo\n", mid);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -4552,6 +4694,8 @@ int main(int argc, char **argv)
     if (test_tex_bank_synthetic() != 0)
         return 1;
     if (test_settex_formats() != 0)
+        return 1;
+    if (test_shade_modulate() != 0)
         return 1;
     if (test_settex_ia_formats() != 0)
         return 1;

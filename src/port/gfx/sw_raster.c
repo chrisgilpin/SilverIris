@@ -8,6 +8,23 @@
 static uint8_t g_fb[G1_FB_H][G1_FB_W][4];
 static uint16_t g_zb[G1_FB_H][G1_FB_W];
 static float g_sx = 160.f, g_sy = 120.f, g_tx = 160.f, g_ty = 120.f;
+/* Rare room verts already carry Vtx.cn. Default SHADE*TEXEL; cn=0 is identity. */
+static int g_shade_mod = 1;
+
+void sw_raster_set_shade_modulate(int on) { g_shade_mod = on ? 1 : 0; }
+int sw_raster_shade_modulate(void) { return g_shade_mod; }
+
+static void apply_untextured_grey(uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
+{
+    /* Black Vtx.cn still paints so the G1 synthetic / SETTEX-miss path is visible. */
+    if (!(*r | *g | *b)) {
+        *r = 180;
+        *g = 180;
+        *b = 180;
+        if (!*a)
+            *a = 255;
+    }
+}
 
 void sw_raster_clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
@@ -205,12 +222,25 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                         tt = a * v0->t + b * v1->t + c * v2->t;
                     }
                     if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
-                        r = sr;
-                        g = sg;
-                        bl = sb;
-                        al = sa;
+                        /* G_CC_MODULATERGB: texel * Vtx.cn. cn=0 keeps albedo
+                         * (G1 greyscale / SETTEX checkers use zeroed verts). */
+                        if (g_shade_mod && (r | g | bl)) {
+                            r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
+                            g = (uint8_t)(((unsigned)sg * (unsigned)g) / 255u);
+                            bl = (uint8_t)(((unsigned)sb * (unsigned)bl) / 255u);
+                            al = sa;
+                        } else {
+                            r = sr;
+                            g = sg;
+                            bl = sb;
+                            al = sa;
+                        }
+                    } else {
+                        apply_untextured_grey(&r, &g, &bl, &al);
                     }
                     /* Sample miss keeps vertex shade (grey), never forced black. */
+                } else {
+                    apply_untextured_grey(&r, &g, &bl, &al);
                 }
                 put_px(x, y, r, g, bl, al, z);
             }

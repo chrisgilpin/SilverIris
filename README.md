@@ -50,7 +50,7 @@ IA/RGBA32, inflates the secondary GDL, and clips homogeneous
 and a door/portal closer than the projection near plane cannot
 stamp a center-covering black rectangle over the gun.
 Transparent IA (alpha 0) does not stamp black. A SETTEX miss still
-paints vertex grey. G1 now walks the current room plus Rare portal
+paints vertex grey. Sampled texels are SHADE*TEXEL (Rare Vtx.cn already in the GDL); cn=0 skips modulate so the G1 greyscale hash and SETTEX checkers stay bit-identical (g1_set_shade_modulate(0) is the explicit no-light path). G1 now walks the current room plus Rare portal
 neighbors (depth 2, cap 12) so a doorway shows the next room's GDL
 instead of a hole. SETTEX now binds 64x64 RGBA16/RGB15 (the 4KB TMEM
 cap used to reject them as misses) and inflates Rare lookup /

@@ -270,10 +270,14 @@ rom-dma: overlay $(BUILD)/test_rom_dma
 	$(BUILD)/test_rom_dma $(ROOT)/testdata/rom_dma/synthetic.csv $(FILELIST_U)
 
 $(BUILD)/test_joy_playback: $(ROOT)/tools/det/test_joy_playback.c \
-		$(BUILD)/src/joy.o $(PORT_OS_OBJS) | overlay
+		$(BUILD)/src/joy.o $(PORT_OS_OBJS) \
+		$(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o | overlay
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(ROOT)/tools/det/test_joy_playback.c \
-		$(BUILD)/src/joy.o $(PORT_OS_OBJS) -lm
+		$(BUILD)/src/joy.o $(PORT_OS_OBJS) \
+		$(BUILD)/src/port/fs/c0pack.o \
+		$(BUILD)/src/port/fs/inflate1172.o $(BUILD)/tools/extractor/puff.o -lm
 
 joy-playback: overlay $(BUILD)/test_joy_playback
 	$(BUILD)/test_joy_playback

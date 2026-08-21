@@ -39,6 +39,10 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 void g1_set_lookat(float x, float y, float z, float theta_deg);
 void g1_set_pitch(float pitch_deg);
 void g1_clear_lookat(void);
+/* SHADE*TEXEL (Vtx.cn). Default on. cn=0 skips modulate (G1/SETTEX no-light). */
+void g1_set_shade_modulate(int on);
+int g1_shade_modulate(void);
+
 unsigned g1_fb_nonzero(void);
 
 #endif

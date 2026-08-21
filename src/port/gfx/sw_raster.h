@@ -9,6 +9,9 @@
 #define G1_FB_H 240
 
 void sw_raster_clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+void sw_raster_set_shade_modulate(int on);
+int sw_raster_shade_modulate(void);
+
 void sw_raster_list(const GirList *list);
 const uint8_t *sw_fb_rgba(void);
 void sw_fb_grey_sha256(uint8_t out[32]);

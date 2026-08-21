@@ -147,18 +147,14 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
         s->clip[3] = g_mvp[3][0] * x + g_mvp[3][1] * y + g_mvp[3][2] * z + g_mvp[3][3];
         s->s = (float)v->tc[0];
         s->t = (float)v->tc[1];
-        if (!v->cn[0] && !v->cn[1] && !v->cn[2]) {
-            /* Untextured grey so a black Vtx.cn still paints. */
-            s->r = 180;
-            s->g = 180;
-            s->b = 180;
+        /* Keep Rare Vtx.cn. rgb=0 is the no-light / G1 path: raster paints
+         * grey 180 untextured and skips SHADE*TEXEL so hashes stay. */
+        s->r = v->cn[0];
+        s->g = v->cn[1];
+        s->b = v->cn[2];
+        s->a = v->cn[3];
+        if (!s->r && !s->g && !s->b && !s->a)
             s->a = 255;
-        } else {
-            s->r = v->cn[0];
-            s->g = v->cn[1];
-            s->b = v->cn[2];
-            s->a = v->cn[3];
-        }
     }
 }
 
@@ -741,3 +737,6 @@ int g1_run_synthetic(void)
 const GirList *g1_last_ir(void) { return &g_ir; }
 const uint8_t *g1_fb_rgba(void) { return sw_fb_rgba(); }
 void g1_fb_grey_sha256(uint8_t out[32]) { sw_fb_grey_sha256(out); }
+
+void g1_set_shade_modulate(int on) { sw_raster_set_shade_modulate(on); }
+int g1_shade_modulate(void) { return sw_raster_shade_modulate(); }
