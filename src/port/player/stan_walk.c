@@ -616,6 +616,12 @@ int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float 
 
     if (!y_out || g_ntile <= 0)
         return -1;
+    /* On-mesh: same lowest-floor tile as clip_step / tile_at_world.
+     * Bathroom stacked xz used to pick the high walkway centroid
+     * (eye 405.9) even though the player walks the low floor (86.8).
+     * A linked upstairs tile with no low overlap still returns high. */
+    if (port_stan_eye_y(local_x, local_z, y_out) == 0)
+        return 0;
     if (max_dist < 0.0f)
         max_dist = 0.0f;
     local_to_world(local_x, local_z, &wx, &wz);
@@ -964,6 +970,13 @@ void port_stan_debug_at(float local_x, float local_z)
         printf("stan_debug eye_y=%.1f\n", (double)ey);
     else
         printf("stan_debug eye_y=off\n");
+    {
+        float ny;
+        if (port_stan_nearest_eye_y(local_x, local_z, PORT_STAN_NEAR_XZ, &ny) == 0)
+            printf("stan_debug nearest_eye_y=%.1f\n", (double)ny);
+        else
+            printf("stan_debug nearest_eye_y=off\n");
+    }
     for (i = 0; i < g_ntile; i++) {
         const StanTile *t = &g_tile[i];
         float ox, oz, d2, fy, avg;

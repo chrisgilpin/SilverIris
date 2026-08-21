@@ -297,8 +297,64 @@ static int test_tile_room_lowest_floor(void)
         return fail("tile_room eye");
     if (fabsf(y - (-88.0f + PORT_EYE_HEIGHT)) > 1.0f)
         return fail("tile_room eye not low floor");
+    /* Same stacked xz: nearest centroid used to pick the high walkway. */
+    {
+        float ny;
+        if (port_stan_nearest_eye_y(50.0f, 50.0f, PORT_STAN_NEAR_XZ, &ny) != 0)
+            return fail("tile_room nearest");
+        if (fabsf(ny - y) > 1.0f)
+            return fail("tile_room nearest not low floor");
+    }
     printf("tile_room lowest room=%d eye=%.1f (high decoy 14/225 ignored)\n",
            port_stan_tile_room(50.0f, 50.0f), (double)y);
+    port_stan_unload();
+    return 0;
+}
+
+/* Linked upstairs tile with no low overlap must keep the high eye.
+ * Do not flatten every Facility walkway to ground. */
+static int test_nearest_eye_keeps_linked_upper(void)
+{
+    uint8_t stan[512];
+    float nx, nz, ny, ey, near_y;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    /* Low hall. East edge linked to the ramp. */
+    wr_unit_quad(stan, 0x80, 0, 100, -88, 0, 100);
+    stan[0x80 + 3] = 71;
+    wr_quad_link(stan, 0x80, 1, 0x10);
+    /* Upper landing, no stacked low tile at this xz. */
+    wr_unit_quad(stan, 0xA8, 100, 200, 225, 0, 100);
+    stan[0xA8 + 3] = 12;
+    wr_quad_link(stan, 0xA8, 3, 0x10);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("upper load");
+    if (port_stan_tile_count() != 2)
+        return fail("upper tiles");
+    if (port_stan_tile_room(150.0f, 50.0f) != 12)
+        return fail("upper room not 12");
+    if (port_stan_eye_y(150.0f, 50.0f, &ey) != 0)
+        return fail("upper eye");
+    if (fabsf(ey - (225.0f + PORT_EYE_HEIGHT)) > 1.0f)
+        return fail("upper eye not high");
+    if (port_stan_nearest_eye_y(150.0f, 50.0f, PORT_STAN_NEAR_XZ, &near_y) != 0)
+        return fail("upper nearest");
+    if (fabsf(near_y - ey) > 1.0f)
+        return fail("upper nearest flattened");
+    nx = 150.0f;
+    nz = 50.0f;
+    ny = 0.0f;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (nx < 140.0f)
+        return fail("upper clip blocked");
+    if (fabsf(ny - ey) > 1.0f)
+        return fail("upper clip y flattened");
+    printf("linked_upper eye=%.1f nearest=%.1f clip=%.1f,%.1f y=%.1f\n",
+           (double)ey, (double)near_y, (double)nx, (double)nz, (double)ny);
     port_stan_unload();
     return 0;
 }
@@ -1097,6 +1153,8 @@ int main(void)
     if (test_snap_walkable_prefers_hall() != 0)
         return 1;
     if (test_tile_room_lowest_floor() != 0)
+        return 1;
+    if (test_nearest_eye_keeps_linked_upper() != 0)
         return 1;
     if (test_nearest_tile_room_prefers_hall() != 0)
         return 1;

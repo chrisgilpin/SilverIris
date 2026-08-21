@@ -60,7 +60,10 @@ int port_stan_on_tile(float local_x, float local_z);
 int port_stan_tile_room(float local_x, float local_z);
 /* Off-mesh: room of the nearest low-band tile within max_dist, or 0. */
 int port_stan_nearest_tile_room(float local_x, float local_z, float max_dist);
-/* Nearest non-degen tile within max_dist (centroid xz). Writes avgY+175-originY. */
+/* On-mesh: same lowest-floor eye as port_stan_eye_y / tile_at_world.
+ * Off-mesh: nearest non-degen centroid within max_dist (avgY+175-originY).
+ * Stacked bathroom xz must not pick a high walkway centroid.
+ */
 #define PORT_STAN_NEAR_XZ 800.0f
 int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float *y_out);
 /*

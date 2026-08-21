@@ -274,6 +274,34 @@ static void place(float x, float z, float th)
     port_player_set_pose(x, ey, z, th);
 }
 
+/* On-mesh stacked xz: nearest_eye_y must match tile_at_world, not a
+ * high walkway centroid. Low Facility floors sit near 86.8. */
+static int probe_eye_band(const char *tag, float x, float z, float lo, float hi)
+{
+    float ey = 0.f, ny = 0.f;
+    int got_e, got_n;
+    got_e = port_stan_eye_y(x, z, &ey) == 0;
+    got_n = port_stan_nearest_eye_y(x, z, PORT_STAN_NEAR_XZ, &ny) == 0;
+    printf("eye_probe %s xz=%.1f,%.1f on=%d eye=%s%.1f nearest=%s%.1f\n",
+           tag, (double)x, (double)z, port_stan_on_tile(x, z),
+           got_e ? "" : "off/", (double)ey, got_n ? "" : "off/", (double)ny);
+    if (!got_n) {
+        fprintf(stderr, "%s nearest_eye_y miss\n", tag);
+        return -1;
+    }
+    if (ny < lo || ny > hi) {
+        fprintf(stderr, "%s nearest_eye_y=%.1f want %.1f..%.1f\n", tag,
+                (double)ny, (double)lo, (double)hi);
+        return -1;
+    }
+    if (got_e && (ey < lo || ey > hi)) {
+        fprintf(stderr, "%s eye_y=%.1f want %.1f..%.1f\n", tag, (double)ey,
+                (double)lo, (double)hi);
+        return -1;
+    }
+    return 0;
+}
+
 /* Look at a world-space standing mid-torso from a local camera xz. */
 static void aim_world(float wx, float wy, float wz, float cam_x, float cam_z)
 {
@@ -519,11 +547,47 @@ int main(int argc, char **argv)
                "not 12/14) %s\n",
                cur, tile, port_prop_drawn(), dark ? "DARK14" : "STALL");
     }
+    if (probe_eye_band("spawn", spawn_x, spawn_z, 70.f, 110.f) != 0)
+        goto done;
+    {
+        float x, z, ey, best = 0.f, bx = 0.f, bz = 0.f, ny = 0.f;
+        int n = 0;
+        for (z = -3400.f; z <= -1800.f; z += 50.f) {
+            for (x = -800.f; x <= 1200.f; x += 50.f) {
+                if (!port_stan_on_tile(x, z))
+                    continue;
+                if (port_stan_eye_y(x, z, &ey) != 0 || ey < 200.f)
+                    continue;
+                n++;
+                if (ey > best) {
+                    best = ey;
+                    bx = x;
+                    bz = z;
+                }
+            }
+        }
+        printf("high_floor_scan n=%d best xz=%.1f,%.1f eye=%.1f\n", n, (double)bx,
+               (double)bz, (double)best);
+        if (n < 1) {
+            fprintf(stderr, "high_floor_scan found no upstairs-linked tile\n");
+            goto done;
+        }
+        (void)port_stan_nearest_eye_y(bx, bz, PORT_STAN_NEAR_XZ, &ny);
+        printf("high_floor_best nearest=%.1f room=%d (must stay high)\n",
+               (double)ny, port_stan_tile_room(bx, bz));
+        if (ny < 200.f) {
+            fprintf(stderr, "high_floor flattened nearest=%.1f\n", (double)ny);
+            goto done;
+        }
+        port_stan_debug_at(bx, bz);
+    }
     /* Chris Chrome: bathroom xz y=406, WASD dead, fire still works. */
     {
         const float stuck_x = -491.9f, stuck_z = -2238.5f;
         float x1, z1, y1, ey = 0.f;
         int on1, nb = 0;
+        if (probe_eye_band("bathroom", stuck_x, stuck_z, 70.f, 110.f) != 0)
+            goto done;
         printf("stuck_probe\n");
         port_stan_debug_at(stuck_x, stuck_z);
         port_player_set_pose(stuck_x, 405.9f, stuck_z, 181.f);
@@ -593,6 +657,8 @@ int main(int argc, char **argv)
         const float bx = -454.6f, bz = -2694.9f;
         int cur, tile, at, near, dark;
         float by;
+        if (probe_eye_band("bathhall", bx, bz, 70.f, 110.f) != 0)
+            goto done;
         place(bx, bz, HALL_TH);
         if (shot_one(out_dir, "bathhall") != 0)
             goto done;
@@ -612,6 +678,15 @@ int main(int argc, char **argv)
         }
     }
     place(STAIR_X, STAIR_Z, STAIR_TH);
+    {
+        float sey = 0.f, sny = 0.f;
+        (void)port_stan_eye_y(STAIR_X, STAIR_Z, &sey);
+        (void)port_stan_nearest_eye_y(STAIR_X, STAIR_Z, PORT_STAN_NEAR_XZ, &sny);
+        printf("stairs_eye xz=%.1f,%.1f on=%d eye=%.1f nearest=%.1f (foot of stairs; stacked 405.9 ignored)\n",
+               (double)STAIR_X, (double)STAIR_Z, port_stan_on_tile(STAIR_X, STAIR_Z),
+               (double)sey, (double)sny);
+        port_stan_debug_at(STAIR_X, STAIR_Z);
+    }
     if (shot_one(out_dir, "stairs") != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
