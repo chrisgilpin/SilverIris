@@ -3068,14 +3068,21 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 continue;
             lx = pos[0] - pwx;
             lz = pos[2] - pwz;
-            if (lx * lx + lz * lz > 900.f * 900.f)
-                continue;
-            if (lx * lx + lz * lz < 250.f * 250.f)
-                continue;
             tox = pos[0] - pwx;
             toz = pos[2] - pwz;
-            if (tox * lookx + toz * lookz < 40.f)
-                continue;
+            {
+                float d2 = lx * lx + lz * lz;
+                int path = port_stage_path_opening(ra, rb);
+                if (d2 > 900.f * 900.f)
+                    continue;
+                /* Path lab slabs stay visible inside Z-range (~200).
+                 * Start-hall 250 min is unchanged so spawn pixels hold. */
+                if (!path && d2 < 250.f * 250.f)
+                    continue;
+                if ((!path || d2 >= 250.f * 250.f) &&
+                    tox * lookx + toz * lookz < 40.f)
+                    continue;
+            }
             /* Upper/catwalk portals sit hundreds of units above the floor. */
             if (pos[1] > floor_y + 200.f)
                 continue;
@@ -3090,8 +3097,20 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
             tmp.scale = (width > 1.f) ? (width / (2.f * half_w)) : (PORT_DOOR_HALF_W / half_w);
             tmp.mdl = slab;
-            k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, -bottom * tmp.scale, 0.f,
-                           0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+            {
+                float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
+                if (port_stan_door_is_open_at(pos[0], pos[2])) {
+                    PortProp pose = tmp;
+                    pose.look[0] = (yaw == 90.f) ? 1.f : 0.f;
+                    pose.look[2] = (yaw == 90.f) ? 0.f : -1.f;
+                    pose.door_type = DOORTYPE_SWINGING;
+                    pose.max_frac = 90.f;
+                    door_open_pose(&pose, &add_yaw, &odx, &ody, &odz);
+                }
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f,
+                               -bottom * tmp.scale, 0.f, 0.f, 0.f, 0.f,
+                               add_yaw, odx, ody, odz);
+            }
         }
         /* Start alcoves are in-room GDL, not portals. One left-wall slab
          * when no door-sized portal already sits on that wall. */

@@ -38,6 +38,151 @@
 static uint32_t g_last_fb_adler;
 static uint32_t g_spawn_fb_adler;
 
+static uint32_t adler32(const uint8_t *p, size_t n);
+
+/* Door-sized Rare quads on spawn->r7->r8->r20->r19->r18. Far-links
+ * with no slab are not listed — do not invent doors. */
+static void dump_path_doors(void)
+{
+    float r1[3];
+    int i, no, npath = 0;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    no = port_stage_opening_count();
+    for (i = 0; i < no; i++) {
+        float pos[3], yaw = 0.f, width = 0.f;
+        int ra = 0, rb = 0;
+        if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+            continue;
+        if (!port_stage_path_opening(ra, rb))
+            continue;
+        npath++;
+        printf("path_opening r%d-r%d local=%.1f,%.1f yaw=%.1f w=%.1f\n",
+               ra, rb, (double)(pos[0] - r1[0]), (double)(pos[2] - r1[2]),
+               (double)yaw, (double)width);
+    }
+    printf("path_doors n=%d openings=%d stan=%d\n", npath,
+           port_stage_opening_count(), port_stan_door_count());
+}
+
+/* Face a documented path portal, Z-unlatch, prove collision or pose. */
+static int path_unlatch_proof(void)
+{
+    float r1[3], pos[3], yaw = 0.f, width = 0.f;
+    float ox, oz, lx, lz, px, pz, y = 86.8f, th;
+    float nx, nz, ny, ax, az;
+    int i, no, ra = 0, rb = 0, found = 0, used, opened;
+    int closed_block = 0, open_pass = 0;
+    unsigned ad_closed = 0, ad_open = 0;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    no = port_stage_opening_count();
+    /* Prefer the r20-r19 lab door Chris walks. */
+    for (i = 0; i < no; i++) {
+        if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+            continue;
+        if ((ra == 20 && rb == 19) || (ra == 19 && rb == 20)) {
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (port_stage_path_opening(ra, rb)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        printf("path_unlatch NONE (far-link, no slab)\n");
+        return 0;
+    }
+    ox = pos[0] - r1[0];
+    oz = pos[2] - r1[2];
+    if (yaw == 90.f) {
+        lx = 1.f;
+        lz = 0.f;
+    } else {
+        lx = 0.f;
+        lz = -1.f;
+    }
+    px = ox - lx * 120.f;
+    pz = oz - lz * 120.f;
+    if (!port_stan_on_tile(px, pz)) {
+        px = ox + lx * 120.f;
+        pz = oz + lz * 120.f;
+        lx = -lx;
+        lz = -lz;
+    }
+    if (port_stan_eye_y(px, pz, &y) != 0)
+        y = 86.8f;
+    th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    port_player_set_pose(px, y, pz, th);
+    port_player_set_pitch(0.f);
+
+    nx = ox;
+    nz = oz;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    ax = nx - ox;
+    az = nz - oz;
+    closed_block = (ax * ax + az * az > 25.f) || port_stan_door_is_open_at(pos[0], pos[2]) == 0;
+    port_api_draw();
+    ad_closed = adler32(port_api_fb(),
+                        (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
+
+    used = port_stan_use_door(px, pz, lx, lz);
+    if (!used)
+        used = port_stan_use_door(px + r1[0], pz + r1[2], lx, lz);
+    opened = port_stan_door_is_open_at(pos[0], pos[2]);
+    if (!opened) {
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5000) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, 0x2000);
+        if (port_api_sim_tick(5001) != 0)
+            return -1;
+        opened = port_stan_door_is_open_at(pos[0], pos[2]);
+        if (opened)
+            used = 1;
+    }
+
+    port_player_set_pose(px, y, pz, th);
+    nx = ox;
+    nz = oz;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    ax = nx - ox;
+    az = nz - oz;
+    open_pass = (ax * ax + az * az <= 400.f);
+    port_api_draw();
+    ad_open = adler32(port_api_fb(),
+                      (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
+    if (opened)
+        (void)port_stan_use_door(px, pz, lx, lz);
+
+    printf("path_unlatch r%d-r%d local=%.1f,%.1f stand=%.1f,%.1f used=%d "
+           "opened=%d closed_block=%d open_pass=%d adler %08x->%08x %s\n",
+           ra, rb, (double)ox, (double)oz, (double)px, (double)pz, used,
+           opened, closed_block, open_pass, ad_closed, ad_open,
+           (opened && (open_pass || ad_open != ad_closed)) ? "OK" : "FAIL");
+    if (!opened) {
+        fprintf(stderr, "path_unlatch did not open\n");
+        return -1;
+    }
+    if (!open_pass && ad_open == ad_closed) {
+        fprintf(stderr, "path_unlatch no collision or pose change\n");
+        return -1;
+    }
+    return 0;
+}
+
 static void usage(void)
 {
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
@@ -895,6 +1040,8 @@ int main(int argc, char **argv)
             out_dir = argv[++a];
         else if (strcmp(argv[a], "--probe") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--doors") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
             usage();
             return 0;
@@ -931,6 +1078,23 @@ int main(int argc, char **argv)
         port_api_shutdown();
         free(pack);
         return 1;
+    }
+    {
+        int doors = 0;
+        int aa;
+        for (aa = 1; aa < argc; aa++)
+            if (strcmp(argv[aa], "--doors") == 0)
+                doors = 1;
+        dump_path_doors();
+        if (doors) {
+            float sx = port_api_player_x(), sz = port_api_player_z();
+            int urc = path_unlatch_proof();
+            if (urc == 0)
+                urc = spawn_to_stair_note(sx, sz, R18_STAIR_X, R18_STAIR_Z);
+            port_api_shutdown();
+            free(pack);
+            return urc != 0 ? 3 : 0;
+        }
     }
 
     {
@@ -1245,6 +1409,8 @@ int main(int argc, char **argv)
     if (probe_eye_band("bathroom_after_stairs", -491.9f, -2238.5f, 70.f, 110.f) != 0)
         goto done;
     if (lab_path_proof(out_dir) != 0)
+        goto done;
+    if (path_unlatch_proof() != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */

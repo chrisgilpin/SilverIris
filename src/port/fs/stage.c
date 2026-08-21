@@ -88,6 +88,7 @@ static int g_cur_room;
 static int g_rooms_walked;
 static uint8_t g_walked[PORT_WALK_MAX];
 static void *g_first_room;
+static void bind_path_openings(void);
 static char g_stage_err[160];
 
 static void set_stage_err(const char *s)
@@ -680,6 +681,7 @@ int port_stage_load(int level_id)
                 port_stan_add_guard(gx, gz);
         }
     }
+    bind_path_openings();
     return PORT_STAGE_OK;
 }
 
@@ -710,6 +712,36 @@ int port_stage_gdl_vtx(void) { return g_gdl_vtx; }
 int port_stage_gdl_sec(void) { return g_gdl_sec; }
 
 int port_stage_portal_count(void) { return g_nportals; }
+
+int port_stage_path_opening(int ra, int rb)
+{
+    return (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
+           (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
+           (ra == 20 && rb == 19) || (ra == 19 && rb == 20) ||
+           (ra == 19 && rb == 18) || (ra == 18 && rb == 19);
+}
+
+static void bind_path_openings(void)
+{
+    int i;
+    for (i = 0; i < g_nportals; i++) {
+        float lx, lz;
+        if (!g_portals[i].doorlike)
+            continue;
+        if (!port_stage_path_opening((int)g_portals[i].a, (int)g_portals[i].b))
+            continue;
+        /* Stan origin is room1, so use_door maps player local -> world.
+         * Bind fitted portal world xz, not gas-plant GROUP / pad origins. */
+        if (g_portals[i].yaw == 90.f) {
+            lx = 1.f;
+            lz = 0.f;
+        } else {
+            lx = 0.f;
+            lz = -1.f;
+        }
+        port_stan_add_door(g_portals[i].pos[0], g_portals[i].pos[2], lx, lz);
+    }
+}
 
 int port_stage_opening_count(void)
 {
