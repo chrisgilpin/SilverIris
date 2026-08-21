@@ -884,7 +884,14 @@ int port_stage_draw(void)
         room1[0] = ox;
         room1[1] = oy;
         room1[2] = oz;
-        k += port_prop_fill_rooms(passes + k, PORT_DRAW_MAX - k, room1, rpos, nsel, ids);
+        {
+            int room_cap = PORT_DRAW_MAX - k;
+            if (room_cap > 24)
+                room_cap -= 24;
+            k += port_prop_fill_rooms(passes + k, room_cap, room1, rpos, nsel, ids);
+            if (k < PORT_DRAW_MAX)
+                k += port_prop_fill_viewgun(passes + k, PORT_DRAW_MAX - k);
+        }
     }
     if (k == 0)
         return 1;

@@ -289,14 +289,14 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s guards=%d parts=%d "
-             "drawn=%d",
+             "drawn=%d viewgun=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
-             port_prop_guard_parts(), port_prop_drawn());
+             port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
@@ -399,6 +399,10 @@ int main(int argc, char **argv)
     }
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
+    port_player_set_pitch(-35.f);
+    if (shot_one(out_dir, "spawn_lookdown") != 0)
+        goto done;
+    port_player_set_pitch(0.f);
     place(HALL_X, HALL_Z, HALL_TH);
     if (shot_one(out_dir, "hallway") != 0)
         goto done;

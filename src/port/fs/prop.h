@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #define PORT_PROP_OK 0
-#define PORT_PROP_MAX_DRAW 96
+#define PORT_PROP_MAX_DRAW 128
 
 void port_prop_unload(void);
 int port_prop_load(int level_id);
@@ -38,5 +38,12 @@ int port_prop_intro_pad(void);
 int port_prop_door_count(void);
 int port_prop_door_xz(int i, float *x, float *z, float *lx, float *lz);
 int port_prop_guard_xz(int i, float *x, float *z);
+
+/*
+ * First-person GwppkZ (PP7) as a static camera-space viewmodel.
+ * 0 if the pack has no gun file or bind failed. Does not bump drawn.
+ */
+int port_prop_fill_viewgun(G1RoomDl *out, int cap);
+int port_prop_viewgun_parts(void);
 
 #endif

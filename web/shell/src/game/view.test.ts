@@ -79,11 +79,10 @@ describe("overlay PP7 pitch", () => {
     expect(u.slideY).toBe(u.tipY);
   });
 
-  it("draws the pitched slide on the G1 overlay path", () => {
+  it("does not composite the PORT trapezoid on the G1 overlay path", () => {
     const rec = mockCtx(320, 240);
     const fb = new Uint8ClampedArray(320 * 240 * 4);
     fb[3] = 255;
-    const down = overlayGunGeom(320, 240, -45);
     presentLiveView(rec.ctx, {
       gdlRaw: true,
       gdlC0: false,
@@ -91,7 +90,7 @@ describe("overlay PP7 pitch", () => {
       cam: { x: 0, z: 0, theta: 0, phi: -45 },
       hits: [],
     });
-    expect(rec.ops.some((o) => o.includes("#2a2a28") && o.includes(`${down.slideY}`))).toBe(true);
+    expect(rec.ops.some((o) => o.includes("#2a2a28") || o.includes("#3a3a38"))).toBe(false);
   });
 });
 describe("stage G1 present", () => {

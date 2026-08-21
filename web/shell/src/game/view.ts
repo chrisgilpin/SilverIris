@@ -235,6 +235,7 @@ function drawOverlayMarks(
   w: number,
   h: number,
   hfov: number,
+  drawGun = false,
 ): void {
   ctx.lineWidth = 1;
   for (const chr of chrs) {
@@ -267,15 +268,19 @@ function drawOverlayMarks(
   ctx.lineTo(w / 2, h / 2 + 5);
   ctx.stroke();
 
-  const gun = overlayGunGeom(w, h, cam.phi ?? 0);
-  ctx.fillStyle = "#3a3a38";
-  ctx.beginPath();
-  ctx.moveTo(gun.baseLX, gun.baseLY);
-  ctx.lineTo(gun.tipX, gun.tipY);
-  ctx.lineTo(gun.baseRX, gun.baseRY);
-  ctx.fill();
-  ctx.fillStyle = "#2a2a28";
-  ctx.fillRect(gun.slideX, gun.slideY, gun.slideW, gun.slideH);
+  /* G1 path draws GwppkZ in camera space; keep the PORT trapezoid only
+   * on the no-pack placeholder so the grey slab is not composited twice. */
+  if (drawGun) {
+    const gun = overlayGunGeom(w, h, cam.phi ?? 0);
+    ctx.fillStyle = "#3a3a38";
+    ctx.beginPath();
+    ctx.moveTo(gun.baseLX, gun.baseLY);
+    ctx.lineTo(gun.tipX, gun.tipY);
+    ctx.lineTo(gun.baseRX, gun.baseRY);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a28";
+    ctx.fillRect(gun.slideX, gun.slideY, gun.slideW, gun.slideH);
+  }
 
   if (h >= 100) drawRadar(ctx, cam, hits, chrs, h);
 }
@@ -290,7 +295,7 @@ export function drawPortOverlay(
   hfov = PORT_VIEW_FOV,
 ): void {
   withViewBox(ctx, box, (w, h) => {
-    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov);
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, false);
   });
 }
 
@@ -304,7 +309,7 @@ export function drawPortView(
 ): void {
   withViewBox(ctx, box, (w, h) => {
     drawPlaceholderMesh(ctx, cam, w, h, hfov);
-    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov);
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, true);
   });
 }
 

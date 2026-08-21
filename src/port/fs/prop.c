@@ -13,7 +13,7 @@
 #include <string.h>
 
 #define PORT_MAX_PROPS 256
-#define PORT_MAX_MODELS 64
+#define PORT_MAX_MODELS 80
 #define PORT_MODEL_PARTS 32
 #define PORT_MODEL_SEG 5
 #define PORT_MODEL_BASE 0x05000000u
@@ -54,6 +54,15 @@
 #define PORT_DOOR_HALF_W 90.f
 /* Posed C*Z idle AABB is ~1510 (480 spine + ~900 legs), not 480. Fit to 185. */
 #define PORT_CHR_STAND 185.f
+/* GwppkZ MODELFILEHEADER: NUMSWITCHES=0x24 NUMTEXTURES=0xC. */
+#define PORT_GUN_WPPK_ID 9001
+#define PORT_GUN_WPPK_NSW 0x24
+#define PORT_GUN_WPPK_NTEX 0x0C
+/* Camera-space hold. Rare GUNFILERECORD is (20,97,579); sit closer than
+ * the 10-unit near plane and below center so the pistol is a viewmodel. */
+#define PORT_VIEWGUN_X 22.f
+#define PORT_VIEWGUN_Y (-28.f)
+#define PORT_VIEWGUN_Z (-72.f)
 
 #define PI_F 3.14159265f
 
@@ -126,6 +135,10 @@ static float g_intro_look[3];
 static float g_idle_rest[PORT_SKEL_GUARD_N][3];
 static int g_have_idle;
 static char g_idle_info[96];
+static int g_viewgun_parts;
+static PortModel *load_wppk(void);
+static const PortPropCat k_wppk_gun = { PORT_GUN_WPPK_ID, PORT_GUN_WPPK_NSW,
+                                       PORT_GUN_WPPK_NTEX, 1.f, "wppk" };
 
 /* SKELETON(guard) JOINTLIST mtxA — bitstream channel base per JointID. */
 static const uint16_t k_guard_mtxa[PORT_SKEL_GUARD_N] = {
@@ -257,6 +270,7 @@ static void load_idle_rest(void)
     int j;
 
     g_have_idle = 0;
+    g_viewgun_parts = 0;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     g_idle_info[0] = 0;
     snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_pack");
@@ -908,6 +922,7 @@ int port_prop_load(int level_id)
     g_setup_len = clen;
     load_idle_rest();
     parse_setup(g_setup, g_setup_len);
+    (void)load_wppk();
     return PORT_PROP_OK;
 }
 
@@ -981,6 +996,70 @@ int port_prop_guard_xz(int want, float *x, float *z)
         n++;
     }
     return -1;
+}
+
+
+static PortModel *load_wppk(void)
+{
+    PortModel *m = load_named(PORT_GUN_WPPK_ID, "gun", "G", &k_wppk_gun, 0);
+    if (m && m->npart)
+        return m;
+    return NULL;
+}
+
+int port_prop_viewgun_parts(void) { return g_viewgun_parts; }
+
+/*
+ * Static first-person PP7. Walk Rare nodes (no recoil/reload). Model +Z is
+ * Rare forward; G1 looks -Z so hold * R180 * part. Camera-space via .view.
+ */
+int port_prop_fill_viewgun(G1RoomDl *out, int cap)
+{
+    PortModel *m;
+    int p, k = 0;
+    float hold[4][4], r180[4][4];
+
+    g_viewgun_parts = 0;
+    if (!out || cap < 1)
+        return 0;
+    m = load_wppk();
+    if (!m || m->npart == 0)
+        return 0;
+    mtx_local(hold, PORT_VIEWGUN_X, PORT_VIEWGUN_Y, PORT_VIEWGUN_Z, 0.f, 0.f, 0.f);
+    mtx_local(r180, 0.f, 0.f, 0.f, 0.f, PI_F, 0.f);
+    for (p = 0; p < m->npart && k < cap; p++) {
+        const PortPart *pt = &m->part[p];
+        float part[4][4], tmp[4][4], world[4][4];
+        float rx, ry, rz;
+        if (!pt->pri || pt->pri_n == 0)
+            continue;
+        /* SKEL_FLASH cards: 20-cmd z=0 quads. Idle viewmodel hides them. */
+        if (p < 2 && pt->pri_n <= 22u)
+            continue;
+        mtx_local(part, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
+        mtx_mul4(tmp, r180, part);
+        mtx_mul4(world, hold, tmp);
+        mtx_euler(world, &rx, &ry, &rz);
+        if (rx * rx + ry * ry + rz * rz < 1e-8f)
+            rx = ry = rz = 0.f;
+        memset(&out[k], 0, sizeof out[k]);
+        out[k].pri = pt->pri;
+        out[k].pri_n = pt->pri_n;
+        out[k].sec = pt->sec;
+        out[k].sec_n = pt->sec_n;
+        out[k].ox = world[0][3];
+        out[k].oy = world[1][3];
+        out[k].oz = world[2][3];
+        out[k].rx = rx;
+        out[k].ry = ry;
+        out[k].rz = rz;
+        out[k].seg5 = (uintptr_t)m->file;
+        out[k].seg4 = pt->vtx4;
+        out[k].view = 1;
+        k++;
+    }
+    g_viewgun_parts = k;
+    return k;
 }
 
 static int near_room(const PortProp *pr, const float room1[3], const float *room_xyz,

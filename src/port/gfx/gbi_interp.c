@@ -601,7 +601,7 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f &&
             rooms[0].yaw == 0.f && rooms[0].seg5 == 0 && rooms[0].seg4 == 0 &&
             rooms[0].rx == 0.f && rooms[0].ry == 0.f && rooms[0].rz == 0.f &&
-            (rooms[0].scale == 0.f || rooms[0].scale == 1.f))
+            (rooms[0].scale == 0.f || rooms[0].scale == 1.f) && !rooms[0].view)
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
                                        rooms[0].sec_n);
     }
@@ -625,10 +625,30 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
          * G_MTX_LOAD would replace the camera. Unbound G_MTX is a no-op. */
         if (rooms[i].seg4)
             g_seg[4] = rooms[i].seg4;
-        g_cam_eye[0] = eye[0] - rooms[i].ox;
-        g_cam_eye[1] = eye[1] - rooms[i].oy;
-        g_cam_eye[2] = eye[2] - rooms[i].oz;
-        apply_stored_camera();
+        if (rooms[i].view) {
+            /* Camera-space: look from the origin with the stored pitch so
+             * the PP7 sits bottom-center and tilts with phi. */
+            float save_th = g_cam_theta;
+            g_cam_eye[0] = g_cam_eye[1] = g_cam_eye[2] = 0.f;
+            g_cam_theta = 0.f;
+            apply_stored_camera();
+            g_cam_theta = save_th;
+            {
+                float T[4][4], tmp[4][4];
+                mtx_ident(T);
+                T[0][3] = rooms[i].ox;
+                T[1][3] = rooms[i].oy;
+                T[2][3] = rooms[i].oz;
+                mtx_mul(tmp, g_mv, T);
+                mtx_copy(g_mv, tmp);
+                rebuild_mvp();
+            }
+        } else {
+            g_cam_eye[0] = eye[0] - rooms[i].ox;
+            g_cam_eye[1] = eye[1] - rooms[i].oy;
+            g_cam_eye[2] = eye[2] - rooms[i].oz;
+            apply_stored_camera();
+        }
         if (rooms[i].rx != 0.f || rooms[i].ry != 0.f || rooms[i].rz != 0.f) {
             /* Rare XYZ Euler, G1 column-vector layout (transpose of Mtxf rows). */
             float R[4][4], tmp[4][4];
