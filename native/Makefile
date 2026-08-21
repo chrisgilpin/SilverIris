@@ -27,6 +27,17 @@ include $(ROOT)/cmake/sources.mk
 
 GE_SIM_OBJS := $(addprefix $(BUILD)/,$(GE_SIM_C:.c=.o))
 
+IMAGE_NAMES_C := $(ROOT)/build/overlay/image_names.c
+IMAGE_NAMES_O := $(BUILD)/overlay/image_names.o
+
+$(IMAGE_NAMES_C): $(DECOMP)/assets/images.def $(ROOT)/tools/pack/gen_image_names.py
+	python3 $(ROOT)/tools/pack/gen_image_names.py $< $@
+
+$(IMAGE_NAMES_O): $(IMAGE_NAMES_C)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+
 PORT_OS_OBJS := \
 	$(BUILD)/src/port/os/count.o \
 	$(BUILD)/src/port/os/mesg.o \
@@ -67,16 +78,6 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 	product-no-rom-dma clean trial
 
 all: port_stub silveriris
-
-IMAGE_NAMES_C := $(ROOT)/build/overlay/image_names.c
-IMAGE_NAMES_O := $(BUILD)/overlay/image_names.o
-
-$(IMAGE_NAMES_C): $(DECOMP)/assets/images.def $(ROOT)/tools/pack/gen_image_names.py
-	python3 $(ROOT)/tools/pack/gen_image_names.py $< $@
-
-$(IMAGE_NAMES_O): $(IMAGE_NAMES_C)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
 
 overlay: $(IMAGE_NAMES_C)
 	python3 $(ROOT)/native/gen_overlay.py

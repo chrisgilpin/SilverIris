@@ -1,6 +1,9 @@
 /*
- * Developer tool: ROM + filelist → .c0pack.
+ * Developer tool: ROM + filelist + imagelist → .c0pack.
  * Not linked into product silveriris (K18: product must not fopen a .z64).
+ *
+ * Image banks match the in-tab extractor (images.def names × imagelist.u.csv).
+ * Without them G1 SETTEX misses and Facility paints vertex grey.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +91,46 @@ static uint8_t *read_all(const char *path, size_t *n)
     return buf;
 }
 
+static int file_exists(const char *path)
+{
+    FILE *f;
+    if (!path || !path[0])
+        return 0;
+    f = fopen(path, "rb");
+    if (!f)
+        return 0;
+    fclose(f);
+    return 1;
+}
+
+static int join_dir(const char *base_file, const char *rel, char *out, size_t n)
+{
+    const char *slash;
+    int wr;
+    if (!base_file || !rel || !out || n < 2)
+        return -1;
+    slash = strrchr(base_file, '/');
+    if (!slash)
+        wr = snprintf(out, n, "%s", rel);
+    else
+        wr = snprintf(out, n, "%.*s/%s", (int)(slash - base_file), base_file, rel);
+    return (wr < 0 || (size_t)wr >= n) ? -1 : 0;
+}
+
+static char *dup_str(const char *s)
+{
+    size_t n;
+    char *p;
+    if (!s)
+        return NULL;
+    n = strlen(s);
+    p = (char *)malloc(n + 1);
+    if (!p)
+        return NULL;
+    memcpy(p, s, n + 1);
+    return p;
+}
+
 static int is_anim_table(const char *name)
 {
     return name && (strcmp(name, ANIM_ENTRIES_NAME) == 0 || strcmp(name, ANIM_DATA_NAME) == 0);
@@ -159,19 +202,258 @@ static int append_file(C0File **files, size_t *nfiles, size_t *cap, const char *
     return 0;
 }
 
+static int parse_def_names(const char *text, size_t n, char ***out, size_t *nout)
+{
+    char **names = NULL;
+    size_t cap = 0, nn = 0;
+    const char *p = text, *end = text + n;
+
+    *out = NULL;
+    *nout = 0;
+    if (!text)
+        return 0;
+    while (p < end) {
+        const char *line = p, *nl;
+        size_t linelen;
+        const char *s, *e, *comma;
+        size_t nlen;
+        char *name;
+
+        nl = memchr(p, '\n', (size_t)(end - p));
+        linelen = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        p = nl ? nl + 1 : end;
+        if (linelen && line[linelen - 1] == '\r')
+            linelen--;
+        s = line;
+        while (linelen && (*s == ' ' || *s == '\t')) {
+            s++;
+            linelen--;
+        }
+        if (linelen < 8 || strncmp(s, "IMAGE(", 6) != 0 || s[linelen - 1] != ')')
+            continue;
+        s += 6;
+        linelen -= 7; /* drop IMAGE( and trailing ) */
+        comma = memchr(s, ',', linelen);
+        nlen = comma ? (size_t)(comma - s) : linelen;
+        e = s + nlen;
+        while (nlen && (s[0] == ' ' || s[0] == '\t')) {
+            s++;
+            nlen--;
+        }
+        while (nlen && (e[-1] == ' ' || e[-1] == '\t')) {
+            e--;
+            nlen--;
+        }
+        if (!nlen)
+            continue;
+        name = (char *)malloc(nlen + 1);
+        if (!name) {
+            size_t i;
+            for (i = 0; i < nn; i++)
+                free(names[i]);
+            free(names);
+            return -1;
+        }
+        memcpy(name, s, nlen);
+        name[nlen] = 0;
+        if (nn == cap) {
+            size_t ncap = cap ? cap * 2 : 64;
+            char **tmp = (char **)realloc(names, ncap * sizeof *tmp);
+            if (!tmp) {
+                free(name);
+                {
+                    size_t i;
+                    for (i = 0; i < nn; i++)
+                        free(names[i]);
+                }
+                free(names);
+                return -1;
+            }
+            names = tmp;
+            cap = ncap;
+        }
+        names[nn++] = name;
+    }
+    *out = names;
+    *nout = nn;
+    return 0;
+}
+
+static int parse_u32(const char *s, const char *e, uint32_t *out)
+{
+    unsigned long v = 0;
+    if (!s || s >= e)
+        return -1;
+    while (s < e && *s >= '0' && *s <= '9') {
+        v = v * 10ul + (unsigned long)(*s - '0');
+        s++;
+    }
+    if (s != e)
+        return -1;
+    *out = (uint32_t)v;
+    return 0;
+}
+
+/* Pair images.def names with imagelist.u.csv (same as web/extractor syncImagelist). */
+static int add_images(const uint8_t *rom, size_t rom_len, const char *csv_path, const char *ilist_arg,
+                      const char *def_arg, C0File **files, size_t *nfiles, size_t *cap, size_t *nimg)
+{
+    char ilist[512], defp[512];
+    uint8_t *csv = NULL, *defb = NULL;
+    size_t csv_n = 0, def_n = 0;
+    char **names = NULL;
+    size_t nnames = 0, row = 0, added = 0;
+    const char *p, *end;
+
+    *nimg = 0;
+    ilist[0] = 0;
+    defp[0] = 0;
+    if (ilist_arg && file_exists(ilist_arg))
+        snprintf(ilist, sizeof ilist, "%s", ilist_arg);
+    else if (join_dir(csv_path, "imagelist.u.csv", ilist, sizeof ilist) == 0 && file_exists(ilist))
+        ;
+    else if (join_dir(csv_path, "../imagelist.u.csv", ilist, sizeof ilist) == 0 && file_exists(ilist))
+        ;
+    else {
+        fprintf(stderr, "extract: no imagelist.u.csv (SETTEX tiles will miss)\n");
+        return 0;
+    }
+    if (def_arg && file_exists(def_arg))
+        snprintf(defp, sizeof defp, "%s", def_arg);
+    else if (join_dir(csv_path, "../assets/images.def", defp, sizeof defp) == 0 && file_exists(defp))
+        ;
+    else if (join_dir(csv_path, "images.def", defp, sizeof defp) == 0 && file_exists(defp))
+        ;
+    else
+        defp[0] = 0;
+
+    csv = read_all(ilist, &csv_n);
+    if (!csv) {
+        fprintf(stderr, "extract: read %s failed\n", ilist);
+        return -1;
+    }
+    if (defp[0]) {
+        defb = read_all(defp, &def_n);
+        if (defb && parse_def_names((const char *)defb, def_n, &names, &nnames) != 0) {
+            free(defb);
+            free(csv);
+            return -1;
+        }
+        free(defb);
+    }
+
+    p = (const char *)csv;
+    end = p + csv_n;
+    while (p < end) {
+        const char *line = p, *nl, *c1, *c2, *c3, *c4;
+        size_t linelen;
+        uint32_t off = 0, sz = 0, comp = 0;
+        char pathbuf[256];
+        char *path;
+        uint8_t *payload = NULL;
+        size_t plen = 0;
+        PortFilelistEntry e;
+
+        nl = memchr(p, '\n', (size_t)(end - p));
+        linelen = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        p = nl ? nl + 1 : end;
+        if (linelen && line[linelen - 1] == '\r')
+            linelen--;
+        if (!linelen)
+            continue;
+        c1 = memchr(line, ',', linelen);
+        if (!c1)
+            continue;
+        c2 = memchr(c1 + 1, ',', (size_t)((line + linelen) - (c1 + 1)));
+        if (!c2)
+            continue;
+        c3 = memchr(c2 + 1, ',', (size_t)((line + linelen) - (c2 + 1)));
+        if (!c3)
+            continue;
+        c4 = memchr(c3 + 1, ',', (size_t)((line + linelen) - (c3 + 1)));
+        if (parse_u32(line, c1, &off) != 0 || parse_u32(c1 + 1, c2, &sz) != 0)
+            continue;
+        if (c4)
+            (void)parse_u32(c3 + 1, c4, &comp);
+        else
+            (void)parse_u32(c3 + 1, line + linelen, &comp);
+        if (sz == 0) {
+            row++;
+            continue;
+        }
+        if (nnames) {
+            if (row >= nnames)
+                break;
+            snprintf(pathbuf, sizeof pathbuf, "assets/images/split/%s.bin", names[row]);
+        } else {
+            size_t nlen = (size_t)(c3 - (c2 + 1));
+            if (nlen >= sizeof pathbuf)
+                nlen = sizeof pathbuf - 1;
+            memcpy(pathbuf, c2 + 1, nlen);
+            pathbuf[nlen] = 0;
+        }
+        row++;
+        if (already_have(*files, *nfiles, pathbuf))
+            continue;
+        memset(&e, 0, sizeof e);
+        e.offset = off;
+        e.size = sz;
+        e.compressed = comp ? 1 : 0;
+        if ((size_t)off + (size_t)sz > rom_len)
+            continue;
+        if (extract_row(rom, rom_len, &e, &payload, &plen) != 0) {
+            fprintf(stderr, "extract failed %s\n", pathbuf);
+            free(csv);
+            {
+                size_t i;
+                for (i = 0; i < nnames; i++)
+                    free(names[i]);
+            }
+            free(names);
+            return -1;
+        }
+        path = dup_str(pathbuf);
+        if (!path || append_file(files, nfiles, cap, path, payload, plen) != 0) {
+            free(path);
+            free(payload);
+            free(csv);
+            {
+                size_t i;
+                for (i = 0; i < nnames; i++)
+                    free(names[i]);
+            }
+            free(names);
+            return -1;
+        }
+        added++;
+    }
+    free(csv);
+    {
+        size_t i;
+        for (i = 0; i < nnames; i++)
+            free(names[i]);
+    }
+    free(names);
+    *nimg = added;
+    printf("extract images=%zu from %s\n", added, ilist);
+    return 0;
+}
+
 static void usage(void)
 {
     fprintf(stderr, "extract --rom ge007.u.z64 --filelist filelist.u.csv -o ge.u.c0pack\n");
+    fprintf(stderr, "  optional --imagelist imagelist.u.csv --images-def images.def\n");
     fprintf(stderr, "Developer only. Product silveriris takes --pack, never --rom.\n");
 }
 
 int main(int argc, char **argv)
 {
     const char *rom_path = NULL, *csv_path = NULL, *out_path = NULL;
+    const char *ilist_path = NULL, *def_path = NULL;
     uint8_t *rom = NULL;
     size_t rom_len = 0;
     C0File *files = NULL;
-    size_t nfiles = 0, cap = 0, i;
+    size_t nfiles = 0, cap = 0, i, nimg = 0;
     uint8_t *pack = NULL;
     size_t pack_len = 0;
     uint8_t pack_hash[32];
@@ -193,6 +475,10 @@ int main(int argc, char **argv)
             rom_path = argv[a] + 6;
         else if (strcmp(argv[a], "--filelist") == 0 && a + 1 < argc)
             csv_path = argv[++a];
+        else if (strcmp(argv[a], "--imagelist") == 0 && a + 1 < argc)
+            ilist_path = argv[++a];
+        else if (strcmp(argv[a], "--images-def") == 0 && a + 1 < argc)
+            def_path = argv[++a];
         else if (strcmp(argv[a], "-o") == 0 && a + 1 < argc)
             out_path = argv[++a];
         else if (strncmp(argv[a], "-o=", 3) == 0)
@@ -227,6 +513,7 @@ int main(int argc, char **argv)
         const PortFilelistEntry *e = port_filelist_at(i);
         uint8_t *payload = NULL;
         size_t plen = 0;
+        char *path;
         if (!e || e->size == 0)
             continue;
         if ((size_t)e->offset + (size_t)e->size > rom_len) {
@@ -241,7 +528,10 @@ int main(int argc, char **argv)
             free(rom);
             return 1;
         }
-        if (append_file(&files, &nfiles, &cap, e->name, payload, plen) != 0) {
+        /* Own the path so imagelist parsing cannot free filelist storage under us. */
+        path = dup_str(e->name);
+        if (!path || append_file(&files, &nfiles, &cap, path, payload, plen) != 0) {
+            free(path);
             free(payload);
             free(rom);
             return 1;
@@ -250,6 +540,7 @@ int main(int argc, char **argv)
 
     for (i = 0; i < 2; i++) {
         uint8_t *payload;
+        char *path;
         if (already_have(files, nfiles, extra_u[i].name))
             continue;
         if ((size_t)extra_u[i].off + extra_u[i].sz > rom_len)
@@ -260,16 +551,25 @@ int main(int argc, char **argv)
             return 1;
         }
         memcpy(payload, rom + extra_u[i].off, extra_u[i].sz);
-        if (append_file(&files, &nfiles, &cap, extra_u[i].name, payload, extra_u[i].sz) != 0) {
+        path = dup_str(extra_u[i].name);
+        if (!path || append_file(&files, &nfiles, &cap, path, payload, extra_u[i].sz) != 0) {
+            free(path);
             free(payload);
             free(rom);
             return 1;
         }
     }
 
+    if (add_images(rom, rom_len, csv_path, ilist_path, def_path, &files, &nfiles, &cap, &nimg) != 0) {
+        free(rom);
+        return 1;
+    }
+
     rc = c0pack_build(files, nfiles, 0, 0, &pack, &pack_len, pack_hash);
-    for (i = 0; i < nfiles; i++)
+    for (i = 0; i < nfiles; i++) {
         free((void *)files[i].bytes);
+        free((void *)files[i].path);
+    }
     free(files);
     free(rom);
     port_filelist_clear();
@@ -287,7 +587,7 @@ int main(int argc, char **argv)
         fclose(out);
     }
     silveriris_sha256_hex(pack_hash, hex);
-    printf("extract ok files=%zu packHash=%s bytes=%zu\n", nfiles, hex, pack_len);
+    printf("extract ok files=%zu images=%zu packHash=%s bytes=%zu\n", nfiles, nimg, hex, pack_len);
     free(pack);
     return 0;
 }
