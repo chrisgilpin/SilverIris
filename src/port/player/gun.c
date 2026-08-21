@@ -8,6 +8,8 @@
 #include <math.h>
 #include <string.h>
 
+void port_prop_hear_player_shot(void) __attribute__((weak));
+
 /*
  * PP7 slice of gunfire.c until that file compiles.
  * wppk_stats: AmmoType AMMO_9MM, MagSize 7.
@@ -145,6 +147,8 @@ void port_gun_tick(uint16_t buttons)
     g->mag -= 1;
     g->flash_frames = PORT_MUZZLE_FLASH_FRAMES;
     fire_hitscan();
+    if (port_prop_hear_player_shot)
+        port_prop_hear_player_shot();
 }
 
 int port_gun_flash_frames(void) { return G()->flash_frames; }

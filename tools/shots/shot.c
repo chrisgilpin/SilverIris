@@ -353,12 +353,13 @@ static int shot_one(const char *out_dir, const char *tag)
     on = port_api_stan_on_tile();
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
-             "hp=%d gfire=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
+             "hp=%d kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
              "guards=%d parts=%d drawn=%d viewgun=%d flash=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
-             port_api_health(), port_prop_guard_shots(),
+             port_api_health(), port_api_kills(), port_prop_guard_shots(),
+             port_prop_guard_alerted(),
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
@@ -457,6 +458,12 @@ int main(int argc, char **argv)
 
     printf("%s guards=%d parts=%d walkers=%d\n", port_prop_idle_info(),
            port_prop_guard_count(), port_prop_guard_parts(), port_prop_walk_count());
+    printf("aim_decode have=%d idle_crc=%08x aim_crc=%08x %s\n",
+           port_prop_have_aim(), (unsigned)port_prop_idle_rest_crc(),
+           (unsigned)port_prop_aim_rest_crc(),
+           (port_prop_have_aim() &&
+            port_prop_idle_rest_crc() != port_prop_aim_rest_crc()) ? "DIFF" :
+           (port_prop_idle_rest_crc() != port_prop_aim_rest_crc()) ? "DECODE" : "SAME");
     {
         int i, ng = port_prop_guard_count();
         float wx, wy, wz;
@@ -500,6 +507,21 @@ int main(int argc, char **argv)
     spawn_th = port_api_player_theta();
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
+    /* First-frame spawn HUD is gfire=0. A few fire ticks must stay hp=8. */
+    {
+        int tck, hp0, hp1, s0, s1, combat = 0;
+        hp0 = port_api_health();
+        s0 = port_prop_guard_shots();
+        place(spawn_x, spawn_z, spawn_th);
+        port_player_set_pitch(0.f);
+        for (tck = 0; tck < 8; tck++)
+            combat |= port_prop_tick_guard_fire();
+        hp1 = port_api_health();
+        s1 = port_prop_guard_shots();
+        printf("spawn_safe ticks=8 combat=%d hp=%d->%d shots=%d->%d los=%d %s\n",
+               combat, hp0, hp1, s0, s1, port_prop_guard_los(),
+               (hp1 == 8 && s1 == 0) ? "SAFE" : "HIT");
+    }
     port_player_set_pitch(-35.f);
     if (shot_one(out_dir, "spawn_lookdown") != 0)
         goto done;
@@ -514,7 +536,195 @@ int main(int argc, char **argv)
      * not swallow Z. Not committed. */
     place(spawn_x, spawn_z, spawn_th);
     port_player_set_pitch(0.f);
-    port_gun_tick(PORT_Z_TRIG);
+    {
+        int k0 = port_api_kills();
+        float ix = 0.f, iz = 0.f, wx = 0.f, wz = 0.f;
+        int have_i = 0, have_w = 0, gi, ng;
+        float best = 1e18f;
+        float sx = port_api_player_x(), sz = port_api_player_z();
+        float r1[3];
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        ng = port_prop_guard_count();
+        for (gi = 0; gi < ng; gi++) {
+            float gx, gz, lx, lz, d;
+            if (port_prop_guard_xz(gi, &gx, &gz) != 0)
+                continue;
+            lx = gx - r1[0];
+            lz = gz - r1[2];
+            d = (lx - sx) * (lx - sx) + (lz - sz) * (lz - sz);
+            if (d < best) {
+                best = d;
+                ix = gx;
+                iz = gz;
+                have_i = 1;
+            }
+        }
+        if (port_prop_walk_xz(&wx, &wz) == 0)
+            have_w = 1;
+        {
+            int gi, ng2 = port_prop_guard_count();
+            float yaw0[128];
+            int al0[128];
+            float far_d = -1.f;
+            int far_i = -1, far_al = 0, hear_n = 0, turn_n = 0, box_n = 0;
+            float chase_x0[8], chase_z0[8];
+            int chase_i[8], chase_n = 0;
+            int tck, hp0, hp1, s0, s1, combat = 0;
+            float py = port_api_player_y();
+            int pr;
+
+            if (ng2 > 128)
+                ng2 = 128;
+            for (gi = 0; gi < ng2; gi++) {
+                yaw0[gi] = 0.f;
+                al0[gi] = 0;
+                (void)port_prop_guard_yaw(gi, &yaw0[gi], &al0[gi]);
+            }
+            pr = port_stage_room_at_local(sx, py, sz);
+            port_gun_tick(PORT_Z_TRIG);
+            printf("spawn_flash kills=%d->%d hits=%d idle_dead=%d walk_dead=%d "
+                   "idle=%.1f,%.1f walk=%.1f,%.1f die=%d\n",
+                   k0, port_api_kills(), port_api_gun_hits(),
+                   have_i ? port_stan_guard_dead_at(ix, iz) : -1,
+                   have_w ? port_stan_guard_dead_at(wx, wz) : -1,
+                   (double)ix, (double)iz, (double)wx, (double)wz,
+                   port_prop_have_die());
+            for (gi = 0; gi < ng2; gi++) {
+                float gx, gy, gz, glx, gly, glz, ddx, ddz, d2, yaw1;
+                int al1, gr, dead, inbox, adj;
+                if (port_prop_guard_xyz(gi, &gx, &gy, &gz) != 0)
+                    continue;
+                if (port_prop_guard_yaw(gi, &yaw1, &al1) != 0)
+                    continue;
+                glx = gx - r1[0];
+                gly = gy - r1[1];
+                glz = gz - r1[2];
+                ddx = sx - glx;
+                ddz = sz - glz;
+                d2 = sqrtf(ddx * ddx + ddz * ddz);
+                dead = port_stan_guard_dead_at(gx, gz);
+                if (dead)
+                    continue;
+                if (d2 > far_d) {
+                    far_d = d2;
+                    far_i = gi;
+                    far_al = al1;
+                }
+                gr = port_stage_room_at_local(glx, gly, glz);
+                adj = (pr == gr) || port_stage_rooms_adjacent(pr, gr);
+                inbox = (d2 >= 40.f && d2 <= 400.f && fabsf(ddz) <= 200.f && adj);
+                if (d2 <= 800.f || al1) {
+                    printf("hear_cand[%d] local=%.1f,%.1f dist=%.1f dz=%.1f "
+                           "room=%d adj=%d inbox=%d yaw=%.1f->%.1f alert=%d->%d\n",
+                           gi, (double)glx, (double)glz, (double)d2, (double)ddz,
+                           gr, adj, inbox, (double)yaw0[gi], (double)yaw1,
+                           al0[gi], al1);
+                    hear_n++;
+                    if (al1 && fabsf(yaw1 - yaw0[gi]) > 0.5f)
+                        turn_n++;
+                    if (inbox)
+                        box_n++;
+                    /* Outside the fire box: these are the chase candidates
+                     * (the two |Δz|≈260 corner guards plus anyone else). */
+                    if (al1 && !inbox && !dead && chase_n < 8) {
+                        chase_i[chase_n] = gi;
+                        chase_x0[chase_n] = glx;
+                        chase_z0[chase_n] = glz;
+                        chase_n++;
+                    }
+                }
+            }
+            printf("hear_far[%d] dist=%.1f alert=%d (2000u sniper must stay 0)\n",
+                   far_i, (double)far_d, far_al);
+            printf("chase_zfloor spawn=%.1f,%.1f |dz|>200 stall fire box "
+                   "(approach corner, do not enter |dz|<=200 of spawn)\n",
+                   (double)sx, (double)sz);
+            hp0 = port_api_health();
+            s0 = port_prop_guard_shots();
+            /* Two-tick xz + extra-idle[0] walk-frame proof, then the
+             * remaining 6 of the 8-tick window. */
+            {
+                int ci, idle0 = port_prop_idle_guard();
+                int f1 = -1, f2 = -1, b1 = 0, b2 = 0;
+                uint32_t c1 = 0, c2 = 0;
+                float fit1 = 0.f, fit2 = 0.f;
+                float i0x = 0.f, i0z = 0.f, i2x = 0.f, i2z = 0.f;
+                if (idle0 >= 0) {
+                    float gx, gy, gz;
+                    if (port_prop_guard_xyz(idle0, &gx, &gy, &gz) == 0) {
+                        i0x = gx - r1[0];
+                        i0z = gz - r1[2];
+                    }
+                }
+                combat |= port_prop_tick_guard_fire();
+                if (idle0 >= 0) {
+                    b1 = port_prop_guard_walk_bound(idle0);
+                    f1 = b1 ? port_prop_walk_frame() : -1;
+                    c1 = port_prop_walk_rest_crc();
+                    fit1 = port_prop_guard_fit_scale(idle0);
+                }
+                combat |= port_prop_tick_guard_fire();
+                if (idle0 >= 0) {
+                    float gx, gy, gz;
+                    b2 = port_prop_guard_walk_bound(idle0);
+                    f2 = b2 ? port_prop_walk_frame() : -1;
+                    c2 = port_prop_walk_rest_crc();
+                    fit2 = port_prop_guard_fit_scale(idle0);
+                    if (port_prop_guard_xyz(idle0, &gx, &gy, &gz) == 0) {
+                        i2x = gx - r1[0];
+                        i2z = gz - r1[2];
+                    }
+                }
+                for (ci = 0; ci < chase_n; ci++) {
+                    float gx, gy, gz, glx, glz, ddx, ddz, d0, step, toward;
+                    if (port_prop_guard_xyz(chase_i[ci], &gx, &gy, &gz) != 0)
+                        continue;
+                    glx = gx - r1[0];
+                    glz = gz - r1[2];
+                    ddx = glx - chase_x0[ci];
+                    ddz = glz - chase_z0[ci];
+                    step = sqrtf(ddx * ddx + ddz * ddz);
+                    d0 = (sx - chase_x0[ci]);
+                    toward = ddx * d0 + ddz * (sz - chase_z0[ci]);
+                    printf("chase_tick2[%d] local=%.1f,%.1f -> %.1f,%.1f "
+                           "dxz=%.1f toward=%.1f %s\n",
+                           chase_i[ci], (double)chase_x0[ci], (double)chase_z0[ci],
+                           (double)glx, (double)glz, (double)step, (double)toward,
+                           (toward > 0.5f && step > 0.5f) ? "CLOSE" :
+                           (step < 0.5f) ? "ZFLOOR" : "AWAY");
+                }
+                if (chase_n < 1)
+                    printf("chase_tick2 none (no alerted out-of-box hear cands)\n");
+                {
+                    float ddx = i2x - i0x, ddz = i2z - i0z;
+                    float step = sqrtf(ddx * ddx + ddz * ddz);
+                    float toward = ddx * (sx - i0x) + ddz * (sz - i0z);
+                    int framediff = (f1 >= 0 && f2 >= 0 && f1 != f2 && c1 != c2);
+                    int fitted = (fit2 > 0.05f && fit2 < 0.5f);
+                    printf("chase_walk idle[0] gi=%d bound=%d/%d f=%d crc=%08x "
+                           "f=%d crc=%08x fit=%.3f/%.3f dxz=%.1f toward=%.1f "
+                           "walkers=%d %s %s %s\n",
+                           idle0, b1, b2, f1, (unsigned)c1, f2, (unsigned)c2,
+                           (double)fit1, (double)fit2, (double)step,
+                           (double)toward, port_prop_walk_count(),
+                           (toward > 0.5f && step > 0.5f) ? "CLOSE" :
+                           (step < 0.5f) ? "ZFLOOR" : "AWAY",
+                           framediff ? "WALK" : "SLIDE",
+                           fitted ? "FIT185" : "BLOB1510");
+                }
+            }
+            for (tck = 0; tck < 6; tck++)
+                combat |= port_prop_tick_guard_fire();
+            hp1 = port_api_health();
+            s1 = port_prop_guard_shots();
+            printf("spawn_hear ticks=8 combat=%d hp=%d->%d shots=%d->%d "
+                   "alert=%d los=%d cands=%d turns=%d inbox=%d %s\n",
+                   combat, hp0, hp1, s0, s1, port_prop_guard_alerted(),
+                   port_prop_guard_los(), hear_n, turn_n, box_n,
+                   (hp1 == 8 && s1 == s0 && !combat) ? "SAFE" : "HIT");
+        }
+    }
     if (shot_one(out_dir, "flash") != 0)
         goto done;
     {
@@ -741,11 +951,58 @@ int main(int argc, char **argv)
                         dist = -1.f;
                         pr = wr = 0;
                     }
+                    {
+                        int gi, ng = port_prop_guard_count();
+                        int near_n = 0;
+                        for (gi = 0; gi < ng; gi++) {
+                            float gx, gy, gz, glx, gly, glz, ddx2, ddz2, d2;
+                            int gr, dead;
+                            if (port_prop_guard_xyz(gi, &gx, &gy, &gz) != 0)
+                                continue;
+                            glx = gx - r10[0];
+                            gly = gy - r10[1];
+                            glz = gz - r10[2];
+                            ddx2 = cx - glx;
+                            ddz2 = cz - glz;
+                            d2 = sqrtf(ddx2 * ddx2 + ddz2 * ddz2);
+                            if (d2 > 400.f || fabsf(ddz2) > 200.f)
+                                continue;
+                            gr = port_stage_room_at_local(glx, gly, glz);
+                            dead = port_stan_guard_dead_at(gx, gz);
+                            printf("near_guard[%d] local=%.1f,%.1f,%.1f dist=%.1f dz=%.1f room=%d dead=%d adj=%d walk=%d aim=%d\n",
+                                   gi, (double)glx, (double)gly, (double)glz, (double)d2,
+                                   (double)ddz2, gr, dead,
+                                   port_stage_rooms_adjacent(pr, gr),
+                                   port_prop_guard_walk_bound(gi),
+                                   port_prop_guard_aim_bound(gi));
+                            near_n++;
+                        }
+                        printf("near_guards n=%d walk_cam=%.1f,%.1f room_p=%d\n",
+                               near_n, (double)cx, (double)cz, pr);
+                    }
                     combat = port_prop_tick_guard_fire();
                     hp1 = port_api_health();
-                    printf("return_fire combat=%d hp=%d->%d shots=%d->%d dist=%.1f room_p=%d room_w=%d\n",
+                    printf("return_fire combat=%d hp=%d->%d shots=%d->%d los=%d dist=%.1f room_p=%d room_w=%d %s\n",
                            combat, hp0, hp1, shots0, port_prop_guard_shots(),
-                           (double)dist, pr, wr);
+                           port_prop_guard_los(),
+                           (double)dist, pr, wr,
+                           (port_prop_guard_los() > 1) ? "SECOND" :
+                           (port_prop_guard_los() == 1) ? "ONE" : "NONE");
+                    {
+                        int gi2, ng2 = port_prop_guard_count(), ab = 0, wb = 0;
+                        uint32_t ic = port_prop_idle_rest_crc();
+                        uint32_t ac = port_prop_aim_rest_crc();
+                        for (gi2 = 0; gi2 < ng2; gi2++) {
+                            if (port_prop_guard_aim_bound(gi2))
+                                ab++;
+                            if (port_prop_guard_walk_bound(gi2))
+                                wb++;
+                        }
+                        printf("aim_rest idle=%08x aim=%08x have=%d bound=%d walkers=%d %s\n",
+                               (unsigned)ic, (unsigned)ac, port_prop_have_aim(), ab, wb,
+                               (port_prop_have_aim() && ic != ac && ab > 0) ? "DIFF" :
+                               (ic != ac) ? "DECODE" : "SAME");
+                    }
                     if (shot_one(out_dir, "return") != 0)
                         goto done;
                     /* Player hitscan from this camera: body xz kills and
@@ -803,8 +1060,62 @@ int main(int argc, char **argv)
                         dead_pad = port_stan_guard_dead_at(padx, padz);
                         place(cx, cz, th);
                         port_player_set_pitch(walk_pitch);
-                        if (shot_one(out_dir, "dead") != 0)
-                            goto done;
+                        {
+                            float xk = bx, yk = by, zk = bz;
+                            uint32_t r0, r1, h0, h1;
+                            int f0, f1, lastf, ti, drawn_early;
+                            int ticks_to_last = 0, ticks_need = 0;
+
+                            /* Early rest (frame 0). Feet stay on the death tile. */
+                            port_prop_set_die_frame(0);
+                            if (shot_one(out_dir, "death0") != 0)
+                                goto done;
+                            drawn_early = port_prop_drawn();
+                            r0 = port_prop_die_rest_crc();
+                            f0 = port_prop_die_frame();
+                            h0 = g_last_fb_adler;
+                            /* 89-frame fall at PORT_DIE_FRAMES_PER_TICK (4):
+                             * last=88 -> ceil(88/4)=22 ticks to last ~ 1.1s @ 20 Hz.
+                             * +4 extra ticks prove last-frame hold. */
+                            lastf = port_prop_die_last_frame();
+                            if (lastf > 0)
+                                ticks_need = (lastf + PORT_DIE_FRAMES_PER_TICK - 1) /
+                                             PORT_DIE_FRAMES_PER_TICK;
+                            for (ti = 0; ti < ticks_need + 4; ti++) {
+                                port_prop_tick_die();
+                                if (ticks_to_last == 0 &&
+                                    port_prop_die_frame() >= lastf)
+                                    ticks_to_last = ti + 1;
+                            }
+                            if (port_prop_walk_xyz(&bx, &by, &bz) != 0)
+                                bx = by = bz = 0.f;
+                            place(cx, cz, th);
+                            port_player_set_pitch(walk_pitch);
+                            /* Expire the kill bloom so death.png is the body. */
+                            while (port_gun_flash_frames() > 0)
+                                port_gun_tick(0);
+                            if (shot_one(out_dir, "death") != 0)
+                                goto done;
+                            if (shot_one(out_dir, "dead") != 0)
+                                goto done;
+                            drawn2 = port_prop_drawn();
+                            r1 = port_prop_die_rest_crc();
+                            f1 = port_prop_die_frame();
+                            h1 = g_last_fb_adler;
+                            printf("death_cycle f=%d rest=%08x adler=%08x drawn=%d "
+                                   "f=%d rest=%08x adler=%08x drawn=%d %s %s "
+                                   "last=%d fpt=%d ticks=%d need=%d tick_ok "
+                                   "dxz=%.2f dy=%.2f\n",
+                                   f0, r0, h0, drawn_early, f1, r1, h1, drawn2,
+                                   (r0 != r1) ? "RESTDIFF" : "restsame",
+                                   (h0 != h1) ? "FBDIFF" : "fbsame", lastf,
+                                   PORT_DIE_FRAMES_PER_TICK, ticks_to_last, ticks_need,
+                                   (double)((bx - xk) * (bx - xk) + (bz - zk) * (bz - zk) > 0.f
+                                                ? sqrtf((bx - xk) * (bx - xk) +
+                                                        (bz - zk) * (bz - zk))
+                                                : 0.f),
+                                   (double)(by - yk));
+                        }
                         drawn2 = port_prop_drawn();
                         printf("walk_kill_body kills=%d->%d dead_body=%d dead_pad=%d "
                                "drawn=%d->%d body=%.1f,%.1f hp=%d %s\n",

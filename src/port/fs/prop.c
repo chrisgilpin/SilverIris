@@ -33,19 +33,31 @@
 #define PORT_ANIM_WALK_OFF 0x4018u /* PTR_ANIM_walking */
 #define PORT_ANIM_WALK_FRAME 8
 #define PORT_WALK_ID_BASE 3000
+#define PORT_DIE_ID_BASE 4000
+/* Last-frame rest. PTR_ANIM_die is not a table name; these are. */
+#define PORT_ANIM_DIE_OFF 0x30B8u /* PTR_ANIM_death_forward_face_down */
+#define PORT_ANIM_DIE_OFF2 0x32C8u /* PTR_ANIM_death_backward_fall_face_up1 */
+#define PORT_ANIM_DIE_OFF3 0x3AF0u /* PTR_ANIM_death_fetal_position_right */
+#define PORT_ANIM_AIM_OFF 0x144u /* PTR_ANIM_fire_standing */
+#define PORT_AIM_ID_BASE 5000
 /* NTSC: PORT_CHR_WALK (1) * g_GlobalTimerDelta (3). Not clock-coupled so
  * the shot harness can step without a sim tick. */
 #define PORT_MOVER_WALK_STEP 3.0f
 #define PORT_MOVER_TILE 80.0f
 #define PORT_MOVER_ARRIVE 24.0f
 #define PORT_MOVER_MAX_TILES 3
-/* Same room + xz range. Walk cam is ~190u; spawn corridor is |dz|>200. */
+/* Same room or portal-adjacent + short xz. Walk cam ~190u; spawn |dz|>200. */
 #define PORT_GUARD_FIRE_RANGE 400.0f
 #define PORT_GUARD_FIRE_ALONG 200.0f
 #define PORT_GUARD_FIRE_COOLDOWN 20
 #define PORT_GUARD_FIRE_DAMAGE 1
 #define PORT_GUARD_AIM_Y 160.0f
 #define PORT_GUARD_AIM_OFFSET 35.0f
+/* Player shot hear: same/adj room, xz<=800. Wider than the fire box,
+ * not facility-wide — a 2000u sniper stays asleep. Alerted living
+ * guards outside the fire box then walk toward the player (chase).
+ * Z-floor: they must not enter the spawn stall fire box. */
+#define PORT_GUARD_HEAR_RANGE 800.0f
 #define PORT_RST_MAGIC 0x52535431u
 #define PORT_ANIM_ENTRIES_ROM_U 1198784u
 #define PORT_ANIM_DATA_PATH "assets/animationtable_data.bin"
@@ -131,6 +143,7 @@ typedef struct {
     float look[3];
     float scale;
     float yaw;
+    int alerted;
     int door_type;
     float max_frac;
     PortModel *mdl;
@@ -154,10 +167,21 @@ static float g_intro_pos[3];
 static float g_intro_look[3];
 static float g_idle_rest[PORT_SKEL_GUARD_N][3];
 static float g_walk_rest[PORT_SKEL_GUARD_N][3];
+static float g_aim_rest[PORT_SKEL_GUARD_N][3];
+static float g_die_rest[PORT_SKEL_GUARD_N][3];
 static int g_have_idle;
 static int g_have_walk;
+static int g_have_aim;
+static int g_have_die;
+static uint32_t g_die_off;
+static uint32_t g_die_nframes;
+static int g_die_frame;
+static int g_die_started;
+static int g_die_tick_ok;
+static float g_die_hold[PORT_SKEL_GUARD_N][3];
 static int g_walkers;
 static int g_walk_prop;
+static int g_idle_prop;
 static int g_walk_frame;
 static uint32_t g_walk_nframes;
 static float g_walk_fit_scale;
@@ -167,12 +191,16 @@ static int g_walk_going_b;
 static int g_walk_blocked;
 static int g_fire_cd;
 static int g_guard_shots;
+static int g_guard_los;
 static float g_walk_path_ax, g_walk_path_az;
 static float g_walk_path_bx, g_walk_path_bz;
 static float g_walk_spawn_x, g_walk_spawn_z;
+static int g_have_spawn_xz;
 static char g_idle_info[96];
 static char g_walk_info[96];
-static char g_pose_info[192];
+static char g_aim_info[96];
+static char g_die_info[96];
+static char g_pose_info[400];
 static const float (*g_pose_rest)[3];
 static int g_viewgun_parts;
 static PortModel *load_wppk(void);
@@ -391,8 +419,16 @@ static void load_idle_rest(void)
 
     g_have_idle = 0;
     g_have_walk = 0;
+    g_have_aim = 0;
+    g_have_die = 0;
+    g_die_off = 0;
+    g_die_nframes = 0;
+    g_die_frame = 0;
+    g_die_started = 0;
+    g_die_tick_ok = 0;
     g_walkers = 0;
     g_walk_prop = -1;
+    g_idle_prop = -1;
     g_walk_frame = 0;
     g_walk_nframes = 0;
     g_walk_fit_scale = 0.f;
@@ -400,16 +436,27 @@ static void load_idle_rest(void)
     g_walk_path_ok = 0;
     g_walk_going_b = 1;
     g_walk_blocked = 0;
+    g_have_spawn_xz = 0;
+    g_walk_spawn_x = 0.f;
+    g_walk_spawn_z = 0.f;
     g_fire_cd = 0;
     g_guard_shots = 0;
+    g_guard_los = 0;
     g_viewgun_parts = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);
+    memset(g_aim_rest, 0, sizeof g_aim_rest);
+    memset(g_die_rest, 0, sizeof g_die_rest);
+    memset(g_die_hold, 0, sizeof g_die_hold);
     g_idle_info[0] = 0;
     g_walk_info[0] = 0;
+    g_aim_info[0] = 0;
+    g_die_info[0] = 0;
     snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_pack");
     snprintf(g_walk_info, sizeof g_walk_info, "walk=0 skip=no_pack");
+    snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=no_pack");
+    snprintf(g_die_info, sizeof g_die_info, "die=0 skip=no_pack");
     if (decode_anim_frame(PORT_ANIM_IDLE_OFF, 0, g_idle_rest, &addr, &off, &frames, &width, err,
                           sizeof err)) {
         g_have_idle = 1;
@@ -429,6 +476,69 @@ static void load_idle_rest(void)
                  addr, off, frames, width, (unsigned)PORT_ANIM_WALK_FRAME);
     } else {
         snprintf(g_walk_info, sizeof g_walk_info, "walk=0 %s", err);
+    }
+    addr = off = frames = 0;
+    width = 0;
+    if (decode_anim_frame(PORT_ANIM_AIM_OFF, 0, g_aim_rest, &addr, &off, &frames, &width, err,
+                          sizeof err)) {
+        int j, ident = 1, same_idle = 1;
+        for (j = 0; j < PORT_SKEL_GUARD_N; j++) {
+            if (g_aim_rest[j][0] != 0.f || g_aim_rest[j][1] != 0.f || g_aim_rest[j][2] != 0.f)
+                ident = 0;
+            if (g_aim_rest[j][0] != g_idle_rest[j][0] || g_aim_rest[j][1] != g_idle_rest[j][1] ||
+                g_aim_rest[j][2] != g_idle_rest[j][2])
+                same_idle = 0;
+        }
+        /* Header decodes (same path as idle/walk/death) and is not
+         * identity / idle. The 16-joint Euler bind still explodes the
+         * mesh (stretched head, collapsed torso) for fire_standing and
+         * aim_one_handed_weapon_left_right. Keep idle — do not fake an
+         * arm raise. */
+        if (ident) {
+            snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=tpose addr=0x%x", addr);
+        } else if (same_idle) {
+            snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=same_idle addr=0x%x", addr);
+        } else {
+            g_have_aim = 0;
+            snprintf(g_aim_info, sizeof g_aim_info,
+                     "aim=0 skip=pose addr=0x%x off=%u fr=%u w=%u", addr, off, frames, width);
+        }
+    } else {
+        snprintf(g_aim_info, sizeof g_aim_info, "aim=0 %s", err);
+    }
+    {
+        static const uint32_t k_die_off[] = {
+            PORT_ANIM_DIE_OFF, PORT_ANIM_DIE_OFF2, PORT_ANIM_DIE_OFF3
+        };
+        int di;
+        g_have_die = 0;
+        snprintf(g_die_info, sizeof g_die_info, "die=0 skip=hdr");
+        for (di = 0; di < 3 && !g_have_die; di++) {
+            uint32_t daddr = 0, doff = 0, dfr = 0;
+            uint8_t dw = 0;
+            int last;
+            if (!decode_anim_frame(k_die_off[di], 0, g_die_rest, &daddr, &doff, &dfr, &dw,
+                                   err, sizeof err)) {
+                snprintf(g_die_info, sizeof g_die_info, "die=0 %s", err);
+                continue;
+            }
+            last = (dfr > 1u) ? (int)dfr - 1 : 0;
+            if (last > 0 &&
+                !decode_anim_frame(k_die_off[di], last, g_die_rest, &daddr, &doff, &dfr, &dw,
+                                   err, sizeof err)) {
+                snprintf(g_die_info, sizeof g_die_info, "die=0 last %s", err);
+                continue;
+            }
+            g_have_die = 1;
+            g_die_off = k_die_off[di];
+            g_die_nframes = dfr;
+            g_die_frame = last;
+            g_die_started = 0;
+            g_die_tick_ok = 1;
+            memcpy(g_die_hold, g_die_rest, sizeof g_die_hold);
+            snprintf(g_die_info, sizeof g_die_info, "die=1 addr=0x%x off=%u fr=%u w=%u f=%d",
+                     daddr, doff, dfr, dw, last);
+        }
     }
 }
 
@@ -794,8 +904,75 @@ static PortModel *load_chr_walk(int body)
                       g_walk_rest);
 }
 
-/* Closest-to-spawn setup guard stays idle (start around the corner).
- * Next-closest is a single posed-walk test mover on its pad. No pathing. */
+/* Separate model id so a death rest does not flatten every living clone. */
+static PortModel *load_chr_die(int body)
+{
+    PortModel *m, *live;
+    int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
+    int i;
+    if (!g_have_die || !use_guard)
+        return NULL;
+    m = load_named(PORT_DIE_ID_BASE + body, "chr", "C", chr_by_id(body), 1, g_die_rest);
+    if (!m)
+        return NULL;
+    live = NULL;
+    for (i = 0; i < g_nmdl; i++) {
+        if (g_mdl[i].id == PORT_WALK_ID_BASE + body || g_mdl[i].id == 1000 + body) {
+            live = &g_mdl[i];
+            if (g_mdl[i].id == PORT_WALK_ID_BASE + body)
+                break;
+        }
+    }
+    if (live && live->fit_scale != 0.f) {
+        m->fit_scale = live->fit_scale;
+        m->fit_ymin = live->fit_ymin;
+    } else if (g_walk_fit_scale != 0.f) {
+        m->fit_scale = g_walk_fit_scale;
+        m->fit_ymin = g_walk_fit_ymin;
+    }
+    return m;
+}
+
+/* Unique-per-body fire/aim rest. Keep this rest's own 185u fit when the
+ * posed part-Y span is standing-ish (idle is ~1510). An exploded rest
+ * (T-pose leftover or bad Euler) is rejected — idle, no fake arm. */
+static int aim_height_ok(const PortModel *m, float *h_out)
+{
+    float h;
+    if (!m || m->fit_scale < 1e-6f)
+        return 0;
+    h = PORT_CHR_STAND / m->fit_scale;
+    if (h_out)
+        *h_out = h;
+    return h >= 600.f && h <= 2200.f;
+}
+
+static PortModel *load_chr_aim(int body)
+{
+    PortModel *m;
+    float h = 0.f;
+    int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
+    if (!g_have_aim || !use_guard)
+        return NULL;
+    m = load_named(PORT_AIM_ID_BASE + body, "chr", "C", chr_by_id(body), 1, g_aim_rest);
+    if (!m)
+        return NULL;
+    if (!aim_height_ok(m, &h)) {
+        snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=aabb h=%.0f", h);
+        g_have_aim = 0;
+        return NULL;
+    }
+    if (!strstr(g_aim_info, " fit=")) {
+        char base[96];
+        snprintf(base, sizeof base, "%s", g_aim_info);
+        snprintf(g_aim_info, sizeof g_aim_info, "%s fit=%.3f h=%.0f", base, m->fit_scale, h);
+    }
+    return m;
+}
+
+/* Closest-to-spawn setup guard stays idle rest (start around the corner)
+ * until they chase. Next-closest is the posed-walk test mover. Extra
+ * stepping chasers borrow the same per-body walk model. */
 static void assign_walkers(void)
 {
     int i, best = -1, next = -1;
@@ -808,8 +985,7 @@ static void assign_walkers(void)
 
     g_walkers = 0;
     g_walk_prop = -1;
-    if (!g_have_walk)
-        return;
+    g_idle_prop = -1;
     for (i = 0; i < g_nprop; i++) {
         float dx, dz, d;
         if (g_prop[i].type != PDEF_GUARD || !g_prop[i].mdl)
@@ -827,7 +1003,8 @@ static void assign_walkers(void)
             next_d = d;
         }
     }
-    if (next < 0)
+    g_idle_prop = best;
+    if (!g_have_walk || next < 0)
         return;
     wm = load_chr_walk(g_prop[next].model);
     if (!wm)
@@ -909,14 +1086,31 @@ static int sit_walker_local(float lx, float lz)
     return try_sit_walker(lx, lz, g_walk_spawn_x, g_walk_spawn_z, r1);
 }
 
-static void face_heading(float dx, float dz)
+static void face_heading_prop(int pi, float dx, float dz)
 {
     float yaw;
+    if (pi < 0 || pi >= g_nprop)
+        return;
     if (dx * dx + dz * dz < 1e-8f)
         return;
     /* Model +Z onto look; yaw 0 faces +Z. */
     yaw = atan2f(dx, dz) * (180.f / PI_F);
-    g_prop[g_walk_prop].yaw = yaw;
+    g_prop[pi].yaw = yaw;
+}
+
+static void face_heading(float dx, float dz)
+{
+    face_heading_prop(g_walk_prop, dx, dz);
+}
+
+static void face_player_prop(int pi)
+{
+    float r1[3], lx, lz;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = g_prop[pi].pos[0] - r1[0];
+    lz = g_prop[pi].pos[2] - r1[2];
+    face_heading_prop(pi, port_player_x() - lx, port_player_z() - lz);
 }
 
 /* 2-4 tile ping-pong on open ground-floor neighbors. Prefer X (room 71
@@ -931,6 +1125,7 @@ static void setup_walk_path(float lx, float lz, float sx, float sz)
     g_walk_blocked = 0;
     g_fire_cd = 0;
     g_guard_shots = 0;
+    g_guard_los = 0;
     g_walk_going_b = 1;
     g_walk_spawn_x = sx;
     g_walk_spawn_z = sz;
@@ -978,40 +1173,123 @@ static void setup_walk_path(float lx, float lz, float sx, float sz)
     face_heading(bx - ax, bz - az);
 }
 
-static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3])
+/* Sit on a ground-floor stan tile. Y from floor. Refuse off-tile / NaN /
+ * catwalk (eye 50..160). Does not consult the spawn cone. */
+static int sit_guard_tile(int pi, float lx, float lz, const float r1[3])
 {
     float ey = 0.f, floor_y, wy;
+    if (pi < 0 || pi >= g_nprop)
+        return 0;
     if (!port_stan_on_tile(lx, lz))
         return 0;
     if (port_stan_eye_y(lx, lz, &ey) != 0)
         return 0;
     if (!(ey == ey) || ey < 50.f || ey > 160.f)
         return 0;
-    if (spawn_look_slab(lx, lz, sx, sz))
-        return 0;
     floor_y = ey - PORT_EYE_HEIGHT;
     wy = floor_y + r1[1];
     if (!(wy == wy) || wy > 1.0e20f || wy < -1.0e20f)
         return 0;
     {
-        float ox = g_prop[g_walk_prop].pos[0];
-        float oz = g_prop[g_walk_prop].pos[2];
+        float ox = g_prop[pi].pos[0];
+        float oz = g_prop[pi].pos[2];
         float nx = lx + r1[0];
         float nz = lz + r1[2];
-        g_prop[g_walk_prop].pos[0] = nx;
-        g_prop[g_walk_prop].pos[1] = wy;
-        g_prop[g_walk_prop].pos[2] = nz;
+        g_prop[pi].pos[0] = nx;
+        g_prop[pi].pos[1] = wy;
+        g_prop[pi].pos[2] = nz;
         /* Hitscan / hide-body / pad-kill use the stan cylinder. Keep it
-         * on the walking body. Idle guards never sit, so they stay put. */
+         * on this body. Walker and the start-corner idle both sit. */
         if (ox != nx || oz != nz)
             port_stan_move_guard(ox, oz, nx, nz);
     }
     return 1;
 }
 
+static int try_sit_guard(int pi, float lx, float lz, float sx, float sz, const float r1[3])
+{
+    if (spawn_look_slab(lx, lz, sx, sz))
+        return 0;
+    return sit_guard_tile(pi, lx, lz, r1);
+}
+
+static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3])
+{
+    return try_sit_guard(g_walk_prop, lx, lz, sx, sz, r1);
+}
+
 /* After intro snap: origin/tiles match the player. Sit on a ground-floor
  * tile around the spawn corner (hallway turn). Do not retouch stan origin.
  * If every candidate clips / NaN Y, leave them on the setup pad. */
+static int tile_taken(float lx, float lz, const float r1[3], int skip)
+{
+    int i;
+    float wx = lx + r1[0], wz = lz + r1[2];
+    for (i = 0; i < g_nprop; i++) {
+        float dx, dz;
+        if (i == skip || g_prop[i].type != PDEF_GUARD)
+            continue;
+        dx = g_prop[i].pos[0] - wx;
+        dz = g_prop[i].pos[2] - wz;
+        if (dx * dx + dz * dz < 40.f * 40.f)
+            return 1;
+    }
+    return 0;
+}
+
+/* Sit the start-corner idle off the spawn 270 cone so a spawn Z_TRIG
+ * hits the facing door/floor, not a pre-existing pad. Walker stays. */
+static int in_walk_kill_lane(float lx, float lz)
+{
+    /* Walk cam is ~160u south of the z=-2480 strip (x ~ -380..-60).
+     * An idle in that lane steals walk_kill_body. */
+    return lz > -2680.f && lz < -2460.f && lx > -360.f && lx < -80.f;
+}
+
+static void place_idle_off_spawn_look(float sx, float sz, const float r1[3])
+{
+    /* West of the walk strip, on the north open band, or further north.
+     * Not the south-looking lane the walk cam uses. */
+    static const float pref[][2] = {
+        { -420.f, -2480.f },
+        { -500.f, -2480.f },
+        { -420.f, -2400.f },
+        { -500.f, -2400.f },
+        { -380.f, -2400.f },
+        { -460.f, -2400.f },
+        { -540.f, -2480.f },
+        { -420.f, -2320.f },
+    };
+    float lx, lz, dx, dz, fwd;
+    int i, pass;
+
+    if (g_idle_prop < 0 || g_idle_prop >= g_nprop)
+        return;
+    if (g_idle_prop == g_walk_prop)
+        return;
+    lx = g_prop[g_idle_prop].pos[0] - r1[0];
+    lz = g_prop[g_idle_prop].pos[2] - r1[2];
+    dx = lx - sx;
+    dz = lz - sz;
+    fwd = -dx;
+    /* Already off the look ray (and not overlapping Bond). */
+    if (!spawn_look_slab(lx, lz, sx, sz) &&
+        !(fwd > 0.f && dz * dz < (PORT_GUARD_RADIUS + 8.f) * (PORT_GUARD_RADIUS + 8.f)))
+        return;
+    for (pass = 0; pass < 2; pass++) {
+        for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
+            if (tile_taken(pref[i][0], pref[i][1], r1, g_idle_prop))
+                continue;
+            if (in_walk_kill_lane(pref[i][0], pref[i][1]))
+                continue;
+            if (pass == 0 && !floor_open(pref[i][0], pref[i][1]))
+                continue;
+            if (try_sit_guard(g_idle_prop, pref[i][0], pref[i][1], sx, sz, r1))
+                return;
+        }
+    }
+}
+
 int port_prop_place_walker_near_spawn(void)
 {
     float sx, sz, r1[3];
@@ -1035,12 +1313,16 @@ int port_prop_place_walker_near_spawn(void)
         { -220.f, -2560.f },
     };
 
-    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
-        return 0;
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     sx = port_player_x();
     sz = port_player_z();
+    /* Stall fire-box Z-floor is measured from this first-frame spawn. */
+    g_walk_spawn_x = sx;
+    g_walk_spawn_z = sz;
+    g_have_spawn_xz = 1;
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
     /* Pass 0: open floor (neighbors walkable). Pass 1: any ground tile. */
     for (pass = 0; pass < 2; pass++) {
         for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
@@ -1048,49 +1330,166 @@ int port_prop_place_walker_near_spawn(void)
                 continue;
             if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1)) {
                 setup_walk_path(pref[i][0], pref[i][1], sx, sz);
+                /* Closest idle stays around the corner, not in the spawn
+                 * 270 look ray — spawn flash is a door/wall shot. */
+                place_idle_off_spawn_look(sx, sz, r1);
                 return 1;
             }
         }
     }
+    place_idle_off_spawn_look(sx, sz, r1);
     return 0;
+}
+
+static int mdl_is_walk(const PortModel *m)
+{
+    return m && m->id >= PORT_WALK_ID_BASE && m->id < PORT_DIE_ID_BASE;
+}
+
+static int mdl_is_aim(const PortModel *m)
+{
+    return m && m->id >= PORT_AIM_ID_BASE && m->id < PORT_AIM_ID_BASE + 256;
+}
+
+static void recount_walkers(void)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD || !mdl_is_walk(g_prop[i].mdl))
+            continue;
+        n++;
+    }
+    g_walkers = n;
+}
+
+static void apply_chr_fit(int pi, PortModel *m)
+{
+    const PortPropCat *cat;
+    if (pi < 0 || pi >= g_nprop || !m)
+        return;
+    cat = chr_by_id(g_prop[pi].model);
+    g_prop[pi].mdl = m;
+    g_prop[pi].scale =
+        (cat ? cat->scale : 1.f) * (m->fit_scale != 0.f ? m->fit_scale : 1.f);
+    if (m->have_head) {
+        g_prop[pi].head_off[0] = m->head_off[0];
+        g_prop[pi].head_off[1] = m->head_off[1] - m->fit_ymin;
+        g_prop[pi].head_off[2] = m->head_off[2];
+        g_prop[pi].head_rx = m->head_rx;
+        g_prop[pi].head_ry = m->head_ry;
+        g_prop[pi].head_rz = m->head_rz;
+    }
+}
+
+/* Walk models are unique-per-body (PORT_WALK_ID_BASE + body), shared by every
+ * walker of that body. Same global g_walk_rest / frame. Idle clones stay on
+ * 1000+body so a walk rebind cannot flatten them. Same 185u idle fit — a
+ * fresh walk AABB must not become a 1510u blob. */
+static int bind_prop_walk(int pi)
+{
+    PortModel *wm;
+    if (pi < 0 || pi >= g_nprop || !g_have_walk)
+        return 0;
+    if (g_prop[pi].type != PDEF_GUARD)
+        return 0;
+    if (port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2]))
+        return 0;
+    if (mdl_is_walk(g_prop[pi].mdl))
+        return 1;
+    wm = load_chr_walk(g_prop[pi].model);
+    if (!wm)
+        return 0;
+    if (g_walk_fit_scale != 0.f) {
+        wm->fit_scale = g_walk_fit_scale;
+        wm->fit_ymin = g_walk_fit_ymin;
+    } else {
+        g_walk_fit_scale = wm->fit_scale;
+        g_walk_fit_ymin = wm->fit_ymin;
+    }
+    apply_chr_fit(pi, wm);
+    recount_walkers();
+    return 1;
+}
+
+/* Standing idle rest. Unalerted test mover stays on the walk bind so
+ * ping-pong / walk.png keep a stride. */
+static void bind_prop_idle(int pi)
+{
+    PortModel *im;
+    if (pi < 0 || pi >= g_nprop || g_prop[pi].type != PDEF_GUARD)
+        return;
+    if (!mdl_is_walk(g_prop[pi].mdl) && !mdl_is_aim(g_prop[pi].mdl))
+        return;
+    if (pi == g_walk_prop && !g_prop[pi].alerted)
+        return;
+    im = load_chr(g_prop[pi].model);
+    if (!im)
+        return;
+    apply_chr_fit(pi, im);
+    recount_walkers();
+}
+
+/* Pack PTR_ANIM_aim_* rest for in-box living shooters. Unique
+ * model id so idle clones and the walk bind stay put. If the pack aim
+ * does not decode, keep idle — do not fake an arm raise. */
+static int bind_prop_aim(int pi)
+{
+    PortModel *am;
+    if (pi < 0 || pi >= g_nprop || g_prop[pi].type != PDEF_GUARD)
+        return 0;
+    if (port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2]))
+        return 0;
+    if (mdl_is_aim(g_prop[pi].mdl))
+        return 1;
+    if (pi == g_walk_prop && !g_prop[pi].alerted)
+        return 0;
+    if (!g_have_aim) {
+        bind_prop_idle(pi);
+        return 0;
+    }
+    am = load_chr_aim(g_prop[pi].model);
+    if (!am) {
+        bind_prop_idle(pi);
+        return 0;
+    }
+    apply_chr_fit(pi, am);
+    recount_walkers();
+    return 1;
 }
 
 static void apply_walk_bind(void)
 {
-    PortModel *m;
+    int i;
     const float (*save)[3];
-    const PortPropCat *cat;
-    int body, use_guard;
 
-    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
-        return;
-    m = g_prop[g_walk_prop].mdl;
-    if (!m || !m->file)
-        return;
-    body = g_prop[g_walk_prop].model;
-    use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
     save = g_pose_rest;
     g_pose_rest = g_walk_rest;
-    bind_model_gdl(m, use_guard);
-    if (g_walk_fit_scale != 0.f) {
-        m->fit_scale = g_walk_fit_scale;
-        m->fit_ymin = g_walk_fit_ymin;
-    } else {
-        g_walk_fit_scale = m->fit_scale;
-        g_walk_fit_ymin = m->fit_ymin;
+    for (i = 0; i < g_nmdl; i++) {
+        if (!g_mdl[i].file || !mdl_is_walk(&g_mdl[i]))
+            continue;
+        bind_model_gdl(&g_mdl[i], 1);
+        if (g_walk_fit_scale != 0.f) {
+            g_mdl[i].fit_scale = g_walk_fit_scale;
+            g_mdl[i].fit_ymin = g_walk_fit_ymin;
+        } else {
+            g_walk_fit_scale = g_mdl[i].fit_scale;
+            g_walk_fit_ymin = g_mdl[i].fit_ymin;
+        }
     }
     g_pose_rest = save;
-    cat = chr_by_id(body);
-    g_prop[g_walk_prop].scale =
-        (cat ? cat->scale : 1.f) * (m->fit_scale != 0.f ? m->fit_scale : 1.f);
-    if (m->have_head) {
-        g_prop[g_walk_prop].head_off[0] = m->head_off[0];
-        g_prop[g_walk_prop].head_off[1] = m->head_off[1] - m->fit_ymin;
-        g_prop[g_walk_prop].head_off[2] = m->head_off[2];
-        g_prop[g_walk_prop].head_rx = m->head_rx;
-        g_prop[g_walk_prop].head_ry = m->head_ry;
-        g_prop[g_walk_prop].head_rz = m->head_rz;
+    /* Test mover tracks the walk rest while living and not holding fire-box
+     * idle. Other walk-bound chasers share the same rebind. */
+    if (g_walk_prop >= 0 && g_walk_prop < g_nprop &&
+        !port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0],
+                                 g_prop[g_walk_prop].pos[2]) &&
+        (mdl_is_walk(g_prop[g_walk_prop].mdl) || !g_prop[g_walk_prop].alerted))
+        (void)bind_prop_walk(g_walk_prop);
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD || !mdl_is_walk(g_prop[i].mdl))
+            continue;
+        apply_chr_fit(i, g_prop[i].mdl);
     }
+    recount_walkers();
 }
 
 static int set_walk_frame(int frame)
@@ -1176,20 +1575,29 @@ void port_prop_tick_walk(void)
     face_heading(dx, dz);
 }
 
-static int guard_in_los(float *dx_out, float *dz_out, float *dist_out)
+static int rooms_fire_ok(int pr, int wr)
+{
+    if (pr < 1 || wr < 1)
+        return 0;
+    if (pr == wr)
+        return 1;
+    return port_stage_rooms_adjacent(pr, wr);
+}
+
+static int guard_prop_in_los(int pi, float *dx_out, float *dz_out, float *dist_out)
 {
     float r1[3], lx, ly, lz, px, py, pz, dx, dz, dist;
     int pr, wr;
 
-    if (!g_have_walk || g_walkers < 1 || g_walk_prop < 0 || g_walk_prop >= g_nprop)
+    if (pi < 0 || pi >= g_nprop || g_prop[pi].type != PDEF_GUARD)
         return 0;
-    if (port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0], g_prop[g_walk_prop].pos[2]))
+    if (port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2]))
         return 0;
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
-    lx = g_prop[g_walk_prop].pos[0] - r1[0];
-    ly = g_prop[g_walk_prop].pos[1] - r1[1];
-    lz = g_prop[g_walk_prop].pos[2] - r1[2];
+    lx = g_prop[pi].pos[0] - r1[0];
+    ly = g_prop[pi].pos[1] - r1[1];
+    lz = g_prop[pi].pos[2] - r1[2];
     px = port_player_x();
     py = port_player_y();
     pz = port_player_z();
@@ -1202,7 +1610,7 @@ static int guard_in_los(float *dx_out, float *dz_out, float *dist_out)
         return 0;
     pr = port_stage_room_at_local(px, py, pz);
     wr = port_stage_room_at_local(lx, ly, lz);
-    if (pr < 1 || wr < 1 || pr != wr)
+    if (!rooms_fire_ok(pr, wr))
         return 0;
     {
         float inv, ox, oy, oz, ddx, ddy, ddz, tblk, len;
@@ -1232,49 +1640,254 @@ static int guard_in_los(float *dx_out, float *dz_out, float *dist_out)
     return 1;
 }
 
-int port_prop_tick_guard_fire(void)
+static int fire_guard_hitscan(int pi, float dist)
 {
-    float dx, dz, dist;
+    float r1[3], lx, ly, lz, px, py, pz, ox, oy, oz, ddx, ddy, ddz, inv, len, t;
 
-    if (g_fire_cd > 0)
-        g_fire_cd--;
-    if (!guard_in_los(&dx, &dz, &dist))
+    if (dist < 1e-6f)
         return 0;
-    face_heading(dx, dz);
-    if (g_fire_cd > 0)
-        return 1;
-    {
-        float r1[3], lx, ly, lz, px, py, pz, ox, oy, oz, ddx, ddy, ddz, inv, len, t;
-        r1[0] = r1[1] = r1[2] = 0.f;
-        (void)port_stage_room1(r1);
-        lx = g_prop[g_walk_prop].pos[0] - r1[0];
-        ly = g_prop[g_walk_prop].pos[1] - r1[1];
-        lz = g_prop[g_walk_prop].pos[2] - r1[2];
-        px = port_player_x();
-        py = port_player_y();
-        pz = port_player_z();
-        inv = 1.f / dist;
-        ddx = (px - lx) * inv;
-        ddz = (pz - lz) * inv;
-        ddy = (py - (ly + PORT_GUARD_AIM_Y)) / dist;
-        ox = lx + ddx * PORT_GUARD_AIM_OFFSET;
-        oy = ly + PORT_GUARD_AIM_Y;
-        oz = lz + ddz * PORT_GUARD_AIM_OFFSET;
-        len = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
-        if (len < 1e-6f)
-            return 1;
-        ddx /= len;
-        ddy /= len;
-        ddz /= len;
-        if (port_player_ray_hit(ox, oy, oz, ddx, ddy, ddz, &t))
-            port_player_damage(PORT_GUARD_FIRE_DAMAGE);
-        g_fire_cd = PORT_GUARD_FIRE_COOLDOWN;
-        g_guard_shots += 1;
-    }
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = g_prop[pi].pos[0] - r1[0];
+    ly = g_prop[pi].pos[1] - r1[1];
+    lz = g_prop[pi].pos[2] - r1[2];
+    px = port_player_x();
+    py = port_player_y();
+    pz = port_player_z();
+    inv = 1.f / dist;
+    ddx = (px - lx) * inv;
+    ddz = (pz - lz) * inv;
+    ddy = (py - (ly + PORT_GUARD_AIM_Y)) / dist;
+    ox = lx + ddx * PORT_GUARD_AIM_OFFSET;
+    oy = ly + PORT_GUARD_AIM_Y;
+    oz = lz + ddz * PORT_GUARD_AIM_OFFSET;
+    len = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+    if (len < 1e-6f)
+        return 0;
+    ddx /= len;
+    ddy /= len;
+    ddz /= len;
+    if (port_player_ray_hit(ox, oy, oz, ddx, ddy, ddz, &t))
+        port_player_damage(PORT_GUARD_FIRE_DAMAGE);
     return 1;
 }
 
+/* Spawn stall fire box: xz 40-400 from first-frame spawn, |Δz|<=200.
+ * Chasers may close toward the hallway corner but must not come down
+ * the 270 hall into this box (that would drop spawn hp). */
+static int in_spawn_fire_box(float lx, float lz)
+{
+    float dx, dz, dist;
+
+    if (!g_have_spawn_xz)
+        return 0;
+    dx = g_walk_spawn_x - lx;
+    dz = g_walk_spawn_z - lz;
+    dist = sqrtf(dx * dx + dz * dz);
+    if (dist < 40.f || dist > PORT_GUARD_FIRE_RANGE)
+        return 0;
+    if (fabsf(dz) > PORT_GUARD_FIRE_ALONG)
+        return 0;
+    return 1;
+}
+
+/* One 3.0u step toward (px,pz) on ground-floor tiles. Face the step.
+ * Refuse the spawn stall fire box (Z-floor). Slide on X then Z if the
+ * diagonal is off-tile so a G1 wall does not freeze them. */
+static int chase_step(int pi, float lx, float lz, float px, float pz, const float r1[3])
+{
+    float dx, dz, dist, step, nx, nz;
+
+    dx = px - lx;
+    dz = pz - lz;
+    dist = sqrtf(dx * dx + dz * dz);
+    /* Already inside min fire range — do not walk through the player. */
+    if (dist < 40.f)
+        return 0;
+    step = PORT_MOVER_WALK_STEP;
+    if (step > dist)
+        step = dist;
+    nx = lx + dx / dist * step;
+    nz = lz + dz / dist * step;
+    if (in_spawn_fire_box(nx, nz)) {
+        /* Approach the corner: take the axis that stays outside the box. */
+        if (!in_spawn_fire_box(nx, lz) && sit_guard_tile(pi, nx, lz, r1)) {
+            face_heading_prop(pi, dx, 0.f);
+            return 1;
+        }
+        if (!in_spawn_fire_box(lx, nz) && sit_guard_tile(pi, lx, nz, r1)) {
+            face_heading_prop(pi, 0.f, dz);
+            return 1;
+        }
+        return 0;
+    }
+    if (sit_guard_tile(pi, nx, nz, r1)) {
+        face_heading_prop(pi, dx, dz);
+        return 1;
+    }
+    if (sit_guard_tile(pi, nx, lz, r1)) {
+        face_heading_prop(pi, dx, 0.f);
+        return 1;
+    }
+    if (sit_guard_tile(pi, lx, nz, r1)) {
+        face_heading_prop(pi, 0.f, dz);
+        return 1;
+    }
+    return 0;
+}
+
+/* Alerted living guards that cannot shoot yet walk toward the player.
+ * Unalerted stay put. In-box guards use return-fire (no step). Stepping
+ * (or already walk-bound) chasers play PTR_ANIM_walking; sim_tick skips
+ * the test-mover ping-pong once the walker is alerted, so the pose tick
+ * lives here. */
+static void chase_alerted(void)
+{
+    int i, stepped = 0, walking = 0;
+    float r1[3], px, pz;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    px = port_player_x();
+    pz = port_player_z();
+    for (i = 0; i < g_nprop; i++) {
+        float lx, lz;
+        if (g_prop[i].type != PDEF_GUARD || !g_prop[i].alerted)
+            continue;
+        if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            continue;
+        if (guard_prop_in_los(i, NULL, NULL, NULL))
+            continue;
+        lx = g_prop[i].pos[0] - r1[0];
+        lz = g_prop[i].pos[2] - r1[2];
+        if (chase_step(i, lx, lz, px, pz, r1)) {
+            (void)bind_prop_walk(i);
+            stepped = 1;
+        }
+        if (mdl_is_walk(g_prop[i].mdl))
+            walking = 1;
+    }
+    if ((stepped || walking) && g_have_walk && g_walk_nframes > 0)
+        set_walk_frame(g_walk_frame + 1);
+}
+
+int port_prop_tick_guard_fire(void)
+{
+    int i, combat = 0, fired = 0;
+
+    if (g_fire_cd > 0)
+        g_fire_cd--;
+    g_guard_los = 0;
+    for (i = 0; i < g_nprop; i++) {
+        float dx, dz, dist;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (!guard_prop_in_los(i, &dx, &dz, &dist)) {
+            /* Alerted: face the player even outside the fire box.
+             * Do not set combat — they cannot shoot yet. */
+            if (g_prop[i].alerted &&
+                !port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+                face_player_prop(i);
+            continue;
+        }
+        /* In the fire box: idle rest. Pack aim/fire decodes but the
+         * 16-joint Euler bind is a blob — do not apply it. */
+        bind_prop_idle(i);
+        g_guard_los++;
+        combat = 1;
+        face_heading_prop(i, dx, dz);
+        if (g_fire_cd > 0)
+            continue;
+        if (fire_guard_hitscan(i, dist)) {
+            g_guard_shots += 1;
+            fired = 1;
+        }
+    }
+    if (fired)
+        g_fire_cd = PORT_GUARD_FIRE_COOLDOWN;
+    chase_alerted();
+    return combat;
+}
+
+void port_prop_hear_player_shot(void)
+{
+    int i;
+    float r1[3], px, py, pz;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    px = port_player_x();
+    py = port_player_y();
+    pz = port_player_z();
+    for (i = 0; i < g_nprop; i++) {
+        float lx, ly, lz, dx, dz, dist;
+        int pr, wr;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            continue;
+        lx = g_prop[i].pos[0] - r1[0];
+        ly = g_prop[i].pos[1] - r1[1];
+        lz = g_prop[i].pos[2] - r1[2];
+        dx = px - lx;
+        dz = pz - lz;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist > PORT_GUARD_HEAR_RANGE)
+            continue;
+        pr = port_stage_room_at_local(px, py, pz);
+        wr = port_stage_room_at_local(lx, ly, lz);
+        if (!rooms_fire_ok(pr, wr))
+            continue;
+        g_prop[i].alerted = 1;
+        face_heading_prop(i, dx, dz);
+    }
+}
+
+int port_prop_guard_alerted(void)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD || !g_prop[i].alerted)
+            continue;
+        if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            continue;
+        n++;
+    }
+    return n;
+}
+
+int port_prop_walker_alerted(void)
+{
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
+    if (!g_prop[g_walk_prop].alerted)
+        return 0;
+    if (port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0], g_prop[g_walk_prop].pos[2]))
+        return 0;
+    return 1;
+}
+
+int port_prop_guard_yaw(int want, float *yaw, int *alerted)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (n == want) {
+            if (yaw)
+                *yaw = g_prop[i].yaw;
+            if (alerted)
+                *alerted = g_prop[i].alerted;
+            return 0;
+        }
+        n++;
+    }
+    return -1;
+}
+
 int port_prop_guard_shots(void) { return g_guard_shots; }
+
+int port_prop_guard_los(void) { return g_guard_los; }
 
 int port_prop_walk_path(float *ax, float *az, float *bx, float *bz)
 {
@@ -1310,11 +1923,232 @@ int port_prop_walk_frame(void)
     return g_walk_frame;
 }
 
+static int guard_prop_at(int want)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (n == want)
+            return i;
+        n++;
+    }
+    return -1;
+}
+
+int port_prop_idle_guard(void)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (i == g_idle_prop)
+            return n;
+        n++;
+    }
+    return -1;
+}
+
+int port_prop_guard_walk_bound(int want)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0)
+        return 0;
+    return mdl_is_walk(g_prop[pi].mdl);
+}
+
+int port_prop_guard_aim_bound(int want)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0)
+        return 0;
+    return mdl_is_aim(g_prop[pi].mdl);
+}
+
+float port_prop_guard_fit_scale(int want)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0 || !g_prop[pi].mdl)
+        return 0.f;
+    return g_prop[pi].mdl->fit_scale;
+}
+
+static uint32_t rest_crc32(const float rest[PORT_SKEL_GUARD_N][3])
+{
+    const uint8_t *p = (const uint8_t *)rest;
+    uint32_t crc = 0xFFFFFFFFu;
+    size_t i, n = sizeof(float) * (size_t)PORT_SKEL_GUARD_N * 3u;
+    for (i = 0; i < n; i++)
+        crc = (crc >> 8) ^ ((crc ^ p[i]) * 16777619u);
+    return crc ^ 0xFFFFFFFFu;
+}
+
 uint32_t port_prop_walk_rest_crc(void)
 {
-    const uint8_t *p = (const uint8_t *)g_walk_rest;
+    return rest_crc32(g_walk_rest);
+}
+
+uint32_t port_prop_idle_rest_crc(void)
+{
+    return rest_crc32(g_idle_rest);
+}
+
+uint32_t port_prop_aim_rest_crc(void)
+{
+    return rest_crc32(g_aim_rest);
+}
+
+static int any_guard_dead(void)
+{
+    int i;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            return 1;
+    }
+    return 0;
+}
+
+/* Rebind an already-loaded unique death model. Restore the standing fit so a
+ * lying AABB cannot become a 1510u blob. Head follows the death neck. */
+static int apply_die_bind(PortModel *m)
+{
+    const float (*save)[3];
+    float fs, fy;
+
+    if (!m || !m->file)
+        return -1;
+    fs = m->fit_scale;
+    fy = m->fit_ymin;
+    save = g_pose_rest;
+    g_pose_rest = g_die_rest;
+    bind_model_gdl(m, 1);
+    if (fs != 0.f) {
+        m->fit_scale = fs;
+        m->fit_ymin = fy;
+    } else if (g_walk_fit_scale != 0.f) {
+        m->fit_scale = g_walk_fit_scale;
+        m->fit_ymin = g_walk_fit_ymin;
+    }
+    g_pose_rest = save;
+    return m->npart ? 0 : -1;
+}
+
+static int rebind_die_models(void)
+{
+    int i, rc = 0;
+    for (i = 0; i < g_nmdl; i++) {
+        if (g_mdl[i].id < PORT_DIE_ID_BASE ||
+            g_mdl[i].id >= PORT_DIE_ID_BASE + 256 || !g_mdl[i].file)
+            continue;
+        if (apply_die_bind(&g_mdl[i]) != 0)
+            rc = -1;
+    }
+    return rc;
+}
+
+static int set_die_frame(int frame)
+{
+    char err[80];
+    uint32_t addr = 0, off = 0, frames = 0;
+    uint8_t width = 0;
+    int last;
+    float prev[PORT_SKEL_GUARD_N][3];
+
+    if (!g_have_die || g_die_off == 0)
+        return -1;
+    last = (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
+    if (frame < 0)
+        frame = 0;
+    if (frame > last)
+        frame = last;
+    memcpy(prev, g_die_rest, sizeof prev);
+    if (!decode_anim_frame(g_die_off, frame, g_die_rest, &addr, &off, &frames, &width,
+                           err, sizeof err)) {
+        memcpy(g_die_rest, prev, sizeof g_die_rest);
+        return -1;
+    }
+    if (frames > 0)
+        g_die_nframes = frames;
+    g_die_frame = frame;
+    snprintf(g_die_info, sizeof g_die_info, "die=1 addr=0x%x off=%u fr=%u w=%u f=%d",
+             addr, off, frames, width, frame);
+    if (rebind_die_models() != 0) {
+        /* Ticking wrecked the unique-model bind: freeze on the last-frame hold. */
+        memcpy(g_die_rest, g_die_hold, sizeof g_die_rest);
+        g_die_frame = last;
+        g_die_tick_ok = 0;
+        snprintf(g_die_info, sizeof g_die_info, "die=1 addr=0x%x off=%u fr=%u w=%u f=%d hold",
+                 addr, off, frames, width, last);
+        (void)rebind_die_models();
+        return -1;
+    }
+    return 0;
+}
+
+static void start_die_if_needed(void)
+{
+    if (!g_have_die || g_die_started || !g_die_tick_ok)
+        return;
+    if (!any_guard_dead())
+        return;
+    g_die_started = 1;
+    if (set_die_frame(0) != 0) {
+        int last = (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
+        memcpy(g_die_rest, g_die_hold, sizeof g_die_rest);
+        g_die_frame = last;
+        g_die_tick_ok = 0;
+        (void)rebind_die_models();
+    }
+}
+
+void port_prop_tick_die(void)
+{
+    int last;
+    int next;
+
+    if (!g_have_die || !g_die_tick_ok)
+        return;
+    start_die_if_needed();
+    if (!g_die_started)
+        return;
+    last = (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
+    if (g_die_frame < last) {
+        next = g_die_frame + PORT_DIE_FRAMES_PER_TICK;
+        if (next > last)
+            next = last;
+        (void)set_die_frame(next);
+    }
+}
+
+void port_prop_set_die_frame(int frame)
+{
+    if (!g_have_die)
+        return;
+    g_die_started = 1;
+    (void)set_die_frame(frame);
+}
+
+int port_prop_die_frame(void)
+{
+    if (!g_have_die)
+        return -1;
+    return g_die_frame;
+}
+
+int port_prop_die_last_frame(void)
+{
+    if (!g_have_die)
+        return -1;
+    return (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
+}
+
+uint32_t port_prop_die_rest_crc(void)
+{
+    const uint8_t *p = (const uint8_t *)g_die_rest;
     uint32_t crc = 0xFFFFFFFFu;
-    size_t i, n = sizeof g_walk_rest;
+    size_t i, n = sizeof g_die_rest;
     for (i = 0; i < n; i++)
         crc = (crc >> 8) ^ ((crc ^ p[i]) * 16777619u);
     return crc ^ 0xFFFFFFFFu;
@@ -1551,8 +2385,16 @@ void port_prop_unload(void)
     g_intro_pad = -1;
     g_have_idle = 0;
     g_have_walk = 0;
+    g_have_aim = 0;
+    g_have_die = 0;
+    g_die_off = 0;
+    g_die_nframes = 0;
+    g_die_frame = 0;
+    g_die_started = 0;
+    g_die_tick_ok = 0;
     g_walkers = 0;
     g_walk_prop = -1;
+    g_idle_prop = -1;
     g_walk_frame = 0;
     g_walk_nframes = 0;
     g_walk_fit_scale = 0.f;
@@ -1560,12 +2402,20 @@ void port_prop_unload(void)
     g_walk_path_ok = 0;
     g_walk_going_b = 1;
     g_walk_blocked = 0;
+    g_have_spawn_xz = 0;
+    g_walk_spawn_x = 0.f;
+    g_walk_spawn_z = 0.f;
     g_fire_cd = 0;
     g_guard_shots = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);
+    memset(g_aim_rest, 0, sizeof g_aim_rest);
+    memset(g_die_rest, 0, sizeof g_die_rest);
+    memset(g_die_hold, 0, sizeof g_die_hold);
     g_walk_info[0] = 0;
+    g_aim_info[0] = 0;
+    g_die_info[0] = 0;
     g_retail_slab_ok = 0;
     memset(&g_retail_slab, 0, sizeof g_retail_slab);
 }
@@ -1643,6 +2493,8 @@ int port_prop_have_idle(void) { return g_have_idle; }
 
 int port_prop_have_walk(void) { return g_have_walk; }
 
+int port_prop_have_aim(void) { return g_have_aim; }
+
 int port_prop_walk_count(void) { return g_walkers; }
 
 int port_prop_guard_parts(void)
@@ -1657,12 +2509,18 @@ int port_prop_guard_parts(void)
 
 const char *port_prop_idle_info(void)
 {
-    if (!g_walk_info[0])
-        return g_idle_info[0] ? g_idle_info : "idle=0";
-    snprintf(g_pose_info, sizeof g_pose_info, "%s %s",
-             g_idle_info[0] ? g_idle_info : "idle=0", g_walk_info);
+    snprintf(g_pose_info, sizeof g_pose_info, "%s%s%s%s%s%s%s",
+             g_idle_info[0] ? g_idle_info : "idle=0",
+             g_walk_info[0] ? " " : "",
+             g_walk_info[0] ? g_walk_info : "",
+             g_aim_info[0] ? " " : "",
+             g_aim_info[0] ? g_aim_info : "",
+             g_die_info[0] ? " " : "",
+             g_die_info[0] ? g_die_info : "");
     return g_pose_info;
 }
+
+int port_prop_have_die(void) { return g_have_die; }
 
 int port_prop_walk_xz(float *x, float *z)
 {
@@ -1675,7 +2533,7 @@ int port_prop_walk_xz(float *x, float *z)
     return 0;
 }
 
-int port_prop_guard_xz(int want, float *x, float *z)
+int port_prop_guard_xyz(int want, float *x, float *y, float *z)
 {
     int i, n = 0;
     for (i = 0; i < g_nprop; i++) {
@@ -1684,6 +2542,8 @@ int port_prop_guard_xz(int want, float *x, float *z)
         if (n == want) {
             if (x)
                 *x = g_prop[i].pos[0];
+            if (y)
+                *y = g_prop[i].pos[1];
             if (z)
                 *z = g_prop[i].pos[2];
             return 0;
@@ -1691,6 +2551,11 @@ int port_prop_guard_xz(int want, float *x, float *z)
         n++;
     }
     return -1;
+}
+
+int port_prop_guard_xz(int want, float *x, float *z)
+{
+    return port_prop_guard_xyz(want, x, NULL, z);
 }
 
 
@@ -2081,6 +2946,48 @@ static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float 
     }
 }
 
+static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const float room1[3])
+{
+    PortModel *mdl = pr->mdl;
+    float hx, hy, hz, hrx, hry, hrz;
+    int dead;
+
+    if (!mdl || !mdl->npart)
+        return k;
+    dead = port_stan_guard_dead_at(pr->pos[0], pr->pos[2]);
+    hx = pr->head_off[0];
+    hy = pr->head_off[1];
+    hz = pr->head_off[2];
+    hrx = pr->head_rx;
+    hry = pr->head_ry;
+    hrz = pr->head_rz;
+    if (dead) {
+        PortModel *dm;
+        /* No pack death rest: keep skip-draw. No fake ragdoll. */
+        if (!g_have_die)
+            return k;
+        start_die_if_needed();
+        dm = load_chr_die(pr->model);
+        if (!dm || !dm->npart)
+            return k;
+        mdl = dm;
+        if (dm->have_head) {
+            hx = dm->head_off[0];
+            hy = dm->head_off[1] - dm->fit_ymin;
+            hz = dm->head_off[2];
+            hrx = dm->head_rx;
+            hry = dm->head_ry;
+            hrz = dm->head_rz;
+        }
+    }
+    k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                   0.f, 0.f);
+    if (pr->head && pr->head->npart)
+        k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry, hrz, 0.f,
+                       0.f, 0.f, 0.f);
+    return k;
+}
+
 int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                          const float *room_xyz, int nrooms, const uint8_t *room_ids)
 {
@@ -2221,15 +3128,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     if (g_walk_prop >= 0 && g_walk_prop < g_nprop && k < cap) {
         PortProp *pr = &g_prop[g_walk_prop];
         if (pr->mdl && pr->mdl->npart &&
-            near_room(pr, room1, room_xyz, nrooms, room_ids) &&
-            !port_stan_guard_dead_at(pr->pos[0], pr->pos[2])) {
-            k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                           0.f, 0.f, 0.f, 0.f);
-            if (pr->head && pr->head->npart)
-                k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0],
-                               pr->head_off[1], pr->head_off[2], pr->head_rx, pr->head_ry,
-                               pr->head_rz, 0.f, 0.f, 0.f, 0.f);
-        }
+            near_room(pr, room1, room_xyz, nrooms, room_ids))
+            k = emit_guard_body(out, cap, k, pr, room1);
     }
     /* Nearest remaining props first so the cap spends on this room and
      * the next walked rooms, not a far setup cluster. */
@@ -2248,9 +3148,6 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             if (!pr->mdl || pr->mdl->npart == 0 || pr->type == PDEF_DOOR)
                 continue;
             if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
-                continue;
-            if (pr->type == PDEF_GUARD &&
-                port_stan_guard_dead_at(pr->pos[0], pr->pos[2]))
                 continue;
             dx = pr->pos[0] - px;
             dy = pr->pos[1] - py;
@@ -2271,12 +3168,16 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
         }
         for (i = 0; i < nidx && k < cap; i++) {
             PortProp *pr = &g_prop[idx[i]];
-            k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                           0.f, 0.f, 0.f, 0.f);
-            if (pr->head && pr->head->npart)
-                k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0],
-                               pr->head_off[1], pr->head_off[2], pr->head_rx, pr->head_ry,
-                               pr->head_rz, 0.f, 0.f, 0.f, 0.f);
+            if (pr->type == PDEF_GUARD)
+                k = emit_guard_body(out, cap, k, pr, room1);
+            else {
+                k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f,
+                               0.f, 0.f, 0.f, 0.f, 0.f);
+                if (pr->head && pr->head->npart)
+                    k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0],
+                                   pr->head_off[1], pr->head_off[2], pr->head_rx,
+                                   pr->head_ry, pr->head_rz, 0.f, 0.f, 0.f, 0.f);
+            }
         }
     }
     g_drawn = k;

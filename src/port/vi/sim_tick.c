@@ -7,6 +7,8 @@
 
 void port_prop_tick_walk(void) __attribute__((weak));
 int port_prop_tick_guard_fire(void) __attribute__((weak));
+int port_prop_walker_alerted(void) __attribute__((weak));
+void port_prop_tick_die(void) __attribute__((weak));
 
 #include "game/frametiming.h"
 
@@ -48,8 +50,13 @@ int port_sim_tick(uint32_t tick)
         int combat = 0;
         if (port_prop_tick_guard_fire)
             combat = port_prop_tick_guard_fire();
-        if (!combat && port_prop_tick_walk)
+        /* Alerted walker: chase already stepped them and ticks the walk
+         * pose. Keep the strip ping-pong for unalerted / harness. */
+        if (!combat && port_prop_tick_walk &&
+            !(port_prop_walker_alerted && port_prop_walker_alerted()))
             port_prop_tick_walk();
     }
+    if (port_prop_tick_die)
+        port_prop_tick_die();
     return 0;
 }

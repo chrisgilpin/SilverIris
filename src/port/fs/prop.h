@@ -19,7 +19,12 @@ int port_prop_guard_count(void);
 int port_prop_have_idle(void);
 /* 1 if ANIM_walking mid-stride decoded from the pack. */
 int port_prop_have_walk(void);
-/* Setup guards posed with the walk bind (0 or 1). */
+/* 1 if a pack death rest (PTR_ANIM_death_*) decoded. Else hide-body is skip-draw. */
+int port_prop_have_die(void);
+/* 1 if a pack aim/fire rest decoded AND bound (else idle). */
+int port_prop_have_aim(void);
+/* Living setup guards currently posed with the walk bind (test mover +
+ * any stepping chaser). Shared by body (PORT_WALK_ID_BASE + body). */
 int port_prop_walk_count(void);
 /* First guard body npart (0 if none). */
 int port_prop_guard_parts(void);
@@ -31,9 +36,25 @@ int port_prop_walk_xz(float *x, float *z);
 int port_prop_walk_xyz(float *x, float *y, float *z);
 /* Loop ANIM_walking one frame and step the test mover along its strip. */
 void port_prop_tick_walk(void);
-/* If the player is in LOS of the one test mover: turn, fire, return 1 (stop). */
+/* Nearby living setup guards in LOS (same room or portal-adjacent,
+ * xz<=400, |dz|<=200): turn, fire the shared hitscan, return 1 (stop).
+ * Alerted guards outside the box still turn and walk toward the player
+ * (3.0 u/tick, ground-floor tiles). They stop at fire-box range.
+ * Z-floor: they cannot enter the spawn stall fire box. */
 int port_prop_tick_guard_fire(void);
 int port_prop_guard_shots(void);
+/* Guards that passed LOS on the last fire tick. */
+int port_prop_guard_los(void);
+/* Player Z_TRIG: mark living setup guards in hear range (same/adj,
+ * xz<=800) alerted and face the player. No alarm. Chase is the fire
+ * tick (alerted, not in the fire box, not in the spawn Z-floor). */
+void port_prop_hear_player_shot(void);
+/* Living setup guards currently alerted. */
+int port_prop_guard_alerted(void);
+/* 1 if the posed-walk test mover is living and alerted (chase owns xz). */
+int port_prop_walker_alerted(void);
+/* Guard i yaw (deg) and alerted flag. -1 if none. */
+int port_prop_guard_yaw(int i, float *yaw, int *alerted);
 /* Local-xz ping-pong endpoints of the test-mover strip. -1 if none. */
 int port_prop_walk_path(float *ax, float *az, float *bx, float *bz);
 /* NTSC units/tick (PORT_CHR_WALK * 3). 0 if the mover has no path. */
@@ -44,6 +65,29 @@ void port_prop_set_walk_frame(int frame);
 int port_prop_walk_frame(void);
 /* crc32 of the current walk rest eulers. */
 uint32_t port_prop_walk_rest_crc(void);
+/* crc32 of idle / aim rest eulers (load-time frames). */
+uint32_t port_prop_idle_rest_crc(void);
+uint32_t port_prop_aim_rest_crc(void);
+/* Guard-enum index of the extra idle (closest-to-spawn). -1 if none. */
+int port_prop_idle_guard(void);
+/* 1 if guard i is currently on the walk model (not idle rest). */
+int port_prop_guard_walk_bound(int i);
+/* 1 if guard i is currently on the aim model. */
+int port_prop_guard_aim_bound(int i);
+/* Idle-fit scale on guard i (0.123 = 185u / 1510u). 0 if none. */
+float port_prop_guard_fit_scale(int i);
+/* Advance PTR_ANIM_death_* this many frames per sim tick (starts at 0
+ * on first dead guard, holds last). 4/tick: 0->88 in 22 ticks ~ 1.1s @ 20 Hz. */
+#define PORT_DIE_FRAMES_PER_TICK 4
+void port_prop_tick_die(void);
+/* Snap death rest to a frame (clamps to last). Marks the fall started. */
+void port_prop_set_die_frame(int frame);
+/* Current death frame, or -1. */
+int port_prop_die_frame(void);
+/* Last death frame (nframes-1), or -1. */
+int port_prop_die_last_frame(void);
+/* crc32 of the current death rest eulers. */
+uint32_t port_prop_die_rest_crc(void);
 /* After stan/origin are live: sit the test mover on a ground-floor
  * tile just around the Facility spawn corner. 1 if moved. */
 int port_prop_place_walker_near_spawn(void);
@@ -64,6 +108,7 @@ int port_prop_intro_pad(void);
 int port_prop_door_count(void);
 int port_prop_door_xz(int i, float *x, float *z, float *lx, float *lz);
 int port_prop_guard_xz(int i, float *x, float *z);
+int port_prop_guard_xyz(int i, float *x, float *y, float *z);
 
 /*
  * First-person GwppkZ (PP7) as a static camera-space viewmodel.

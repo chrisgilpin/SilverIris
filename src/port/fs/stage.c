@@ -787,6 +787,19 @@ int port_stage_room_at_local(float lx, float ly, float lz)
                               lz + g_rm[1].pos[2]);
 }
 
+int port_stage_rooms_adjacent(int a, int b)
+{
+    int i;
+    if (a < 1 || b < 1 || a == b)
+        return 0;
+    for (i = 0; i < g_nportals; i++) {
+        if ((g_portals[i].a == a && g_portals[i].b == b) ||
+            (g_portals[i].a == b && g_portals[i].b == a))
+            return 1;
+    }
+    return 0;
+}
+
 static int pick_current_room(void)
 {
     if (g_bg_rooms < 1)
