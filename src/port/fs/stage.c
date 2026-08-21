@@ -715,7 +715,8 @@ int port_stage_portal_count(void) { return g_nportals; }
 
 int port_stage_path_opening(int ra, int rb)
 {
-    return (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
+    return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
+           (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
            (ra == 20 && rb == 19) || (ra == 19 && rb == 20) ||
            (ra == 19 && rb == 18) || (ra == 18 && rb == 19);
