@@ -34,8 +34,9 @@ typedef struct {
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 
-/* Player look-at (theta=0 faces -Z). Identity when cleared. */
+/* Player look-at (theta=0 faces -Z, phi=0 is level). Identity when cleared. */
 void g1_set_lookat(float x, float y, float z, float theta_deg);
+void g1_set_pitch(float pitch_deg);
 void g1_clear_lookat(void);
 unsigned g1_fb_nonzero(void);
 

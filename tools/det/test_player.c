@@ -339,6 +339,62 @@ static int test_door_use_does_not_fire(void)
     return 0;
 }
 
+
+static int test_look_pitch(void)
+{
+    uint32_t t;
+    float ph;
+
+    port_player_spawn();
+    if (port_player_phi() != 0.0f)
+        return fail("spawn pitch");
+    port_set_local_pad(0, 0, 0, (int)PORT_C_UP);
+    if (port_sim_tick(1000) != 0)
+        return fail("c-up tick 0");
+    if (port_sim_tick(1001) != 0)
+        return fail("c-up tick 1");
+    ph = port_player_phi();
+    if (!(ph > 20.0f && ph < 22.0f)) {
+        fprintf(stderr, "c-up phi=%g want ~21\n", (double)ph);
+        return 1;
+    }
+    for (t = 1002; t < 1080; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("c-up clamp tick");
+    }
+    if (fabsf(port_player_phi() - PORT_PITCH_MAX) > 0.01f)
+        return fail("clamp +70");
+    port_set_local_pad(0, 0, 0, (int)PORT_C_DOWN);
+    for (t = 1080; t < 1200; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("c-down clamp tick");
+    }
+    if (fabsf(port_player_phi() + PORT_PITCH_MAX) > 0.01f)
+        return fail("clamp -70");
+    port_player_set_pose(0.0f, 0.0f, 0.0f, 0.0f);
+    if (port_player_phi() != 0.0f)
+        return fail("set_pose resets pitch");
+    port_player_set_pitch(45.0f);
+    if (fabsf(port_player_phi() - 45.0f) > 0.01f)
+        return fail("set_pitch");
+    port_player_set_pitch(90.0f);
+    if (fabsf(port_player_phi() - PORT_PITCH_MAX) > 0.01f)
+        return fail("set_pitch clamp");
+    {
+        float dx, dy, dz;
+        port_player_set_pitch(0.0f);
+        port_player_look_dir(&dx, &dy, &dz);
+        if (fabsf(dx) > 0.01f || fabsf(dy) > 0.01f || fabsf(dz + 1.0f) > 0.01f)
+            return fail("look dir pitch0");
+        port_player_set_pitch(45.0f);
+        port_player_look_dir(&dx, &dy, &dz);
+        if (fabsf(dx) > 0.01f || !(dy > 0.70f && dy < 0.72f) || !(dz < -0.70f && dz > -0.72f))
+            return fail("look dir +45");
+    }
+    printf("look_pitch c-up 2t=21 clamp=+70/-70 look+45 dy>0\n");
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -383,6 +439,8 @@ int main(void)
     if (test_door_use_open() != 0)
         return 1;
     if (test_door_use_does_not_fire() != 0)
+        return 1;
+    if (test_look_pitch() != 0)
         return 1;
     return 0;
 }

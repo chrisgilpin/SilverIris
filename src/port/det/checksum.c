@@ -71,6 +71,8 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         o += 4;
         wr_f32(buf + o, port_player_theta());
         o += 4;
+        wr_f32(buf + o, port_player_phi());
+        o += 4;
         ammo = port_ammoheldarr();
         for (i = 0; i < PORT_AMMO_SLOTS; i++) {
             wr_i32(buf + o, ammo[i]);

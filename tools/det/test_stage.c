@@ -464,6 +464,97 @@ static int test_seg14_camera(void)
 }
 
 
+
+static unsigned painted_mean_row(void)
+{
+    const uint8_t *fb = g1_fb_rgba();
+    unsigned long long sum = 0;
+    unsigned n = 0;
+    int y, x;
+    for (y = 0; y < G1_FB_H; y++) {
+        for (x = 0; x < G1_FB_W; x++) {
+            const uint8_t *px = fb + ((size_t)y * G1_FB_W + (size_t)x) * 4u;
+            if (px[0] | px[1] | px[2]) {
+                sum += (unsigned)y;
+                n++;
+            }
+        }
+    }
+    return n ? (unsigned)(sum / n) : 0;
+}
+
+/* Pitch 0 looks along -Z as today. Pitch +45 raises the look, so a tri
+ * sitting in front at z=-80 slides down the canvas (viewport +Y is down). */
+static int test_look_pitch_pixels(void)
+{
+    uint8_t vtx_be[48];
+    uint8_t gdl[48];
+    Vtx vtx[3];
+    int i, ngfx;
+    unsigned nz0, nz45, row0, row45;
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -40;
+    vtx[0].v.ob[2] = -80;
+    vtx[1].v.ob[0] = 40;
+    vtx[1].v.ob[2] = -80;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -80;
+    for (i = 0; i < 3; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    memset(gdl, 0, sizeof gdl);
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, 0xC0000000u);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_DL << 24));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0D000000u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xAB000000u);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_clear_lookat();
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_pitch(0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("pitch0 interpret");
+    nz0 = g1_fb_nonzero();
+    row0 = painted_mean_row();
+    if (nz0 < 1000)
+        return fail("pitch0 should paint");
+
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_pitch(45.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("pitch45 interpret");
+    nz45 = g1_fb_nonzero();
+    row45 = painted_mean_row();
+    if (nz45 < 200)
+        return fail("pitch45 should still paint");
+    if (row45 <= row0) {
+        fprintf(stderr, "pitch45 mean row %u did not drop below pitch0 %u\n",
+                row45, row0);
+        return fail("pitch +45 should raise look (tri moves down)");
+    }
+    printf("look_pitch fb pitch0 nz=%u row=%u  pitch+45 nz=%u row=%u\n",
+           nz0, row0, nz45, row45);
+    g1_clear_lookat();
+    return 0;
+}
+
 static void fill_i8_checker(uint8_t *dst, int w, int h, uint8_t a, uint8_t b)
 {
     int y, x;
@@ -3388,6 +3479,8 @@ int main(int argc, char **argv)
 
 
     if (test_seg14_camera() != 0)
+        return 1;
+    if (test_look_pitch_pixels() != 0)
         return 1;
 
     /* Pack path: 1172 Vtx table + seg-14 G_VTX + player camera. */

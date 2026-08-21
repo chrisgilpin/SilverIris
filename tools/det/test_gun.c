@@ -252,6 +252,52 @@ static int test_world_hitscan(void)
     return 0;
 }
 
+
+static int test_pitch_floor_hit(void)
+{
+    float hx, hy, hz, y;
+    const float floor_y = 50.0f;
+
+    if (load_corridor() != 0)
+        return 1;
+    if (port_stan_eye_y(200.0f, 0.0f, &y) != 0)
+        return fail("floor eye");
+    port_player_spawn();
+    port_player_set_pose(200.0f, y, 0.0f, 90.0f);
+    port_player_set_pitch(-70.0f);
+    if (fire_once(200) != 0)
+        return 1;
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("floor hit pos");
+    if (fabsf(hy - floor_y) > 2.0f) {
+        fprintf(stderr, "floor hit y=%g want ~50\n", (double)hy);
+        return 1;
+    }
+    if (!(hx > 200.0f && hx < 280.0f)) {
+        fprintf(stderr, "floor hit x=%g want 200..280\n", (double)hx);
+        return 1;
+    }
+    printf("hitscan_floor x=%.1f y=%.1f z=%.1f (phi=-70 +X)\n",
+           (double)hx, (double)hy, (double)hz);
+
+    /* Pitch 0 still hits the far tile, not the floor. */
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    if (fire_once(210) != 0)
+        return 1;
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("level hit pos");
+    if (fabsf(hx - 400.0f) > 1.0f) {
+        fprintf(stderr, "level hit x=%g want ~400\n", (double)hx);
+        return 1;
+    }
+    if (fabsf(hy - y) > 1.0f)
+        return fail("level hit y left the eye");
+    printf("hitscan_level x=%.1f y=%.1f (phi=0 far tile)\n", (double)hx, (double)hy);
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     SimChecksum a, b;
@@ -317,6 +363,8 @@ int main(void)
            port_gun_mag(), port_gun_reserve(), port_gun_hits(), (double)hz,
            b.crc_players);
     if (test_world_hitscan() != 0)
+        return 1;
+    if (test_pitch_floor_hit() != 0)
         return 1;
     return 0;
 }

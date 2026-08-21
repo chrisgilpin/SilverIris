@@ -33,7 +33,7 @@ C0/`G_TRI4`). Otherwise it keeps the PORT mesh so a non-drawable pack does
 not black-screen. A retail-shaped C0 room now also inflates `pPointTableBin`
 (the vertex table), binds RSP segment 14 (`SPSEGMENT_BG_VTX`), skips
 unknown opcodes / unresolved `G_DL`, and applies a player look-at (theta=0
-faces -Z) so world-space `G_TRI4`s can land on the G1 FB as untextured
+faces -Z; phi pitch ±70° via mouse-look or I/K) so world-space `G_TRI4`s can land on the G1 FB as untextured
 grey. G1 decodes Rare `G_SETTEX` (0xC0): `texture_id = w1 & 0xfff`
 looks up `assets/images/split/<images.def name>.bin` (or `imageN.bin`)
 in the user pack. After 0b83df6 some retail wall tiles already bind

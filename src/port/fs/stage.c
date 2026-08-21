@@ -694,6 +694,7 @@ int port_stage_draw(void)
     if (g_rm[1].vtx)
         g1_set_segment(14, (uintptr_t)g_rm[1].vtx);
     g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
+    g1_set_pitch(port_player_phi());
 
     memset(passes, 0, sizeof passes);
     k = 0;

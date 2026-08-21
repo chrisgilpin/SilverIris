@@ -65,6 +65,8 @@ PORT_KEEP float port_api_player_x(void);
 PORT_KEEP float port_api_player_y(void);
 PORT_KEEP float port_api_player_z(void);
 PORT_KEEP float port_api_player_theta(void);
+PORT_KEEP float port_api_player_phi(void);
+PORT_KEEP void port_api_set_look_delta(int seat, float yaw_deg, float pitch_deg);
 PORT_KEEP float port_api_player_x_at(int seat);
 PORT_KEEP float port_api_player_z_at(int seat);
 PORT_KEEP float port_api_player_theta_at(int seat);

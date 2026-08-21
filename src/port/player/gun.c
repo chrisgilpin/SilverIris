@@ -17,8 +17,6 @@
  * (one-shot; setup body is then skipped — no ragdoll). Fake z=-50 only
  * if no stan is loaded.
  */
-#define PI_F 3.1415927f
-
 typedef struct {
     int32_t ammo[PORT_AMMO_SLOTS];
     int mag;
@@ -51,24 +49,31 @@ static void reload(void)
 
 static void fire_hitscan(void)
 {
-    float th = port_player_theta() * (PI_F / 180.0f);
     float ox = port_player_x();
     float oy = port_player_y();
     float oz = port_player_z();
-    /* Look-forward matches stick-up walk: theta=0 → dir (0,0,-1). */
-    float dx = sinf(th);
-    float dz = -cosf(th);
+    /* Pitched look: phi=0 is (sin θ, 0, -cos θ) as before. */
+    float dx, dy, dz, hdx, hdz, hlen;
     float t_best = 1.0e9f;
     float t;
-    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50 */
+    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor */
 
-    if (port_stan_ray_hit(ox, oz, dx, dz, &t) && t < t_best) {
-        t_best = t;
-        src = 1;
-    }
-    if (port_chr_ray_hit(ox, oz, dx, dz, &t) && t < t_best) {
-        t_best = t;
-        src = 2;
+    port_player_look_dir(&dx, &dy, &dz);
+    hlen = sqrtf(dx * dx + dz * dz);
+    hdx = (hlen > 1.0e-5f) ? dx / hlen : 0.0f;
+    hdz = (hlen > 1.0e-5f) ? dz / hlen : 0.0f;
+
+    if (hlen > 1.0e-5f) {
+        if (port_stan_ray_hit(ox, oz, hdx, hdz, &t) && t < t_best) {
+            t_best = t;
+            src = 1;
+        }
+        if (port_chr_ray_hit(ox, oz, hdx, hdz, &t) && t < t_best) {
+            t_best = t;
+            src = 2;
+        }
+        if (src != 0)
+            t_best = t_best / hlen;
     }
     /* Fake PORT wall only for no_assets / empty synthetic (no tiles/doors). */
     if (!port_stan_ready() && dz != 0.0f) {
@@ -78,12 +83,23 @@ static void fire_hitscan(void)
             src = 3;
         }
     }
+    {
+        float ey;
+        if (port_stan_eye_y(ox, oz, &ey) == 0 && dy != 0.0f) {
+            float fy = ey - PORT_EYE_HEIGHT;
+            t = (fy - oy) / dy;
+            if (t >= 0.05f && t <= 4000.0f && t < t_best) {
+                t_best = t;
+                src = 4;
+            }
+        }
+    }
     if (src == 0 || t_best > 4000.0f)
         return;
     {
         PortGun *g = G();
         g->hit_x = ox + dx * t_best;
-        g->hit_y = oy;
+        g->hit_y = oy + dy * t_best;
         g->hit_z = oz + dz * t_best;
         g->have_hit = 1;
         g->hits += 1;

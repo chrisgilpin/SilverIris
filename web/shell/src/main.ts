@@ -49,6 +49,10 @@ let game: GameBridge | null = null;
 let player: AudioPlayer | null = null;
 let raf = 0;
 let lastStageNote = "stage not loaded";
+let lookYawAcc = 0;
+let lookPitchAcc = 0;
+const C_UP = 0x0008;
+const C_DOWN = 0x0004;
 const held = new Set<string>();
 let simN = 1;
 let accMs = 0;
@@ -110,13 +114,17 @@ function padFromGamepad(gp: Gamepad): { x: number; y: number; buttons: number } 
 }
 
 function padP1(): { x: number; y: number; buttons: number } {
-  return stickPad({
+  const pad = stickPad({
     up: held.has("KeyW"),
     down: held.has("KeyS"),
     left: held.has("KeyA"),
     right: held.has("KeyD"),
     fire: held.has("KeyZ") || held.has("Space"),
   });
+  const oneP = !game || game.playerCount() <= 1;
+  if (held.has("KeyI") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
+  if (held.has("KeyK") || (oneP && held.has("ArrowDown"))) pad.buttons |= C_DOWN;
+  return pad;
 }
 
 function padP2Keys(): { x: number; y: number; buttons: number } {
@@ -154,7 +162,7 @@ function drawHud(): void {
   ctx.fillRect(0, 0, canvas.width, 62);
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°`, 8, 14);
+  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°`, 8, 14);
   ctx.fillText(
     `PP7 ${game.gunMag()}/${game.gunReserve()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
@@ -239,6 +247,11 @@ function paint(now: number): void {
     } else {
       for (let seat = 0; seat < n; seat++)
         game.setPad(seat, pads[seat].x, pads[seat].y, pads[seat].buttons);
+      if (lookYawAcc || lookPitchAcc) {
+        game.setLookDelta(0, lookYawAcc * 0.12, -lookPitchAcc * 0.12);
+        lookYawAcc = 0;
+        lookPitchAcc = 0;
+      }
       game.simTick(simN++);
       checksumLog.push({
         tick: simN - 1,
@@ -388,10 +401,10 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     if (rc === 0) {
       game.simTick(0);
       lastStageNote = game.gdlRaw()
-        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter.`
-        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter.`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v3.`;
     }
@@ -486,6 +499,13 @@ async function ingest(name: string, bytes: Uint8Array): Promise<void> {
 
 canvas.addEventListener("pointerdown", () => {
   onAudioGesture();
+  if (document.pointerLockElement !== canvas)
+    void canvas.requestPointerLock();
+});
+document.addEventListener("mousemove", (ev) => {
+  if (document.pointerLockElement !== canvas) return;
+  lookYawAcc += ev.movementX;
+  lookPitchAcc += ev.movementY;
 });
 window.addEventListener("keydown", (ev) => {
   if (ev.code === "Digit1" || ev.code === "Digit2" || ev.code === "Digit3" || ev.code === "Digit4") {
@@ -515,6 +535,8 @@ window.addEventListener("keydown", (ev) => {
     ev.code === "ArrowDown" ||
     ev.code === "ArrowLeft" ||
     ev.code === "ArrowRight" ||
+    ev.code === "KeyI" ||
+    ev.code === "KeyK" ||
     ev.code === "ShiftRight"
   ) {
     ev.preventDefault();

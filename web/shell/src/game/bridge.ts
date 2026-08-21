@@ -84,6 +84,8 @@ export type GameModule = {
   _port_api_player_y: () => number;
   _port_api_player_z: () => number;
   _port_api_player_theta: () => number;
+  _port_api_player_phi: () => number;
+  _port_api_set_look_delta: (seat: number, yaw: number, pitch: number) => void;
   _port_api_gun_mag: () => number;
   _port_api_gun_reserve: () => number;
   _port_api_gun_hits: () => number;
@@ -163,6 +165,8 @@ export type GameBridge = {
   playerY(): number;
   playerZ(): number;
   playerTheta(): number;
+  playerPhi(): number;
+  setLookDelta(seat: number, yawDeg: number, pitchDeg: number): void;
   gunMag(): number;
   gunReserve(): number;
   gunHits(): number;
@@ -434,6 +438,12 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     playerTheta(): number {
       return alive ? M._port_api_player_theta() : 0;
+    },
+    playerPhi(): number {
+      return alive ? M._port_api_player_phi() : 0;
+    },
+    setLookDelta(seat: number, yawDeg: number, pitchDeg: number): void {
+      if (alive) M._port_api_set_look_delta(seat, yawDeg, pitchDeg);
     },
     gunMag(): number {
       return alive ? M._port_api_gun_mag() : 0;

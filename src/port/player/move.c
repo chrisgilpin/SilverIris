@@ -21,6 +21,7 @@
 #define STICK_DIV 70.0f
 #define FWD_BOOST 1.08f
 #define TURN_PER_DT 3.5f
+#define LOOK_PER_DT 3.5f
 #define PI_F 3.1415927f
 
 /* NTSC viewports from bondview2.c / fr.h. */
@@ -37,7 +38,8 @@ static const float k_spawn_x[PORT_MAX_PLAYERS] = {0.0f, 40.0f, -40.0f, 0.0f};
 static const float k_spawn_z[PORT_MAX_PLAYERS] = {0.0f, 20.0f, 20.0f, 40.0f};
 
 typedef struct {
-    float x, y, z, theta;
+    float x, y, z, theta, phi;
+    float look_yaw, look_pitch;
     int8_t pad_x, pad_y;
     uint16_t pad_buttons;
     uint16_t prev_buttons;
@@ -232,6 +234,9 @@ void port_player_spawn(void)
         g_p[i].y = 0.0f;
         g_p[i].z = k_spawn_z[i];
         g_p[i].theta = 0.0f;
+        g_p[i].phi = 0.0f;
+        g_p[i].look_yaw = 0.0f;
+        g_p[i].look_pitch = 0.0f;
         g_p[i].pad_x = 0;
         g_p[i].pad_y = 0;
         g_p[i].pad_buttons = 0;
@@ -255,8 +260,27 @@ void port_player_set_pose(float x, float y, float z, float theta)
         g_p[i].y = y;
         g_p[i].z = z + k_spawn_z[i];
         g_p[i].theta = theta;
+        g_p[i].phi = 0.0f;
+        g_p[i].look_yaw = 0.0f;
+        g_p[i].look_pitch = 0.0f;
         g_p[i].spawned = 1;
     }
+}
+
+void port_player_set_pitch(float phi)
+{
+    int i;
+    phi = clampf(phi, -PORT_PITCH_MAX, PORT_PITCH_MAX);
+    for (i = 0; i < PORT_MAX_PLAYERS; i++)
+        g_p[i].phi = phi;
+}
+
+void port_set_look_delta(int seat, float yaw_deg, float pitch_deg)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    g_p[seat].look_yaw += yaw_deg;
+    g_p[seat].look_pitch += pitch_deg;
 }
 
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons)
@@ -293,11 +317,20 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     turn = clampf(turn, -1.0f, 1.0f);
     fwd = walk * FWD_BOOST;
 
-    p->theta += turn * TURN_PER_DT * dt;
+    p->theta += p->look_yaw + turn * TURN_PER_DT * dt;
+    p->look_yaw = 0.0f;
     while (p->theta < 0.0f)
         p->theta += 360.0f;
     while (p->theta >= 360.0f)
         p->theta -= 360.0f;
+
+    p->phi += p->look_pitch;
+    p->look_pitch = 0.0f;
+    if (buttons & PORT_C_UP)
+        p->phi += LOOK_PER_DT * dt;
+    if (buttons & PORT_C_DOWN)
+        p->phi -= LOOK_PER_DT * dt;
+    p->phi = clampf(p->phi, -PORT_PITCH_MAX, PORT_PITCH_MAX);
 
     rad = p->theta * (PI_F / 180.0f);
     {
@@ -329,6 +362,20 @@ float port_player_x(void) { return g_p[g_cur].x; }
 float port_player_y(void) { return g_p[g_cur].y; }
 float port_player_z(void) { return g_p[g_cur].z; }
 float port_player_theta(void) { return g_p[g_cur].theta; }
+float port_player_phi(void) { return g_p[g_cur].phi; }
+
+void port_player_look_dir(float *dx, float *dy, float *dz)
+{
+    float th = g_p[g_cur].theta * (PI_F / 180.0f);
+    float ph = g_p[g_cur].phi * (PI_F / 180.0f);
+    float cph = cosf(ph);
+    if (dx)
+        *dx = sinf(th) * cph;
+    if (dy)
+        *dy = sinf(ph);
+    if (dz)
+        *dz = -cosf(th) * cph;
+}
 
 static int clamp_seat(int seat)
 {
@@ -343,3 +390,4 @@ float port_player_x_at(int seat) { return g_p[clamp_seat(seat)].x; }
 float port_player_y_at(int seat) { return g_p[clamp_seat(seat)].y; }
 float port_player_z_at(int seat) { return g_p[clamp_seat(seat)].z; }
 float port_player_theta_at(int seat) { return g_p[clamp_seat(seat)].theta; }
+float port_player_phi_at(int seat) { return g_p[clamp_seat(seat)].phi; }

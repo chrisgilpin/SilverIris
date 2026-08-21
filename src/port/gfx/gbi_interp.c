@@ -28,6 +28,7 @@ static Mtx g_mtx_host;
 static Vtx g_vtx_host[G1_VTX];
 static float g_cam_eye[3];
 static float g_cam_theta;
+static float g_cam_pitch;
 static int g_cam_on;
 #define G1_PI 3.1415927f
 
@@ -461,7 +462,7 @@ static void walk_be(const uint8_t *start, uint32_t n_gfx)
 
 static void apply_stored_camera(void)
 {
-    float th, fx, fz, rx, rz;
+    float th, fx, fy, fz, rx, rz, ux, uy, uz;
     float V[4][4], P[4][4];
     float fovy, aspect, n, f, ft;
     if (!g_cam_on)
@@ -472,14 +473,37 @@ static void apply_stored_camera(void)
     rx = cosf(th);
     rz = sinf(th);
     mtx_ident(V);
-    V[0][0] = rx;
-    V[0][2] = rz;
-    V[0][3] = -(rx * g_cam_eye[0] + rz * g_cam_eye[2]);
-    V[1][1] = 1.f;
-    V[1][3] = -g_cam_eye[1];
-    V[2][0] = -fx;
-    V[2][2] = -fz;
-    V[2][3] = fx * g_cam_eye[0] + fz * g_cam_eye[2];
+    /* Pitch 0 is the original yaw-only writes — G1 greyscale / intro stay bit-identical. */
+    if (g_cam_pitch == 0.f) {
+        V[0][0] = rx;
+        V[0][2] = rz;
+        V[0][3] = -(rx * g_cam_eye[0] + rz * g_cam_eye[2]);
+        V[1][1] = 1.f;
+        V[1][3] = -g_cam_eye[1];
+        V[2][0] = -fx;
+        V[2][2] = -fz;
+        V[2][3] = fx * g_cam_eye[0] + fz * g_cam_eye[2];
+    } else {
+        float ph = g_cam_pitch * (G1_PI / 180.f);
+        float cph = cosf(ph), sph = sinf(ph);
+        fx = sinf(th) * cph;
+        fy = sph;
+        fz = -cosf(th) * cph;
+        ux = -sinf(th) * sph;
+        uy = cph;
+        uz = cosf(th) * sph;
+        V[0][0] = rx;
+        V[0][2] = rz;
+        V[0][3] = -(rx * g_cam_eye[0] + rz * g_cam_eye[2]);
+        V[1][0] = ux;
+        V[1][1] = uy;
+        V[1][2] = uz;
+        V[1][3] = -(ux * g_cam_eye[0] + uy * g_cam_eye[1] + uz * g_cam_eye[2]);
+        V[2][0] = -fx;
+        V[2][1] = -fy;
+        V[2][2] = -fz;
+        V[2][3] = fx * g_cam_eye[0] + fy * g_cam_eye[1] + fz * g_cam_eye[2];
+    }
     fovy = 60.f * (G1_PI / 180.f);
     aspect = 320.f / 240.f;
     n = 10.f;
@@ -504,10 +528,24 @@ void g1_set_lookat(float x, float y, float z, float theta_deg)
     g_cam_eye[1] = y;
     g_cam_eye[2] = z;
     g_cam_theta = theta_deg;
+    g_cam_pitch = 0.f;
     g_cam_on = 1;
 }
 
-void g1_clear_lookat(void) { g_cam_on = 0; }
+void g1_set_pitch(float pitch_deg)
+{
+    if (pitch_deg > 70.f)
+        pitch_deg = 70.f;
+    if (pitch_deg < -70.f)
+        pitch_deg = -70.f;
+    g_cam_pitch = pitch_deg;
+}
+
+void g1_clear_lookat(void)
+{
+    g_cam_on = 0;
+    g_cam_pitch = 0.f;
+}
 
 unsigned g1_fb_nonzero(void) { return sw_fb_nonzero(); }
 

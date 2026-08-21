@@ -10,9 +10,15 @@
 #define PORT_ENV_PLAYERS_2 200
 #define PORT_ENV_PLAYERS_3 300
 #define PORT_ENV_PLAYERS_4 400
+/* N64 CONT_E / CONT_D. Held C-up raises phi (look up). */
+#define PORT_C_UP 0x0008u
+#define PORT_C_DOWN 0x0004u
+#define PORT_PITCH_MAX 70.0f
 
 void port_player_spawn(void);
 void port_player_set_pose(float x, float y, float z, float theta);
+void port_player_set_pitch(float phi);
+void port_set_look_delta(int seat, float yaw_deg, float pitch_deg);
 void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons);
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons);
 void port_get_local_pad(int8_t *x, int8_t *y, uint16_t *buttons);
@@ -45,9 +51,12 @@ float port_player_x(void);
 float port_player_y(void);
 float port_player_z(void);
 float port_player_theta(void);
+float port_player_phi(void);
+void port_player_look_dir(float *dx, float *dy, float *dz);
 float port_player_x_at(int seat);
 float port_player_y_at(int seat);
 float port_player_z_at(int seat);
 float port_player_theta_at(int seat);
+float port_player_phi_at(int seat);
 
 #endif
