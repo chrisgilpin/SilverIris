@@ -2896,14 +2896,16 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
 }
 
 /*
- * Instant open pose from pad + Rare doorType. Facility start doors
+ * Park-open pose from pad + Rare doorType. Facility start doors
  * (UsetuparkZ index 32+, pads 66+) are DOORTYPE_SWINGING / maxFrac=90.
  * Hinge is pad + HALF_W along look-tangent (not boundpad bbox). Swing
  * sign is away from the player recorded at use. Sliding parks along
- * that tangent by 2*HALF_W. Vertical lifts. No accel / clip-to-bbox.
+ * that tangent by 2*HALF_W. Vertical lifts. No Rare lock/key.
+ * frac 0..1 (PORT_DOOR_OPEN_TICKS) swings the angle / slides the
+ * offset so Z-unlatch is not a teleport. Collision uses open, not frac.
  */
-static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float *dy,
-                           float *dz)
+static void door_open_pose(const PortProp *pr, float frac, float *add_yaw, float *dx,
+                           float *dy, float *dz)
 {
     float lx = pr->look[0], lz = pr->look[2];
     float len = sqrtf(lx * lx + lz * lz);
@@ -2912,6 +2914,10 @@ static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float 
     int dtype = pr->door_type;
 
     *add_yaw = *dx = *dy = *dz = 0.f;
+    if (frac <= 0.f)
+        return;
+    if (frac > 1.f)
+        frac = 1.f;
     if (len < 1e-4f) {
         nx = 0.f;
         nz = 1.f;
@@ -2924,20 +2930,21 @@ static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float 
 
     if (dtype == DOORTYPE_SLIDING) {
         float s = (side >= 0) ? 1.f : -1.f;
-        *dx = tx * PORT_DOOR_SLIDE * s;
-        *dz = tz * PORT_DOOR_SLIDE * s;
+        *dx = tx * PORT_DOOR_SLIDE * s * frac;
+        *dz = tz * PORT_DOOR_SLIDE * s * frac;
         return;
     }
     if (dtype == DOORTYPE_VERTICAL) {
-        *dy = PORT_DOOR_SLIDE;
+        *dy = PORT_DOOR_SLIDE * frac;
         return;
     }
-    /* SWINGING and every other type: 90° around the +T hinge. */
+    /* SWINGING and every other type: frac of 90° around the +T hinge. */
     {
         float ang = (side > 0) ? PORT_DOOR_OPEN_YAW : -PORT_DOOR_OPEN_YAW;
         float th, c, s, relx, relz, rx, rz;
         if (pr->max_frac > 1.f && pr->max_frac <= 180.f)
             ang = (ang < 0.f) ? -pr->max_frac : pr->max_frac;
+        ang *= frac;
         th = ang * (PI_F / 180.f);
         c = cosf(th);
         s = sinf(th);
@@ -2950,6 +2957,38 @@ static void door_open_pose(const PortProp *pr, float *add_yaw, float *dx, float 
         *dz = relz - rz;
         *add_yaw = ang;
     }
+}
+
+int port_prop_door_park_offset(float world_x, float world_z, float portal_yaw,
+                               float *dx, float *dz, float *add_yaw)
+{
+    PortProp pose;
+    float frac, ay = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
+
+    if (dx)
+        *dx = 0.f;
+    if (dz)
+        *dz = 0.f;
+    if (add_yaw)
+        *add_yaw = 0.f;
+    frac = port_stan_door_frac_at(world_x, world_z);
+    if (frac <= 0.f)
+        return 0;
+    memset(&pose, 0, sizeof pose);
+    pose.pos[0] = world_x;
+    pose.pos[2] = world_z;
+    pose.look[0] = (portal_yaw == 90.f) ? 1.f : 0.f;
+    pose.look[2] = (portal_yaw == 90.f) ? 0.f : -1.f;
+    pose.door_type = DOORTYPE_SWINGING;
+    pose.max_frac = 90.f;
+    door_open_pose(&pose, frac, &ay, &odx, &ody, &odz);
+    if (dx)
+        *dx = odx;
+    if (dz)
+        *dz = odz;
+    if (add_yaw)
+        *add_yaw = ay;
+    return 1;
 }
 
 static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const float room1[3])
@@ -3009,8 +3048,11 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
             continue;
-        if (port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
-            door_open_pose(pr, &add_yaw, &odx, &ody, &odz);
+        {
+            float frac = port_stan_door_frac_at(pr->pos[0], pr->pos[2]);
+            if (frac > 0.f)
+                door_open_pose(pr, frac, &add_yaw, &odx, &ody, &odz);
+        }
         k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                        add_yaw, odx, ody, odz);
     }
@@ -3099,13 +3141,16 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             tmp.mdl = slab;
             {
                 float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
-                if (port_stan_door_is_open_at(pos[0], pos[2])) {
-                    PortProp pose = tmp;
-                    pose.look[0] = (yaw == 90.f) ? 1.f : 0.f;
-                    pose.look[2] = (yaw == 90.f) ? 0.f : -1.f;
-                    pose.door_type = DOORTYPE_SWINGING;
-                    pose.max_frac = 90.f;
-                    door_open_pose(&pose, &add_yaw, &odx, &ody, &odz);
+                {
+                    float frac = port_stan_door_frac_at(pos[0], pos[2]);
+                    if (frac > 0.f) {
+                        PortProp pose = tmp;
+                        pose.look[0] = (yaw == 90.f) ? 1.f : 0.f;
+                        pose.look[2] = (yaw == 90.f) ? 0.f : -1.f;
+                        pose.door_type = DOORTYPE_SWINGING;
+                        pose.max_frac = 90.f;
+                        door_open_pose(&pose, frac, &add_yaw, &odx, &ody, &odz);
+                    }
                 }
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f,
                                -bottom * tmp.scale, 0.f, 0.f, 0.f, 0.f,

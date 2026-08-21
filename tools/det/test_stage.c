@@ -3468,10 +3468,25 @@ static int test_door_open_pose(void)
     if (!port_stan_door_is_open(0))
         return fail("open-pose did not open");
 
+    /* First open frame must still draw (no vanish). Then swing ticks park. */
     port_player_set_pose(250.f, y, 0.f, 90.f);
     port_api_draw();
     if (port_stage_props_drawn() < 1)
         return fail("open-pose hidden");
+    mag_open = magenta_centroid_x(&cx_open);
+    if (mag_open < 20) {
+        fprintf(stderr, "open-pose vanished on use mag=%u\n", mag_open);
+        return fail("open-pose use pixels");
+    }
+    port_api_set_pad(0, 0, 0, 0);
+    for (i = 0; i < PORT_DOOR_OPEN_TICKS; i++) {
+        if (port_api_sim_tick((uint32_t)(1002 + i)) != 0)
+            return fail("open-pose swing tick");
+    }
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_draw();
+    if (port_stage_props_drawn() < 1)
+        return fail("open-pose hidden after swing");
     mag_open = magenta_centroid_x(&cx_open);
     if (mag_open < 20) {
         fprintf(stderr, "open-pose vanished mag=%u\n", mag_open);

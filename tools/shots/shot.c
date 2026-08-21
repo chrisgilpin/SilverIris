@@ -65,7 +65,7 @@ static void dump_path_doors(void)
            port_stage_opening_count(), port_stan_door_count());
 }
 
-/* Face a documented path portal, Z-unlatch, prove collision or pose. */
+/* Face a documented path portal, Z-unlatch, prove collision AND parked pose. */
 static int path_unlatch_proof(void)
 {
     float r1[3], pos[3], yaw = 0.f, width = 0.f;
@@ -78,11 +78,11 @@ static int path_unlatch_proof(void)
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     no = port_stage_opening_count();
-    /* Prefer one new nearby-ground facing use (dump-verified this pass).
-     * Require a 120-unit stand on a stan tile so the Z-unlatch is real. */
+    /* Prefer a documented path door (r7-r8 / r3-r5). Require a 120-unit
+     * stand on a stan tile so the Z-unlatch is real. No new binds. */
     {
         static const int pick[][2] = {
-            {3, 5}, {5, 3}, {10, 11}, {11, 10}, {5, 4}, {4, 5},
+            {7, 8}, {8, 7}, {3, 5}, {5, 3}, {10, 11}, {11, 10}, {5, 4}, {4, 5},
             {2, 3}, {3, 2}, {21, 22}, {22, 21}, {72, 3}, {3, 72},
             {73, 11}, {11, 73},
         };
@@ -187,6 +187,13 @@ static int path_unlatch_proof(void)
             used = 1;
     }
 
+    /* Collision drops on the use tick. Park swings over a few ticks so
+     * the slab leaves the opening instead of teleporting / vanishing. */
+    {
+        int tck;
+        for (tck = 0; tck < PORT_DOOR_OPEN_TICKS; tck++)
+            port_stan_tick_doors();
+    }
     port_player_set_pose(px, y, pz, th);
     nx = ox;
     nz = oz;
@@ -198,21 +205,35 @@ static int path_unlatch_proof(void)
     port_api_draw();
     ad_open = adler32(port_api_fb(),
                       (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
-    if (opened)
-        (void)port_stan_use_door(px, pz, lx, lz);
+    {
+        float pdx = 0.f, pdz = 0.f, pyaw = 0.f, frac;
+        int parked;
+        frac = port_stan_door_frac_at(pos[0], pos[2]);
+        (void)port_prop_door_park_offset(pos[0], pos[2], yaw, &pdx, &pdz, &pyaw);
+        parked = (pdx * pdx + pdz * pdz > 40.f * 40.f) || (fabsf(pyaw) > 30.f);
+        if (opened)
+            (void)port_stan_use_door(px, pz, lx, lz);
 
-    printf("path_unlatch r%d-r%d local=%.1f,%.1f stand=%.1f,%.1f used=%d "
-           "opened=%d closed_block=%d open_pass=%d adler %08x->%08x %s\n",
-           ra, rb, (double)ox, (double)oz, (double)px, (double)pz, used,
-           opened, closed_block, open_pass, ad_closed, ad_open,
-           (opened && (open_pass || ad_open != ad_closed)) ? "OK" : "FAIL");
-    if (!opened) {
-        fprintf(stderr, "path_unlatch did not open\n");
-        return -1;
-    }
-    if (!open_pass && ad_open == ad_closed) {
-        fprintf(stderr, "path_unlatch no collision or pose change\n");
-        return -1;
+        printf("path_unlatch r%d-r%d local=%.1f,%.1f stand=%.1f,%.1f used=%d "
+               "opened=%d closed_block=%d open_pass=%d frac=%.2f park=%.1f,%.1f "
+               "yaw=%.1f adler %08x->%08x %s\n",
+               ra, rb, (double)ox, (double)oz, (double)px, (double)pz, used,
+               opened, closed_block, open_pass, (double)frac, (double)pdx,
+               (double)pdz, (double)pyaw, ad_closed, ad_open,
+               (opened && open_pass && parked) ? "OK" : "FAIL");
+        if (!opened) {
+            fprintf(stderr, "path_unlatch did not open\n");
+            return -1;
+        }
+        if (!open_pass) {
+            fprintf(stderr, "path_unlatch still blocked\n");
+            return -1;
+        }
+        if (!parked) {
+            fprintf(stderr, "path_unlatch slab still centered frac=%g d=%.1f,%.1f yaw=%.1f\n",
+                    (double)frac, (double)pdx, (double)pdz, (double)pyaw);
+            return -1;
+        }
     }
     return 0;
 }

@@ -4,6 +4,7 @@
 #include "chr/patrol.h"
 #include "player/gun.h"
 #include "player/move.h"
+#include "player/stan_walk.h"
 
 void port_prop_tick_walk(void) __attribute__((weak));
 int port_prop_tick_guard_fire(void) __attribute__((weak));
@@ -45,6 +46,7 @@ int port_sim_tick(uint32_t tick)
         }
         port_set_cur_player(saved);
     }
+    port_stan_tick_doors();
     port_chr_tick();
     if (port_player_health() > 0) {
         int combat = 0;

@@ -37,6 +37,7 @@ typedef struct {
 typedef struct {
     float x, z, nx, nz, tx, tz;
     float half_w;
+    float frac;
     int open;
     int side;
 } StanDoor;
@@ -224,6 +225,7 @@ void port_stan_add_door_w(float world_x, float world_z, float look_x, float look
     d->tz = d->nx;
     d->half_w = half_w;
     d->open = 0;
+    d->frac = 0.f;
     d->side = 0;
 }
 
@@ -239,6 +241,8 @@ void port_stan_set_door_open(int i, int open)
     if (i < 0 || i >= g_ndoor)
         return;
     g_door[i].open = open ? 1 : 0;
+    /* Forced open parks immediately (tests). Z-use animates from 0. */
+    g_door[i].frac = open ? 1.f : 0.f;
 }
 
 int port_stan_door_is_open_at(float world_x, float world_z)
@@ -263,6 +267,32 @@ int port_stan_door_side_at(float world_x, float world_z)
             return g_door[i].side;
     }
     return 0;
+}
+
+float port_stan_door_frac_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = world_x - g_door[i].x;
+        float dz = world_z - g_door[i].z;
+        if (dx * dx + dz * dz <= 1.0f)
+            return g_door[i].frac;
+    }
+    return 0.f;
+}
+
+void port_stan_tick_doors(void)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        if (g_door[i].open) {
+            g_door[i].frac += 1.f / (float)PORT_DOOR_OPEN_TICKS;
+            if (g_door[i].frac > 1.f)
+                g_door[i].frac = 1.f;
+        } else {
+            g_door[i].frac = 0.f;
+        }
+    }
 }
 
 int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
@@ -318,6 +348,8 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
                 continue;
             g_door[i].open = open;
             g_door[i].side = side;
+            /* Open: restart swing/slide. Close: snap closed so spawn stall holds. */
+            g_door[i].frac = 0.f;
         }
     }
     return 1;

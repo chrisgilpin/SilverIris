@@ -107,6 +107,9 @@ int port_prop_intro(float pos[3], float look[3], int *pad_out);
 int port_prop_intro_pad(void);
 int port_prop_door_count(void);
 int port_prop_door_xz(int i, float *x, float *z, float *lx, float *lz);
+/* Fitted-slab park at current frac: world xz delta + extra yaw. 0 if closed. */
+int port_prop_door_park_offset(float world_x, float world_z, float portal_yaw,
+                               float *dx, float *dz, float *add_yaw);
 int port_prop_guard_xz(int i, float *x, float *z);
 int port_prop_guard_xyz(int i, float *x, float *y, float *z);
 
