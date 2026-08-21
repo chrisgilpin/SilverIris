@@ -76,11 +76,24 @@ int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float 
 int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float look_z,
                             float max_dist, float *y_out);
 
-/* Clip a proposed room-local step. Writes a legal xz and eye y when ready. */
+/* Clip a proposed room-local step. Writes a legal xz and eye y when ready.
+ * Follows Rare point.link from the current tile so a stair step onto a
+ * linked upper keeps that floor; stacked xz with no stair link stays low.
+ */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
+/* Same xz clip, but always the lowest floor (guards / chase). Does not
+ * touch the player's current-tile cache. */
+void port_stan_clip_step_ground(float ox, float oz, float *nx, float *nz, float *ny);
+/* Drop the current-tile cache (spawn / set_pose). */
+void port_stan_clear_current(void);
 
 /* Dump overlapping / nearby tiles at xz (harness / diagnose). */
 void port_stan_debug_at(float local_x, float local_z);
+/* BFS Rare point.link from every tile at xz; print if upstairs is reachable. */
+void port_stan_link_reach(float local_x, float local_z);
+int port_stan_climb_along_links(float start_x, float start_z,
+                                float *end_x, float *end_z, float *end_y,
+                                int *end_room);
 
 /*
  * First hit along a 3D look ray from room-local origin: closed door

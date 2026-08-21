@@ -264,6 +264,108 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
              rgba[cx + 1], rgba[cx + 2]);
 }
 
+/* clip_step from the stairs foot. 8-way greedy toward room 13, preferring
+ * a rising floor. Must reach a high upstairs tile (eye ~737) and not snap
+ * back to 86.8. Bathroom xz is not a stair link and must stay low. */
+static int stairs_climb_proof(void)
+{
+    static const float kdx[8] = { 8.f, 8.f, 0.f, -8.f, -8.f, -8.f, 0.f, 8.f };
+    static const float kdz[8] = { 0.f, 8.f, 8.f, 8.f, 0.f, -8.f, -8.f, -8.f };
+    const float r13x = -650.f, r13z = -3050.f;
+    const float bathx = -491.9f, bathz = -2238.5f;
+    float x = STAIR_X, z = STAIR_Z, ny = 0.f, ey = 0.f;
+    int step, high = 0, r13 = 0, snap = 0, d;
+
+    if (port_stan_eye_y(x, z, &ny) != 0)
+        ny = PORT_EYE_HEIGHT;
+    printf("stairs_climb start xz=%.1f,%.1f eye=%.1f\n", (double)x, (double)z, (double)ny);
+    for (step = 0; step < 400; step++) {
+        float best_s = -1.0e30f, bx = x, bz = z, by = ny;
+        int moved = 0;
+        for (d = 0; d < 8; d++) {
+            float nx = x + kdx[d], nz = z + kdz[d], ty = ny, s, ddx, ddz;
+            port_stan_clip_step(x, z, &nx, &nz, &ty);
+            if (nx == x && nz == z)
+                continue;
+            if (!(ty == ty) || ty > 1.0e20f || ty < -1.0e20f) {
+                fprintf(stderr, "stairs_climb NaN step=%d\n", step);
+                return -1;
+            }
+            if (ny > 200.f && ty < 200.f)
+                continue;
+            {
+                float tx = r13x, tz = r13z;
+                /* Stair link is just +z of the foot (room 7 -> room 6). */
+                if (ty < 200.f && ny < 200.f) {
+                    tx = 600.f;
+                    tz = -2300.f;
+                }
+                ddx = tx - nx;
+                ddz = tz - nz;
+            }
+            s = -(ddx * ddx + ddz * ddz) * 0.001f;
+            if (ty > ny + 4.f)
+                s += 40000.f;
+            if (ty > 200.f)
+                s += 80000.f;
+            if (ty > 600.f)
+                s += 200000.f;
+            if (s > best_s) {
+                best_s = s;
+                bx = nx;
+                bz = nz;
+                by = ty;
+                moved = 1;
+            }
+        }
+        if (!moved) {
+            printf("stairs_climb stuck step=%d xz=%.1f,%.1f eye=%.1f room=%d\n",
+                   step, (double)x, (double)z, (double)ny, port_stan_tile_room(x, z));
+            break;
+        }
+        x = bx;
+        z = bz;
+        ny = by;
+        if (ny > 380.f) {
+            if (!high)
+                printf("stairs_climb HIGH step=%d xz=%.1f,%.1f eye=%.1f room=%d "
+                       "(linked upper floor+175)\n",
+                       step, (double)x, (double)z, (double)ny, port_stan_tile_room(x, z));
+            high = 1;
+            if (port_stan_tile_room(x, z) == 13 || ny > 600.f) {
+                r13 = 1;
+                printf("stairs_climb ROOM13 step=%d xz=%.1f,%.1f eye=%.1f\n",
+                       step, (double)x, (double)z, (double)ny);
+                break;
+            }
+            /* Held the stacked upper: bathroom-style snap would have dropped to 86.8. */
+            if (high && step > 8)
+                break;
+        }
+        if (high && ny < 200.f) {
+            printf("stairs_climb SNAPDOWN step=%d xz=%.1f,%.1f eye=%.1f\n",
+                   step, (double)x, (double)z, (double)ny);
+            snap = 1;
+            break;
+        }
+        if (step < 6 || step % 80 == 0)
+            printf("stairs_climb[%d] xz=%.1f,%.1f eye=%.1f room=%d\n",
+                   step, (double)x, (double)z, (double)ny, port_stan_tile_room(x, z));
+    }
+    if (port_stan_eye_y(bathx, bathz, &ey) != 0 || ey < 70.f || ey > 110.f) {
+        fprintf(stderr, "stairs_climb bathroom eye=%.1f (want ~86.8)\n", (double)ey);
+        return -1;
+    }
+    printf("stairs_climb end xz=%.1f,%.1f eye=%.1f room=%d high=%d r13=%d snap=%d bath=%.1f\n",
+           (double)x, (double)z, (double)ny, port_stan_tile_room(x, z),
+           high, r13, snap, (double)ey);
+    if (!high || snap) {
+        fprintf(stderr, "stairs_climb failed high=%d snap=%d\n", high, snap);
+        return -1;
+    }
+    return 0;
+}
+
 static void place(float x, float z, float th)
 {
     float ey = PORT_EYE_HEIGHT;
@@ -447,6 +549,8 @@ int main(int argc, char **argv)
             pack_path = argv[++a];
         else if (strcmp(argv[a], "--out") == 0 && a + 1 < argc)
             out_dir = argv[++a];
+        else if (strcmp(argv[a], "--probe") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
             usage();
             return 0;
@@ -485,6 +589,31 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    {
+        int probe = 0;
+        for (a = 1; a < argc; a++)
+            if (strcmp(argv[a], "--probe") == 0)
+                probe = 1;
+        if (probe) {
+            printf("stairs_probe foot\n");
+            port_stan_debug_at(STAIR_X, STAIR_Z);
+            port_stan_link_reach(STAIR_X, STAIR_Z);
+            printf("stairs_probe bathroom\n");
+            port_stan_debug_at(-491.9f, -2238.5f);
+            port_stan_link_reach(-491.9f, -2238.5f);
+            printf("stairs_probe room13\n");
+            port_stan_debug_at(-650.f, -3050.f);
+            port_stan_link_reach(-650.f, -3050.f);
+            if (stairs_climb_proof() != 0) {
+                port_api_shutdown();
+                free(pack);
+                return 3;
+            }
+            port_api_shutdown();
+            free(pack);
+            return 0;
+        }
+    }
     printf("%s guards=%d parts=%d walkers=%d\n", port_prop_idle_info(),
            port_prop_guard_count(), port_prop_guard_parts(), port_prop_walk_count());
     printf("aim_decode have=%d idle_crc=%08x aim_crc=%08x %s\n",
@@ -688,6 +817,10 @@ int main(int argc, char **argv)
         port_stan_debug_at(STAIR_X, STAIR_Z);
     }
     if (shot_one(out_dir, "stairs") != 0)
+        goto done;
+    if (stairs_climb_proof() != 0)
+        goto done;
+    if (probe_eye_band("bathroom_after_stairs", -491.9f, -2238.5f, 70.f, 110.f) != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */

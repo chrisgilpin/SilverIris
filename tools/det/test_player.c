@@ -323,11 +323,11 @@ static int test_nearest_eye_keeps_linked_upper(void)
     /* Low hall. East edge linked to the ramp. */
     wr_unit_quad(stan, 0x80, 0, 100, -88, 0, 100);
     stan[0x80 + 3] = 71;
-    wr_quad_link(stan, 0x80, 1, 0x10);
+    wr_quad_link(stan, 0x80, 1, 0x16);
     /* Upper landing, no stacked low tile at this xz. */
     wr_unit_quad(stan, 0xA8, 100, 200, 225, 0, 100);
     stan[0xA8 + 3] = 12;
-    wr_quad_link(stan, 0xA8, 3, 0x10);
+    wr_quad_link(stan, 0xA8, 3, 0x11);
     port_stan_unload();
     port_stan_set_scale(1.0f);
     port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
@@ -427,8 +427,8 @@ static int test_clip_unlinked_wall(void)
     if (nx < 40.0f)
         return fail("unlinked wall snapped away");
     /* Linked path: mark the shared edge as a neighbor and recross. */
-    wr_quad_link(stan, 0x80, 1, 0x10);
-    wr_quad_link(stan, 0xA8, 3, 0x10);
+    wr_quad_link(stan, 0x80, 1, 0x16);
+    wr_quad_link(stan, 0xA8, 3, 0x11);
     if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
         return fail("linked reload");
     nx = 150.0f;
@@ -1107,6 +1107,100 @@ static int test_player_health(void)
     return 0;
 }
 
+/* Overlapping floors, no stair link: clip_step must stay on the low tile. */
+static int test_clip_stack_unlinked_stays_low(void)
+{
+    uint8_t stan[512];
+    float nx, nz, ny, ey;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 0, 100, -88, 0, 100);
+    stan[0x80 + 3] = 71;
+    wr_quad_link(stan, 0x80, 0, 0x11); /* dummy so walls are live */
+    wr_unit_quad(stan, 0xA8, 0, 100, 225, 0, 100);
+    stan[0xA8 + 3] = 14;
+    wr_quad_link(stan, 0xA8, 0, 0x16);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("stack load");
+    if (port_stan_eye_y(50.0f, 50.0f, &ey) != 0)
+        return fail("stack eye");
+    if (fabsf(ey - (-88.0f + PORT_EYE_HEIGHT)) > 1.0f)
+        return fail("stack eye not low");
+    nx = 60.0f;
+    nz = 50.0f;
+    ny = ey;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (fabsf(ny - ey) > 1.0f)
+        return fail("stack clip jumped high");
+    printf("stack_unlinked clip y=%.1f (high 400 ignored)\n", (double)ny);
+    port_stan_unload();
+    return 0;
+}
+
+/* Low hall --link--> high landing --link--> stacked high over a low decoy.
+ * clip_step must keep the high eye on the stacked xz. */
+static int test_clip_stair_link_keeps_high(void)
+{
+    uint8_t stan[768];
+    float nx, nz, ny, ey, low_y;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    /* A low 0..100. East -> B (0xA8 rare 0x15). */
+    wr_unit_quad(stan, 0x80, 0, 100, -88, 0, 100);
+    stan[0x80 + 3] = 71;
+    wr_quad_link(stan, 0x80, 1, 0x16);
+    /* B high 100..200. West -> A, east -> C (0xD0 rare 0x1A). */
+    wr_unit_quad(stan, 0xA8, 100, 200, 225, 0, 100);
+    stan[0xA8 + 3] = 12;
+    wr_quad_link(stan, 0xA8, 3, 0x11);
+    wr_quad_link(stan, 0xA8, 1, 0x1B);
+    /* C high 200..300. West -> B. */
+    wr_unit_quad(stan, 0xD0, 200, 300, 225, 0, 100);
+    stan[0xD0 + 3] = 12;
+    wr_quad_link(stan, 0xD0, 3, 0x16);
+    /* D low decoy under C. No link to C. */
+    wr_unit_quad(stan, 0xF8, 200, 300, -88, 0, 100);
+    stan[0xF8 + 3] = 71;
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("stair link load");
+    if (port_stan_tile_count() != 4)
+        return fail("stair link tiles");
+    if (port_stan_eye_y(250.0f, 50.0f, &low_y) != 0)
+        return fail("stair stack eye");
+    if (fabsf(low_y - (-88.0f + PORT_EYE_HEIGHT)) > 1.0f)
+        return fail("stair stack stateless not low");
+    nx = 250.0f;
+    nz = 50.0f;
+    ny = 0.0f;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (nx < 240.0f)
+        return fail("stair clip blocked");
+    ey = 225.0f + PORT_EYE_HEIGHT;
+    if (fabsf(ny - ey) > 1.0f) {
+        fprintf(stderr, "stair clip y=%g want %g\n", (double)ny, (double)ey);
+        return fail("stair clip flattened");
+    }
+    /* Next step still on the stack must keep high (cache). */
+    {
+        float n2x = 260.0f, n2z = 50.0f, n2y = ny;
+        port_stan_clip_step(nx, nz, &n2x, &n2z, &n2y);
+        if (fabsf(n2y - ey) > 1.0f)
+            return fail("stair second step snapped");
+    }
+    printf("stair_link clip y=%.1f (stateless stack %.1f ignored)\n",
+           (double)ny, (double)low_y);
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -1159,6 +1253,10 @@ int main(void)
     if (test_nearest_tile_room_prefers_hall() != 0)
         return 1;
     if (test_clip_unlinked_wall() != 0)
+        return 1;
+    if (test_clip_stack_unlinked_stays_low() != 0)
+        return 1;
+    if (test_clip_stair_link_keeps_high() != 0)
         return 1;
     if (test_stan_eye_and_clip() != 0)
         return 1;

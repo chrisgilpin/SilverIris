@@ -28,6 +28,8 @@ typedef struct {
     float y[PORT_STAN_MAX_PTS];
     float z[PORT_STAN_MAX_PTS];
     uint16_t link[PORT_STAN_MAX_PTS];
+    uint16_t rare; /* file offset / 8; Rare standTileStart[link] */
+    int16_t nb[PORT_STAN_MAX_PTS]; /* resolved neighbor tile, or -1 */
     uint8_t room;
 } StanTile;
 
@@ -56,6 +58,19 @@ static float g_ox, g_oy, g_oz;
  * Synthetic unit tiles leave link=0 on every edge — only honor walls
  * when the loaded mesh actually has at least one neighbor. */
 static int g_have_links;
+/* Last clip_step dest tile, keyed by world xz so a guard step cannot
+ * steal the player's upstairs tile. Rare keeps current_tile_ptr per actor. */
+#define PORT_CUR_CACHE 16
+static struct {
+    float x, z;
+    int i;
+} g_cur[PORT_CUR_CACHE];
+static int g_ncur;
+static int follow_clip;
+
+static void cur_clear(void) { g_ncur = 0; }
+
+void port_stan_clear_current(void) { cur_clear(); }
 
 static void local_to_world(float lx, float lz, float *wx, float *wz);
 
@@ -87,6 +102,7 @@ void port_stan_unload(void)
     g_inv_scale = 1.0f;
     g_ox = g_oy = g_oz = 0.0f;
     g_have_links = 0;
+    cur_clear();
 }
 
 void port_stan_set_scale(float scale)
@@ -323,6 +339,9 @@ static int parse_tiles(const uint8_t *s, size_t n, int pc_shift, uint32_t off_ov
                 dst->link[i] = (uint16_t)(((uint16_t)pt[6] << 8) | pt[7]);
             }
             dst->room = t[3];
+            dst->rare = (uint16_t)(p / 8);
+            for (i = 0; i < PORT_STAN_MAX_PTS; i++)
+                dst->nb[i] = -1;
         }
         tiles++;
         p += (size_t)nbytes;
@@ -364,6 +383,27 @@ int port_stan_load(const uint8_t *bytes, size_t n)
             }
         }
     }
+    cur_clear();
+    if (a > 0) {
+        int i, k, j;
+        /* Rare standTileStart + (link<<3) lands on a point of the neighbor
+         * (header or vertex), not always the tile header. */
+        for (i = 0; i < g_ntile; i++) {
+            for (k = 0; k < g_tile[i].n; k++) {
+                uint16_t lk = g_tile[i].link[k];
+                g_tile[i].nb[k] = -1;
+                if (!(lk >> 4))
+                    continue;
+                for (j = 0; j < g_ntile; j++) {
+                    int span = 1 + g_tile[j].n;
+                    if (g_tile[j].rare <= lk && (int)lk < (int)g_tile[j].rare + span) {
+                        g_tile[i].nb[k] = (int16_t)j;
+                        break;
+                    }
+                }
+            }
+        }
+    }
     return a > 0 ? PORT_STAN_OK : PORT_STAN_EMPTY;
 }
 
@@ -390,6 +430,7 @@ float port_stan_max_xz(void)
 
 static float tile_xz_twice_area(const StanTile *t);
 static int finite_f(float v);
+static const StanTile *tile_for_walk(float wx, float wz);
 
 static int point_in_tile(const StanTile *t, float x, float z)
 {
@@ -586,7 +627,7 @@ int port_stan_tile_room(float local_x, float local_z)
     if (g_ntile <= 0)
         return 0;
     local_to_world(local_x, local_z, &wx, &wz);
-    t = tile_at_world(wx, wz);
+    t = tile_for_walk(wx, wz);
     if (!t || t->room < 1)
         return 0;
     return (int)t->room;
@@ -599,7 +640,7 @@ int port_stan_eye_y(float local_x, float local_z, float *y_out)
     if (!y_out || g_ntile <= 0)
         return -1;
     local_to_world(local_x, local_z, &wx, &wz);
-    t = tile_at_world(wx, wz);
+    t = tile_for_walk(wx, wz);
     if (!t)
         return -1;
     y = (tile_floor_y(t, wx, wz) + PORT_EYE_HEIGHT) - g_oy;
@@ -834,6 +875,122 @@ static int seg_cross(float ax, float az, float bx, float bz, float cx, float cz,
     return t > 0.02f && t < 0.98f && u > 0.02f && u < 0.98f;
 }
 
+static const StanTile *cur_at(float wx, float wz)
+{
+    int i;
+    for (i = 0; i < g_ncur; i++) {
+        float dx, dz;
+        int ti;
+        dx = g_cur[i].x - wx;
+        dz = g_cur[i].z - wz;
+        if (dx * dx + dz * dz > 4.0f)
+            continue;
+        ti = g_cur[i].i;
+        if (ti < 0 || ti >= g_ntile)
+            continue;
+        if (point_in_tile(&g_tile[ti], wx, wz))
+            return &g_tile[ti];
+    }
+    return NULL;
+}
+
+static void cur_put(float wx, float wz, const StanTile *t)
+{
+    int i, ti;
+    if (!t)
+        return;
+    ti = (int)(t - g_tile);
+    if (ti < 0 || ti >= g_ntile)
+        return;
+    for (i = 0; i < g_ncur; i++) {
+        float dx = g_cur[i].x - wx, dz = g_cur[i].z - wz;
+        if (dx * dx + dz * dz <= 4.0f) {
+            g_cur[i].x = wx;
+            g_cur[i].z = wz;
+            g_cur[i].i = ti;
+            return;
+        }
+    }
+    if (g_ncur < PORT_CUR_CACHE) {
+        g_cur[g_ncur].x = wx;
+        g_cur[g_ncur].z = wz;
+        g_cur[g_ncur].i = ti;
+        g_ncur++;
+        return;
+    }
+    memmove(&g_cur[0], &g_cur[1], sizeof(g_cur[0]) * (PORT_CUR_CACHE - 1));
+    g_cur[PORT_CUR_CACHE - 1].x = wx;
+    g_cur[PORT_CUR_CACHE - 1].z = wz;
+    g_cur[PORT_CUR_CACHE - 1].i = ti;
+}
+
+static const StanTile *tile_for_walk(float wx, float wz)
+{
+    const StanTile *t = cur_at(wx, wz);
+    if (t)
+        return t;
+    return tile_at_world(wx, wz);
+}
+
+/* Follow Rare point.link from start along (ox,oz)->(dx,dz).
+ * Dest still inside the current tile stays there (stacked bathroom / stair
+ * foot keep the floor we are on). A linked neighbor is the stair step. */
+static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
+                                  float dx, float dz)
+{
+    const StanTile *tile = start;
+    const StanTile *prev = NULL;
+    int iter;
+    if (!tile)
+        return NULL;
+    for (iter = 0; iter < 128; iter++) {
+        const StanTile *next = NULL;
+        int k;
+        /* Crossed a linked edge: take that neighbor even if dest is still
+         * inside `tile` (Facility stair foot 2511->2516 is stacked). */
+        for (k = 0; k < tile->n; k++) {
+            int nn = (k + 1 == tile->n) ? 0 : k + 1;
+            const StanTile *nb;
+            if (tile->nb[k] < 0)
+                continue;
+            if (!seg_cross(tile->x[k], tile->z[k], tile->x[nn], tile->z[nn], ox, oz, dx, dz))
+                continue;
+            nb = &g_tile[tile->nb[k]];
+            if (nb != tile && nb != prev && point_in_tile(nb, dx, dz))
+                return nb;
+            if (nb != tile && nb != prev)
+                next = nb;
+        }
+        if (point_in_tile(tile, dx, dz))
+            return tile;
+        for (k = 0; k < tile->n && !next; k++) {
+            int nn = (k + 1 == tile->n) ? 0 : k + 1;
+            const StanTile *nb;
+            if (!seg_cross(tile->x[k], tile->z[k], tile->x[nn], tile->z[nn], ox, oz, dx, dz))
+                continue;
+            if (tile->nb[k] < 0)
+                return NULL;
+            nb = &g_tile[tile->nb[k]];
+            if (nb != tile && nb != prev)
+                next = nb;
+        }
+        if (!next) {
+            for (k = 0; k < tile->n; k++) {
+                const StanTile *nb;
+                if (tile->nb[k] < 0)
+                    continue;
+                nb = &g_tile[tile->nb[k]];
+                if (nb != tile && point_in_tile(nb, dx, dz))
+                    return nb;
+            }
+            return NULL;
+        }
+        prev = tile;
+        tile = next;
+    }
+    return NULL;
+}
+
 /* Rare point.link >> 4 is a neighbor. Crossing an unlinked edge is a wall. */
 static int step_hits_wall(float owx, float owz, float cwx, float cwz)
 {
@@ -841,7 +998,7 @@ static int step_hits_wall(float owx, float owz, float cwx, float cwz)
     int k;
     if (!g_have_links)
         return 0;
-    t = tile_at_world(owx, owz);
+    t = follow_clip ? tile_for_walk(owx, owz) : tile_at_world(owx, owz);
     if (!t)
         return 0;
     for (k = 0; k < t->n; k++) {
@@ -898,7 +1055,7 @@ static int try_snap_local(float *lx, float *lz, float *ly)
     return 1;
 }
 
-void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
+static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, int follow)
 {
     float owx, owz, cwx, cwz;
     float cx, cz;
@@ -907,6 +1064,7 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
 
     if (!nx || !nz)
         return;
+    follow_clip = follow;
     cx = *nx;
     cz = *nz;
     if (g_ntile <= 0 && g_ndoor <= 0)
@@ -953,8 +1111,269 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
         }
     }
 
-    if (ny && port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
-        *ny = ey;
+    if (ny) {
+        float cwx2, cwz2;
+        const StanTile *ot, *dt;
+        local_to_world(cx, cz, &cwx2, &cwz2);
+        ot = (follow && g_have_links) ? tile_for_walk(owx, owz) : NULL;
+        dt = (follow && g_have_links && ot) ? walk_tiles(ot, owx, owz, cwx2, cwz2) : NULL;
+        if (dt) {
+            ey = (tile_floor_y(dt, cwx2, cwz2) + PORT_EYE_HEIGHT) - g_oy;
+            if (finite_f(ey)) {
+                *ny = ey;
+                cur_put(cwx2, cwz2, dt);
+                return;
+            }
+        }
+        if (port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
+            *ny = ey;
+    }
+}
+
+void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
+{
+    clip_step_ex(ox, oz, nx, nz, ny, 1);
+}
+
+void port_stan_clip_step_ground(float ox, float oz, float *nx, float *nz, float *ny)
+{
+    clip_step_ex(ox, oz, nx, nz, ny, 0);
+}
+
+static int tile_has_low_overlap(const StanTile *t)
+{
+    float cx = 0.0f, cz = 0.0f, ay, fy;
+    const StanTile *lo;
+    int k;
+    if (!t || t->n < 1)
+        return 0;
+    for (k = 0; k < t->n; k++) {
+        cx += t->x[k];
+        cz += t->z[k];
+    }
+    cx /= (float)t->n;
+    cz /= (float)t->n;
+    ay = tile_avg_y(t);
+    lo = tile_at_world(cx, cz);
+    if (!lo)
+        return 0;
+    fy = tile_avg_y(lo);
+    return fy < ay - 40.0f;
+}
+
+int port_stan_climb_along_links(float start_x, float start_z,
+                                float *end_x, float *end_z, float *end_y,
+                                int *end_room)
+{
+    int parent[PORT_STAN_MAX_TILES];
+    unsigned char seen[PORT_STAN_MAX_TILES];
+    int q[PORT_STAN_MAX_TILES];
+    int path[256];
+    int qh, qt, i, k, start, goal, npath, hop, p, high0;
+    float wx, wz, x, z, y;
+    const StanTile *lo;
+
+    if (!end_x || !end_z || !end_y || !end_room || g_ntile <= 0)
+        return -1;
+    cur_clear();
+    local_to_world(start_x, start_z, &wx, &wz);
+    lo = tile_at_world(wx, wz);
+    if (!lo)
+        return -1;
+    start = (int)(lo - g_tile);
+
+    /* Phase 1: first upward landing (eye>200), never walk down. */
+    for (i = 0; i < g_ntile; i++) {
+        seen[i] = 0;
+        parent[i] = -1;
+    }
+    qh = qt = 0;
+    q[qt++] = start;
+    seen[start] = 1;
+    high0 = -1;
+    while (qh < qt) {
+        const StanTile *tt;
+        float e, ay;
+        i = q[qh++];
+        tt = &g_tile[i];
+        ay = tile_avg_y(tt);
+        e = (ay + PORT_EYE_HEIGHT) - g_oy;
+        if (e > 200.0f) {
+            high0 = i;
+            break;
+        }
+        for (k = 0; k < tt->n; k++) {
+            int nbi = tt->nb[k];
+            float by;
+            if (nbi < 0 || nbi >= g_ntile || seen[nbi])
+                continue;
+            by = tile_avg_y(&g_tile[nbi]);
+            if (by < ay - 80.0f)
+                continue;
+            seen[nbi] = 1;
+            parent[nbi] = i;
+            q[qt++] = nbi;
+        }
+    }
+    /* Phase 2: from the first high tile, stay on mid/upper (avgY > -200)
+     * and hunt room 13. */
+    goal = -1;
+    if (high0 >= 0) {
+        int parent2[PORT_STAN_MAX_TILES];
+        for (i = 0; i < g_ntile; i++) {
+            seen[i] = 0;
+            parent2[i] = -1;
+        }
+        qh = qt = 0;
+        q[qt++] = high0;
+        seen[high0] = 1;
+        while (qh < qt) {
+            const StanTile *tt;
+            i = q[qh++];
+            tt = &g_tile[i];
+            if (tt->room == 13 && ((tile_avg_y(tt) + PORT_EYE_HEIGHT) - g_oy) > 200.0f) {
+                goal = i;
+                break;
+            }
+            for (k = 0; k < tt->n; k++) {
+                int nbi = tt->nb[k];
+                float by;
+                if (nbi < 0 || nbi >= g_ntile || seen[nbi])
+                    continue;
+                by = tile_avg_y(&g_tile[nbi]);
+                if (by < -200.0f)
+                    continue;
+                seen[nbi] = 1;
+                parent2[nbi] = i;
+                q[qt++] = nbi;
+            }
+        }
+        if (goal >= 0) {
+            /* stitch start..high0 + high0..goal */
+            int tail[256], nt = 0, head[256], nh = 0;
+            for (p = goal; p >= 0 && nt < 256; p = parent2[p])
+                tail[nt++] = p;
+            for (p = high0; p >= 0 && nh < 256; p = parent[p])
+                head[nh++] = p;
+            npath = 0;
+            for (i = nh - 1; i >= 0 && npath < 256; i--)
+                path[npath++] = head[i];
+            for (i = nt - 2; i >= 0 && npath < 256; i--)
+                path[npath++] = tail[i];
+        }
+    }
+    if (goal < 0) {
+        if (high0 < 0)
+            return -1;
+        goal = high0;
+        npath = 0;
+        for (p = goal; p >= 0 && npath < 256; p = parent[p])
+            path[npath++] = p;
+        for (i = 0; i < npath / 2; i++) {
+            int tmp = path[i];
+            path[i] = path[npath - 1 - i];
+            path[npath - 1 - i] = tmp;
+        }
+    }
+    printf("climb_path n=%d start_tile=%d room=%u -> goal_tile=%d room=%u\n",
+           npath, start, (unsigned)g_tile[start].room, goal,
+           (unsigned)g_tile[goal].room);
+
+    cur_put(wx, wz, &g_tile[start]);
+    x = start_x;
+    z = start_z;
+    y = (tile_floor_y(&g_tile[start], wx, wz) + PORT_EYE_HEIGHT) - g_oy;
+    for (i = 1; i < npath; i++) {
+        const StanTile *from = &g_tile[path[i - 1]];
+        const StanTile *nb = &g_tile[path[i]];
+        float tcx = 0.0f, tcz = 0.0f, lx, lz, mx = 0.f, mz = 0.f;
+        int edge = -1;
+        for (k = 0; k < from->n; k++) {
+            if (from->nb[k] == path[i]) {
+                int nn = (k + 1 == from->n) ? 0 : k + 1;
+                mx = 0.5f * (from->x[k] + from->x[nn]);
+                mz = 0.5f * (from->z[k] + from->z[nn]);
+                edge = k;
+                break;
+            }
+        }
+        for (k = 0; k < nb->n; k++) {
+            tcx += nb->x[k];
+            tcz += nb->z[k];
+        }
+        tcx /= (float)nb->n;
+        tcz /= (float)nb->n;
+        if (edge >= 0) {
+            float vx = tcx - mx, vz = tcz - mz, len;
+            len = sqrtf(vx * vx + vz * vz);
+            if (len > 1.0f) {
+                mx += vx * (8.0f / len);
+                mz += vz * (8.0f / len);
+            }
+            lx = mx - g_ox;
+            lz = mz - g_oz;
+        } else {
+            lx = tcx - g_ox;
+            lz = tcz - g_oz;
+        }
+        for (hop = 0; hop < 48; hop++) {
+            float ddx = lx - x, ddz = lz - z, dist, nx, nz, ny;
+            dist = sqrtf(ddx * ddx + ddz * ddz);
+            if (dist < 6.0f)
+                break;
+            if (dist > 12.0f) {
+                ddx *= 12.0f / dist;
+                ddz *= 12.0f / dist;
+            }
+            nx = x + ddx;
+            nz = z + ddz;
+            ny = y;
+            port_stan_clip_step(x, z, &nx, &nz, &ny);
+            if (!(ny == ny) || ny > 1.0e20f || ny < -1.0e20f)
+                return -1;
+            if (nx == x && nz == z)
+                break;
+            x = nx;
+            z = nz;
+            y = ny;
+        }
+        /* Then ease toward the neighbor centroid if we are on it. */
+        lx = tcx - g_ox;
+        lz = tcz - g_oz;
+        for (hop = 0; hop < 24; hop++) {
+            float ddx = lx - x, ddz = lz - z, dist, nx, nz, ny;
+            dist = sqrtf(ddx * ddx + ddz * ddz);
+            if (dist < 8.0f)
+                break;
+            if (dist > 12.0f) {
+                ddx *= 12.0f / dist;
+                ddz *= 12.0f / dist;
+            }
+            nx = x + ddx;
+            nz = z + ddz;
+            ny = y;
+            port_stan_clip_step(x, z, &nx, &nz, &ny);
+            if (!(ny == ny))
+                return -1;
+            if (nx == x && nz == z)
+                break;
+            x = nx;
+            z = nz;
+            y = ny;
+        }
+        printf("climb_hop %d->%d room=%u xz=%.1f,%.1f eye=%.1f\n",
+               path[i - 1], path[i], (unsigned)nb->room, (double)x, (double)z,
+               (double)y);
+        if (y > 200.0f && (nb->room == 13 || i == npath - 1))
+            break;
+    }
+    *end_x = x;
+    *end_z = z;
+    *end_y = y;
+    *end_room = port_stan_tile_room(x, z);
+    if (!(y == y) || y < 200.0f)
+        return -1;
+    return 0;
 }
 
 void port_stan_debug_at(float local_x, float local_z)
@@ -992,11 +1411,23 @@ void port_stan_debug_at(float local_x, float local_z)
             if (t->link[k] >> 4)
                 nlink++;
         }
-        printf("stan_tile[%d] hit=%d d=%.1f n=%d room=%u area=%.1f avgY=%.1f floorY=%.1f eye=%.1f links=%d/%d\n",
+        printf("stan_tile[%d] hit=%d d=%.1f n=%d room=%u rare=0x%04x area=%.1f avgY=%.1f floorY=%.1f eye=%.1f links=%d/%d\n",
                i, point_in_tile(t, wx, wz), (double)sqrtf(d2), t->n,
-               (unsigned)t->room, (double)tile_xz_twice_area(t) * 0.5,
+               (unsigned)t->room, (unsigned)t->rare, (double)tile_xz_twice_area(t) * 0.5,
                (double)avg, (double)fy, (double)((fy + PORT_EYE_HEIGHT) - g_oy),
                nlink, t->n);
+        for (k = 0; k < t->n; k++) {
+            int nbi = t->nb[k];
+            int nn = (k + 1 == t->n) ? 0 : k + 1;
+            printf("  edge%d (%.1f,%.1f,%.1f)->(%.1f,%.1f,%.1f) link=0x%04x nb=%d",
+                   k, (double)t->x[k], (double)t->y[k], (double)t->z[k],
+                   (double)t->x[nn], (double)t->y[nn], (double)t->z[nn],
+                   (unsigned)t->link[k], nbi);
+            if (nbi >= 0)
+                printf(" -> room=%u avgY=%.1f", (unsigned)g_tile[nbi].room,
+                       (double)tile_avg_y(&g_tile[nbi]));
+            printf("\n");
+        }
         if (point_in_tile(t, wx, wz))
             n_hit++;
         else
@@ -1011,6 +1442,63 @@ void port_stan_debug_at(float local_x, float local_z)
         printf("stan_debug snap=fail hits=%d near=%d\n", n_hit, n_near);
 }
 
+
+void port_stan_link_reach(float local_x, float local_z)
+{
+    float wx, wz;
+    int i, qh, qt, found_high = 0, found_r13 = 0;
+    unsigned char seen[PORT_STAN_MAX_TILES];
+    int q[PORT_STAN_MAX_TILES];
+    float hi_y = -1.0e30f;
+    int hi_i = -1, seeds = 0;
+
+    if (g_ntile <= 0 || g_ntile > PORT_STAN_MAX_TILES)
+        return;
+    local_to_world(local_x, local_z, &wx, &wz);
+    memset(seen, 0, (size_t)g_ntile);
+    qh = qt = 0;
+    for (i = 0; i < g_ntile; i++) {
+        if (!point_in_tile(&g_tile[i], wx, wz))
+            continue;
+        if (seen[i])
+            continue;
+        seen[i] = 1;
+        q[qt++] = i;
+        seeds++;
+        printf("link_seed tile[%d] room=%u rare=0x%04x avgY=%.1f eye=%.1f\n",
+               i, (unsigned)g_tile[i].room, (unsigned)g_tile[i].rare,
+               (double)tile_avg_y(&g_tile[i]),
+               (double)((tile_floor_y(&g_tile[i], wx, wz) + PORT_EYE_HEIGHT) - g_oy));
+    }
+    while (qh < qt) {
+        const StanTile *t;
+        int k;
+        i = q[qh++];
+        t = &g_tile[i];
+        {
+            float ay = tile_avg_y(t);
+            float ey = (ay + PORT_EYE_HEIGHT) - g_oy;
+            if (ey > hi_y) {
+                hi_y = ey;
+                hi_i = i;
+            }
+            if (ey > 200.0f)
+                found_high++;
+            if (t->room == 13)
+                found_r13++;
+        }
+        for (k = 0; k < t->n; k++) {
+            int nbi = t->nb[k];
+            if (nbi < 0 || nbi >= g_ntile || seen[nbi])
+                continue;
+            seen[nbi] = 1;
+            q[qt++] = nbi;
+        }
+    }
+    printf("link_reach xz=%.1f,%.1f seeds=%d visited=%d high=%d room13=%d best_eye=%.1f tile=%d room=%u\n",
+           (double)local_x, (double)local_z, seeds, qt, found_high, found_r13,
+           (double)hi_y, hi_i, hi_i >= 0 ? (unsigned)g_tile[hi_i].room : 0u);
+}
 
 static int ray_aabb_1d(float o, float d, float lo, float hi, float *t0, float *t1)
 {

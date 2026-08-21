@@ -264,6 +264,7 @@ void port_player_spawn(void)
         g_p[i].health = PORT_PLAYER_HEALTH_MAX;
     }
     g_safe_y = PORT_EYE_HEIGHT;
+    port_stan_clear_current();
     port_gun_reset();
     port_chr_reset();
     port_score_reset();
@@ -286,6 +287,7 @@ void port_player_set_pose(float x, float y, float z, float theta)
         g_p[i].look_pitch = 0.0f;
         g_p[i].spawned = 1;
     }
+    port_stan_clear_current();
 }
 
 void port_player_set_y(float y)

@@ -1561,7 +1561,7 @@ void port_prop_tick_walk(void)
     nz = lz + dz / dist * step;
     {
         float ny = 0.f;
-        port_stan_clip_step(lx, lz, &nx, &nz, &ny);
+        port_stan_clip_step_ground(lx, lz, &nx, &nz, &ny);
     }
     if ((nx == lx && nz == lz) || !sit_walker_local(nx, nz)) {
         /* Reverse once. If the other end is also illegal, stop — do not
@@ -1702,7 +1702,7 @@ static int try_chase_sit(int pi, float ox, float oz, float nx, float nz,
                          const float r1[3])
 {
     float cx = nx, cz = nz, ny = 0.f;
-    port_stan_clip_step(ox, oz, &cx, &cz, &ny);
+    port_stan_clip_step_ground(ox, oz, &cx, &cz, &ny);
     if (in_spawn_fire_box(cx, cz))
         return 0;
     if (cx == ox && cz == oz)
