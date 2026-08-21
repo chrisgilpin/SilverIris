@@ -5,7 +5,8 @@
 
 #define BG_SEG_BASE 0x0F000000u
 #define BG_SEG_BIAS 0xF1000000u
-#define PORT_STAN_MAX_TILES 2048
+/* Facility retail is 2599 tiles; 2048 dropped the intro walkway. */
+#define PORT_STAN_MAX_TILES 8192
 #define PORT_STAN_MAX_PTS 10
 #define PORT_STAN_MAX_DOORS 128
 #define PORT_STAN_MAX_GUARDS 128
@@ -270,7 +271,7 @@ static int parse_tiles(const uint8_t *s, size_t n, int pc_shift, uint32_t off_ov
     if (off + 8 > n)
         return 0;
     p = (size_t)off;
-    while (p + 8 <= n && tiles < PORT_STAN_MAX_TILES) {
+    while (p + 8 <= n) {
         const uint8_t *t = s + p;
         uint16_t tail;
         int npc, i, nbytes;
@@ -289,13 +290,15 @@ static int parse_tiles(const uint8_t *s, size_t n, int pc_shift, uint32_t off_ov
             nbytes = 8 + 8 * npc;
         if (p + (size_t)nbytes > n)
             break;
-        dst = &g_tile[tiles];
-        dst->n = npc;
-        for (i = 0; i < npc; i++) {
-            const uint8_t *pt = t + 8 + (size_t)i * 8;
-            dst->x[i] = (float)be_s16(pt + 0) * g_inv_scale;
-            dst->y[i] = (float)be_s16(pt + 2) * g_inv_scale;
-            dst->z[i] = (float)be_s16(pt + 4) * g_inv_scale;
+        if (tiles < PORT_STAN_MAX_TILES) {
+            dst = &g_tile[tiles];
+            dst->n = npc;
+            for (i = 0; i < npc; i++) {
+                const uint8_t *pt = t + 8 + (size_t)i * 8;
+                dst->x[i] = (float)be_s16(pt + 0) * g_inv_scale;
+                dst->y[i] = (float)be_s16(pt + 2) * g_inv_scale;
+                dst->z[i] = (float)be_s16(pt + 4) * g_inv_scale;
+            }
         }
         tiles++;
         p += (size_t)nbytes;
@@ -319,7 +322,12 @@ int port_stan_load(const uint8_t *bytes, size_t n)
         if (a == 0)
             a = parse_tiles(bytes, n, 0, 0x80);
     }
-    g_ntile = a;
+    if (a > PORT_STAN_MAX_TILES) {
+        /* File had more tiles than the table. Keep the first cap. */
+        g_ntile = PORT_STAN_MAX_TILES;
+    } else {
+        g_ntile = a;
+    }
     return a > 0 ? PORT_STAN_OK : PORT_STAN_EMPTY;
 }
 
@@ -805,3 +813,4 @@ int port_stan_ray_hit(float local_x, float local_y, float local_z,
         *t_out = best;
     return 1;
 }
+

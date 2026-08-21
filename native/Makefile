@@ -63,7 +63,7 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 	-DPORT_FILELIST_DEFAULT=\"$(FILELIST_U)\"
 
 .PHONY: all overlay ge_sim port_stub rng-test tick-test joy-playback rom-dma \
-	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test wasm silveriris silveriris_bringup \
+	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test wasm silveriris silveriris_bringup shot-bin \
 	product-no-rom-dma clean trial
 
 all: port_stub silveriris
@@ -379,6 +379,31 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 
 stage-test: overlay $(BUILD)/test_stage
 	$(BUILD)/test_stage $$(cat $(ROOT)/testdata/g1/synthetic.fb.sha256)
+
+# Visual harness (tools/shots/shot.c) — PNG+HUD into .local/shots. Not a test.
+$(BUILD)/shot: $(ROOT)/tools/shots/shot.c $(PORT_STAGE_OBJS) \
+		$(PORT_PACK_OBJS) $(BUILD)/src/glue/port_api.o \
+		$(BUILD)/src/port/fs/sha256.o \
+		$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
+		$(BUILD)/src/port/os/ultra_stubs.o \
+		$(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
+		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(ROOT)/src -I$(ROOT)/src/glue -o $@ $(ROOT)/tools/shots/shot.c \
+		$(BUILD)/src/glue/port_api.o \
+		$(PORT_STAGE_OBJS) $(PORT_PACK_OBJS) \
+		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/os/count.o \
+		$(BUILD)/src/port/os/mesg.o $(BUILD)/src/port/os/ultra_stubs.o \
+		$(BUILD)/src/port/vi/wait_override.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
+		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
+		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
+
+shot-bin: overlay $(BUILD)/shot
 
 $(BUILD)/test_player: $(ROOT)/tools/det/test_player.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \

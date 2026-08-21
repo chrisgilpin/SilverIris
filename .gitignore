@@ -51,3 +51,6 @@ third_party/goldeneye_src/*.z64
 
 # Generated TURN REST material (never commit)
 /services/turn/.auth-secret
+
+# Local ROM, extracted pack, shot PNGs — never commit
+.local/
