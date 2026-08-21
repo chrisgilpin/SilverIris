@@ -10,6 +10,7 @@
 #include "fs/pack_dma.h"
 #include "fs/sha256.h"
 #include "fs/stage.h"
+#include "fs/prop.h"
 #include "player/move.h"
 #include "player/stan_walk.h"
 #include "gfx/gbi_interp.h"
@@ -3395,6 +3396,54 @@ static void build_intro_swing_door(uint8_t *st, float sx, float sy, float sz,
     wr_pad(st + pads + PORT_PAD_OFF, dx, dy, dz, dlx, 0.f, dlz);
 }
 
+/* Hinge offset is fitted / Rare-quad half-w, not a fixed 90. */
+static int test_door_hinge_half_w(void)
+{
+    float dx, dz, yaw, along;
+
+    port_stan_clear_doors();
+    port_stan_add_door_w(0.f, 0.f, 1.f, 0.f, 320.f);
+    port_stan_set_door_open(0, 1);
+    if (!port_prop_door_park_offset(0.f, 0.f, 90.f, &dx, &dz, &yaw))
+        return fail("wide hinge park");
+    /* look +X => T=(0,1); 90 park tangent component is the hinge. */
+    along = dz;
+    if (fabsf(fabsf(along) - 160.f) > 8.f) {
+        fprintf(stderr, "wide hinge along=%g want ~160 (not 90)\n", (double)along);
+        return fail("wide hinge not fitted");
+    }
+    if (fabsf(fabsf(yaw) - 90.f) > 1.f)
+        return fail("wide hinge yaw");
+    printf("door_hinge wide along=%.1f yaw=%.1f dx=%.1f dz=%.1f\n", (double)along,
+           (double)yaw, (double)dx, (double)dz);
+
+    port_stan_clear_doors();
+    port_stan_add_door_w(0.f, 0.f, 1.f, 0.f, 128.f);
+    port_stan_set_door_open(0, 1);
+    if (!port_prop_door_park_offset(0.f, 0.f, 90.f, &dx, &dz, &yaw))
+        return fail("narrow hinge park");
+    along = dz;
+    if (fabsf(fabsf(along) - 64.f) > 8.f) {
+        fprintf(stderr, "narrow hinge along=%g want ~64\n", (double)along);
+        return fail("narrow hinge fly");
+    }
+    printf("door_hinge narrow along=%.1f yaw=%.1f\n", (double)along, (double)yaw);
+
+    port_stan_clear_doors();
+    port_stan_add_door(0.f, 0.f, 1.f, 0.f);
+    port_stan_set_door_open(0, 1);
+    if (!port_prop_door_park_offset(0.f, 0.f, 90.f, &dx, &dz, &yaw))
+        return fail("pad hinge park");
+    along = dz;
+    if (fabsf(fabsf(along) - 90.f) > 8.f) {
+        fprintf(stderr, "pad hinge along=%g want ~90\n", (double)along);
+        return fail("pad hinge drifted");
+    }
+    printf("door_hinge pad along=%.1f yaw=%.1f\n", (double)along, (double)yaw);
+    port_stan_clear_doors();
+    return 0;
+}
+
 /* Closed slab still blocks at x=300; Z parks the GDL (pixels remain, centroid
  * moves); walk-through works; reclose restores block + closed pixels. */
 static int test_door_open_pose(void)
@@ -4793,6 +4842,8 @@ int main(int argc, char **argv)
     if (test_intro_spawn_y_hallway() != 0)
         return 1;
     if (test_intro_spawn_y_nearest() != 0)
+        return 1;
+    if (test_door_hinge_half_w() != 0)
         return 1;
     if (test_door_open_pose() != 0)
         return 1;

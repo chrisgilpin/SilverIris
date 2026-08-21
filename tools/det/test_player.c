@@ -1277,6 +1277,8 @@ static int test_door_fitted_width(void)
         return fail("wide stan load");
     port_stan_clear_doors();
     port_stan_add_door_w(300.0f, 0.0f, 1.0f, 0.0f, 320.0f);
+    if (fabsf(port_stan_door_half_w_at(300.0f, 0.0f) - 160.0f) > 0.5f)
+        return fail("wide half_w");
     if (port_stan_eye_y(200.0f, 120.0f, &y) != 0)
         return fail("wide eye");
 

@@ -387,6 +387,152 @@ static int wide_door_side_proof(void)
     return 0;
 }
 
+/* Facing use: hinge is fitted half-w so 90 parks off the opening
+ * (along-tangent ~ half-w, not 90). Narrow 128 doors still look like
+ * a door. Collision drop + 6-tick interpol are unchanged. */
+static int hinge_park_one(const int pick[][2], int npick, float wlo, float whi,
+                          const char *tag)
+{
+    float r1[3], pos[3], yaw = 0.f, width = 0.f;
+    float ox, oz, lx, lz, px, pz, y = 86.8f, th;
+    float tx, tz;
+    int i, no, ra = 0, rb = 0, found = 0, used, opened;
+    int p;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    no = port_stage_opening_count();
+    for (p = 0; p < npick && !found; p++) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (ra != pick[p][0] || rb != pick[p][1])
+                continue;
+            if (width < wlo || width > whi)
+                continue;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (!port_stage_path_opening(ra, rb))
+                continue;
+            if (width < wlo || width > whi)
+                continue;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        printf("hinge_park %s NONE\n", tag);
+        fprintf(stderr, "hinge_park %s no portal\n", tag);
+        return -1;
+    }
+    ox = pos[0] - r1[0];
+    oz = pos[2] - r1[2];
+    if (yaw == 90.f) {
+        lx = 1.f;
+        lz = 0.f;
+    } else {
+        lx = 0.f;
+        lz = -1.f;
+    }
+    tx = -lz;
+    tz = lx;
+    px = ox - lx * 120.f;
+    pz = oz - lz * 120.f;
+    if (!port_stan_on_tile(px, pz)) {
+        px = ox + lx * 120.f;
+        pz = oz + lz * 120.f;
+        lx = -lx;
+        lz = -lz;
+    }
+    if (!port_stan_on_tile(px, pz)) {
+        printf("hinge_park %s r%d-r%d w=%.1f off-tile\n", tag, ra, rb,
+               (double)width);
+        fprintf(stderr, "hinge_park %s stand off-tile\n", tag);
+        return -1;
+    }
+    if (port_stan_eye_y(px, pz, &y) != 0)
+        y = 86.8f;
+    {
+        int rm = port_stan_tile_room_at_eye(px, pz, 737.4f);
+        if (rm == 13 || rm == 14 || rm == 15)
+            y = 737.4f;
+    }
+    th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    port_player_set_pose(px, y, pz, th);
+    port_player_set_pitch(0.f);
+
+    used = port_stan_use_door(px, pz, lx, lz);
+    if (!used)
+        used = port_stan_use_door(px + r1[0], pz + r1[2], lx, lz);
+    opened = port_stan_door_is_open_at(pos[0], pos[2]);
+    if (!opened) {
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5200) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, 0x2000);
+        if (port_api_sim_tick(5201) != 0)
+            return -1;
+        opened = port_stan_door_is_open_at(pos[0], pos[2]);
+        if (opened)
+            used = 1;
+    }
+    {
+        int tck;
+        for (tck = 0; tck < PORT_DOOR_OPEN_TICKS; tck++)
+            port_stan_tick_doors();
+    }
+    {
+        float pdx = 0.f, pdz = 0.f, pyaw = 0.f, frac, along, dist, hw;
+        int ok;
+        frac = port_stan_door_frac_at(pos[0], pos[2]);
+        (void)port_prop_door_park_offset(pos[0], pos[2], yaw, &pdx, &pdz, &pyaw);
+        along = pdx * tx + pdz * tz;
+        dist = sqrtf(pdx * pdx + pdz * pdz);
+        hw = 0.5f * width;
+        /* Tangent component of a 90 park is the hinge offset (~ half-w). */
+        ok = opened && frac >= 0.99f && fabsf(pyaw) > 80.f &&
+             fabsf(fabsf(along) - hw) <= 24.f;
+        if (hw > 140.f && fabsf(along) < 110.f)
+            ok = 0; /* still the old 90-half */
+        if (hw < 80.f && fabsf(along) > 110.f)
+            ok = 0; /* flew across the room */
+        if (opened)
+            (void)port_stan_use_door(px, pz, lx, lz);
+        printf("hinge_park %s r%d-r%d w=%.1f hw=%.1f stand=%.1f,%.1f used=%d "
+               "opened=%d frac=%.2f park=%.1f,%.1f along=%.1f dist=%.1f "
+               "yaw=%.1f %s\n",
+               tag, ra, rb, (double)width, (double)hw, (double)px, (double)pz,
+               used, opened, (double)frac, (double)pdx, (double)pdz,
+               (double)along, (double)dist, (double)pyaw, ok ? "OK" : "FAIL");
+        if (!ok) {
+            fprintf(stderr,
+                    "hinge_park %s want along~%.1f got %.1f (not 90-half)\n",
+                    tag, (double)hw, (double)along);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int hinge_width_park_proof(void)
+{
+    static const int wide[][2] = {{8, 7}, {7, 8}, {8, 5}, {5, 8}};
+    static const int narrow[][2] = {{8, 20}, {20, 8}, {3, 18}, {18, 3}};
+    if (hinge_park_one(wide, 4, 200.f, 400.f, "wide") != 0)
+        return -1;
+    if (hinge_park_one(narrow, 4, 100.f, 160.f, "narrow") != 0)
+        return -1;
+    return 0;
+}
+
 static void usage(void)
 {
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
@@ -1303,6 +1449,8 @@ int main(int argc, char **argv)
             if (urc == 0)
                 urc = wide_door_side_proof();
             if (urc == 0)
+                urc = hinge_width_park_proof();
+            if (urc == 0)
                 urc = spawn_to_stair_note(sx, sz, R18_STAIR_X, R18_STAIR_Z);
             port_api_shutdown();
             free(pack);
@@ -1626,6 +1774,8 @@ int main(int argc, char **argv)
     if (path_unlatch_proof() != 0)
         goto done;
     if (wide_door_side_proof() != 0)
+        goto done;
+    if (hinge_width_park_proof() != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */

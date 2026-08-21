@@ -2898,9 +2898,11 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
 /*
  * Park-open pose from pad + Rare doorType. Facility start doors
  * (UsetuparkZ index 32+, pads 66+) are DOORTYPE_SWINGING / maxFrac=90.
- * Hinge is pad + HALF_W along look-tangent (not boundpad bbox). Swing
- * sign is away from the player recorded at use. Sliding parks along
- * that tangent by 2*HALF_W. Vertical lifts. No Rare lock/key.
+ * Hinge is pad + fitted / Rare-quad half-w along look-tangent
+ * (pad doors keep the 90 default; not boundpad bbox). A 90° swing
+ * then parks the slab fully off a wide opening. Swing sign is away
+ * from the player recorded at use. Sliding parks along that tangent
+ * by 2*HALF_W. Vertical lifts. No Rare lock/key.
  * frac 0..1 (PORT_DOOR_OPEN_TICKS) swings the angle / slides the
  * offset so Z-unlatch is not a teleport. Collision uses open, not frac.
  */
@@ -2909,7 +2911,7 @@ static void door_open_pose(const PortProp *pr, float frac, float *add_yaw, float
 {
     float lx = pr->look[0], lz = pr->look[2];
     float len = sqrtf(lx * lx + lz * lz);
-    float nx, nz, tx, tz, hw = PORT_DOOR_HALF_W;
+    float nx, nz, tx, tz, hw;
     int side = port_stan_door_side_at(pr->pos[0], pr->pos[2]);
     int dtype = pr->door_type;
 
@@ -2927,6 +2929,9 @@ static void door_open_pose(const PortProp *pr, float frac, float *add_yaw, float
     }
     tx = -nz;
     tz = nx;
+    hw = port_stan_door_half_w_at(pr->pos[0], pr->pos[2]);
+    if (hw < 1.f)
+        hw = PORT_DOOR_HALF_W;
 
     if (dtype == DOORTYPE_SLIDING) {
         float s = (side >= 0) ? 1.f : -1.f;

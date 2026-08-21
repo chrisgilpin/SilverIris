@@ -281,6 +281,18 @@ float port_stan_door_frac_at(float world_x, float world_z)
     return 0.f;
 }
 
+float port_stan_door_half_w_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = world_x - g_door[i].x;
+        float dz = world_z - g_door[i].z;
+        if (dx * dx + dz * dz <= 1.0f)
+            return g_door[i].half_w;
+    }
+    return PORT_DOOR_HALF_W;
+}
+
 void port_stan_tick_doors(void)
 {
     int i;
