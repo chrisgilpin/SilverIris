@@ -246,6 +246,75 @@ static int test_intro_spawn_y_hallway_unit(void)
     return 0;
 }
 
+/* Walkway closer than hallway, pad off both. Snap must prefer hall height. */
+static void wr_unit_quad(uint8_t *s, size_t hdr, int x0, int x1, int y, int z0, int z1)
+{
+    s[hdr + 2] = 1;
+    s[hdr + 3] = 1;
+    wr_be16(s + hdr + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + hdr + 8 + 0, x0);
+    wr_s16(s + hdr + 8 + 2, y);
+    wr_s16(s + hdr + 8 + 4, z0);
+    wr_s16(s + hdr + 8 + 8, x1);
+    wr_s16(s + hdr + 8 + 10, y);
+    wr_s16(s + hdr + 8 + 12, z0);
+    wr_s16(s + hdr + 8 + 16, x1);
+    wr_s16(s + hdr + 8 + 18, y);
+    wr_s16(s + hdr + 8 + 20, z1);
+    wr_s16(s + hdr + 8 + 24, x0);
+    wr_s16(s + hdr + 8 + 26, y);
+    wr_s16(s + hdr + 8 + 28, z1);
+}
+
+static int test_snap_walkable_prefers_hall(void)
+{
+    uint8_t stan[512];
+    float x, z, y, near_y;
+    const float pad_x = 377.0f, pad_z = -3205.0f;
+    const float want_y = -88.0f + PORT_EYE_HEIGHT;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    /* Closer catwalk at floor 225. */
+    wr_unit_quad(stan, 0x80, 300, 460, 225, -3100, -2940);
+    /* Hallway further at floor -88. */
+    wr_unit_quad(stan, 0xA8, 300, 460, -88, -2680, -2520);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("snap load");
+    if (port_stan_tile_count() != 2)
+        return fail("snap tiles");
+    if (port_stan_on_tile(pad_x, pad_z))
+        return fail("snap pad should be off tile");
+    if (port_stan_nearest_eye_y(pad_x, pad_z, PORT_STAN_NEAR_XZ, &near_y) != 0)
+        return fail("snap nearest");
+    if (fabsf(near_y - (225.0f + PORT_EYE_HEIGHT)) > 2.0f) {
+        fprintf(stderr, "nearest should be walkway y=%g\n", (double)near_y);
+        return fail("snap nearest not walkway");
+    }
+    x = pad_x;
+    z = pad_z;
+    if (port_stan_snap_walkable(&x, &z, 0.f, 0.f, PORT_STAN_NEAR_XZ, &y) != 0)
+        return fail("snap miss");
+    if (fabsf(y - want_y) > 2.0f) {
+        fprintf(stderr, "snap y=%g want %g xz=%g,%g\n", (double)y, (double)want_y,
+                (double)x, (double)z);
+        return fail("snap y not hall");
+    }
+    if (!port_stan_on_tile(x, z))
+        return fail("snap xz off tile");
+    if (z > -2518.0f || z < -2682.0f || x < 298.0f || x > 462.0f) {
+        fprintf(stderr, "snap xz=%g,%g not on hall\n", (double)x, (double)z);
+        return fail("snap xz not hall");
+    }
+    printf("snap_walkable hall x=%.1f z=%.1f y=%.1f (nearest was %.1f)\n", (double)x,
+           (double)z, (double)y, (double)near_y);
+    port_stan_unload();
+    return 0;
+}
+
 static int test_stan_eye_and_clip(void)
 {
     uint8_t stan[256];
@@ -806,6 +875,8 @@ int main(void)
     if (test_stan_scale_chris_unit() != 0)
         return 1;
     if (test_intro_spawn_y_hallway_unit() != 0)
+        return 1;
+    if (test_snap_walkable_prefers_hall() != 0)
         return 1;
     if (test_stan_eye_and_clip() != 0)
         return 1;

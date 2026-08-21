@@ -561,7 +561,12 @@ int port_stage_load(int level_id)
                 if (port_stan_eye_y(x, z, &ey) == 0) {
                     y = ey;
                     got = 1;
-                } else if (port_stan_nearest_eye_y(x, z, PORT_STAN_NEAR_XZ, &ey) == 0) {
+                } else if (port_stan_snap_walkable(&x, &z, lx, lz, PORT_STAN_NEAR_XZ, &ey) ==
+                           0) {
+                    /* Pad 167 sits 144u past the last walkway tile; nearest
+                     * any-tile is the catwalk (eye ~737), nearest low is the
+                     * stair landing (white void). Snap along look onto the
+                     * hallway-height tile Bond faces (eye ~87). */
                     y = ey;
                     got = 1;
                 } else if (g_bg_rooms >= 1) {
@@ -569,8 +574,8 @@ int port_stage_load(int level_id)
                     if (port_stan_eye_y(x, z, &ey) == 0) {
                         y = ey;
                         got = 1;
-                    } else if (port_stan_nearest_eye_y(x, z, PORT_STAN_NEAR_XZ, &ey) ==
-                               0) {
+                    } else if (port_stan_snap_walkable(&x, &z, lx, lz,
+                                                      PORT_STAN_NEAR_XZ, &ey) == 0) {
                         y = ey;
                         got = 1;
                     }

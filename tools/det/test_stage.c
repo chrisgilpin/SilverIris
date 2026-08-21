@@ -4165,12 +4165,25 @@ static int run_live_hall_pack(int on_pad, const char *tag)
         return fail("hall init");
     if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
         return fail("hall load");
-    if (fabsf(port_api_player_x() - LIVE_LX) > 1.0f ||
-        fabsf(port_api_player_z() - LIVE_LZ) > 1.0f) {
-        fprintf(stderr, "%s xz=%g,%g want %g,%g\n", tag,
-                (double)port_api_player_x(), (double)port_api_player_z(),
-                (double)LIVE_LX, (double)LIVE_LZ);
-        return fail("hall spawn xz");
+    if (on_pad) {
+        if (fabsf(port_api_player_x() - LIVE_LX) > 1.0f ||
+            fabsf(port_api_player_z() - LIVE_LZ) > 1.0f) {
+            fprintf(stderr, "%s xz=%g,%g want %g,%g\n", tag,
+                    (double)port_api_player_x(), (double)port_api_player_z(),
+                    (double)LIVE_LX, (double)LIVE_LZ);
+            return fail("hall spawn xz");
+        }
+    } else {
+        /* Pad is 145u past the hall tile (same as retail 167). Snap xz
+         * onto that tile; keeping pad xz was a dark sliver on the pack. */
+        float sx = port_api_player_x(), sz = port_api_player_z();
+        if (!port_stan_on_tile(sx, sz))
+            return fail("hall nearest not on tile");
+        if (fabsf(sx - LIVE_LX) > 80.0f || sz > -3348.0f || sz < -3602.0f) {
+            fprintf(stderr, "%s snapped xz=%g,%g not on hall tile\n", tag,
+                    (double)sx, (double)sz);
+            return fail("hall nearest xz");
+        }
     }
     y = port_api_player_y();
     if (!(y == y) || y > 1.0e20f || y < -1.0e20f)

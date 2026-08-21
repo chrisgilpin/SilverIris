@@ -57,6 +57,15 @@ int port_stan_on_tile(float local_x, float local_z);
 /* Nearest non-degen tile within max_dist (centroid xz). Writes avgY+175-originY. */
 #define PORT_STAN_NEAR_XZ 800.0f
 int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float *y_out);
+/*
+ * Off-tile spawn: snap xz onto the nearest tile whose floor sits in the
+ * low band (min nearby floor + slack), not a high walkway. Writes the
+ * closest point on that tile (room-local) and eye y. Returns 0 on hit.
+ */
+#define PORT_STAN_FLOOR_SLACK 80.0f
+#define PORT_STAN_SNAP_LOOK 400.0f
+int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float look_z,
+                            float max_dist, float *y_out);
 
 /* Clip a proposed room-local step. Writes a legal xz and eye y when ready. */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);

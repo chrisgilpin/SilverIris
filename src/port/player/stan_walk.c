@@ -591,6 +591,147 @@ int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float 
     return 0;
 }
 
+static float dist2_point_seg(float px, float pz, float ax, float az, float bx, float bz,
+                             float *ox, float *oz)
+{
+    float abx = bx - ax, abz = bz - az;
+    float apx = px - ax, apz = pz - az;
+    float ab2 = abx * abx + abz * abz;
+    float t, dx, dz;
+    if (ab2 < 1.0e-8f) {
+        *ox = ax;
+        *oz = az;
+        return apx * apx + apz * apz;
+    }
+    t = (apx * abx + apz * abz) / ab2;
+    if (t < 0.0f)
+        t = 0.0f;
+    if (t > 1.0f)
+        t = 1.0f;
+    *ox = ax + t * abx;
+    *oz = az + t * abz;
+    dx = px - *ox;
+    dz = pz - *oz;
+    return dx * dx + dz * dz;
+}
+
+static float closest_on_tile(const StanTile *t, float px, float pz, float *ox, float *oz)
+{
+    float best, qx, qz;
+    int k;
+    if (point_in_tile(t, px, pz)) {
+        *ox = px;
+        *oz = pz;
+        return 0.0f;
+    }
+    best = 1.0e30f;
+    *ox = t->x[0];
+    *oz = t->z[0];
+    for (k = 0; k < t->n; k++) {
+        int n = (k + 1 == t->n) ? 0 : k + 1;
+        float d = dist2_point_seg(px, pz, t->x[k], t->z[k], t->x[n], t->z[n], &qx, &qz);
+        if (d < best) {
+            best = d;
+            *ox = qx;
+            *oz = qz;
+        }
+    }
+    return best;
+}
+
+int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float look_z,
+                            float max_dist, float *y_out)
+{
+    float wx, wz, ax, az, lim, min_y, best_d, sx, sz, y, llen;
+    int i, best;
+
+    if (!local_x || !local_z || !y_out || g_ntile <= 0)
+        return -1;
+    if (max_dist < 0.0f)
+        max_dist = 0.0f;
+    local_to_world(*local_x, *local_z, &wx, &wz);
+    /* Aim along pad look so a pad past the catwalk lands in the hall it
+     * faces, not on the stair landing behind. Zero look = pad xz. */
+    ax = wx;
+    az = wz;
+    llen = look_x * look_x + look_z * look_z;
+    if (llen > 1.0e-6f) {
+        llen = sqrtf(llen);
+        ax = wx + look_x * (PORT_STAN_SNAP_LOOK / llen);
+        az = wz + look_z * (PORT_STAN_SNAP_LOOK / llen);
+    }
+    lim = max_dist * max_dist;
+    min_y = 1.0e30f;
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float ox, oz, d2, fy;
+        if (t->n < 3 || tile_xz_twice_area(t) < 1.0f)
+            continue;
+        fy = tile_avg_y(t);
+        if (!finite_f(fy))
+            continue;
+        d2 = closest_on_tile(t, wx, wz, &ox, &oz);
+        if (d2 > lim)
+            continue;
+        if (fy < min_y)
+            min_y = fy;
+    }
+    if (!(min_y < 1.0e29f))
+        return -1;
+    best_d = lim + 1.0f;
+    best = -1;
+    sx = wx;
+    sz = wz;
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float ox, oz, d2, fy, pad_d2;
+        if (t->n < 3 || tile_xz_twice_area(t) < 1.0f)
+            continue;
+        fy = tile_avg_y(t);
+        if (!finite_f(fy) || fy > min_y + PORT_STAN_FLOOR_SLACK)
+            continue;
+        pad_d2 = closest_on_tile(t, wx, wz, &ox, &oz);
+        if (pad_d2 > lim)
+            continue;
+        d2 = closest_on_tile(t, ax, az, &ox, &oz);
+        if (d2 < best_d) {
+            best_d = d2;
+            best = i;
+            sx = ox;
+            sz = oz;
+        }
+    }
+    if (best < 0)
+        return -1;
+    /* Nudge 2 units toward the centroid so an edge snap stays on-tile. */
+    {
+        const StanTile *t = &g_tile[best];
+        float cx = 0.0f, cz = 0.0f, dx, dz, len;
+        int k;
+        for (k = 0; k < t->n; k++) {
+            cx += t->x[k];
+            cz += t->z[k];
+        }
+        cx /= (float)t->n;
+        cz /= (float)t->n;
+        dx = cx - sx;
+        dz = cz - sz;
+        len = dx * dx + dz * dz;
+        if (len > 1.0f) {
+            len = sqrtf(len);
+            sx += dx * (2.0f / len);
+            sz += dz * (2.0f / len);
+        }
+    }
+    y = (tile_floor_y(&g_tile[best], sx, sz) + PORT_EYE_HEIGHT) - g_oy;
+    if (!finite_f(y))
+        return -1;
+    *local_x = sx - g_ox;
+    *local_z = sz - g_oz;
+    *y_out = y;
+    return 0;
+}
+
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
 {
     float owx, owz, cwx, cwz;
