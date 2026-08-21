@@ -30,6 +30,9 @@
 #define PORT_GDL_MAX 512
 #define PORT_SKEL_GUARD_N 16
 #define PORT_ANIM_IDLE_OFF 0x1Cu
+#define PORT_ANIM_WALK_OFF 0x4018u /* PTR_ANIM_walking */
+#define PORT_ANIM_WALK_FRAME 8
+#define PORT_WALK_ID_BASE 3000
 #define PORT_RST_MAGIC 0x52535431u
 #define PORT_ANIM_ENTRIES_ROM_U 1198784u
 #define PORT_ANIM_DATA_PATH "assets/animationtable_data.bin"
@@ -137,8 +140,15 @@ static int g_have_intro;
 static float g_intro_pos[3];
 static float g_intro_look[3];
 static float g_idle_rest[PORT_SKEL_GUARD_N][3];
+static float g_walk_rest[PORT_SKEL_GUARD_N][3];
 static int g_have_idle;
+static int g_have_walk;
+static int g_walkers;
+static int g_walk_prop;
 static char g_idle_info[96];
+static char g_walk_info[96];
+static char g_pose_info[192];
+static const float (*g_pose_rest)[3];
 static int g_viewgun_parts;
 static PortModel *load_wppk(void);
 static const PortPropCat k_wppk_gun = { PORT_GUN_WPPK_ID, PORT_GUN_WPPK_NSW,
@@ -264,81 +274,126 @@ static uint16_t anim_u16(const uint8_t *bits, size_t n, uint8_t width, uint32_t 
     return (uint16_t)(value & 0xffffu);
 }
 
-static void load_idle_rest(void)
+static int decode_anim_frame(uint32_t data_off, int want_frame, float rest[PORT_SKEL_GUARD_N][3],
+                             uint32_t *addr_out, uint32_t *off_out, uint32_t *frames_out,
+                             uint8_t *width_out, char *err, size_t errn)
 {
     const C0Pack *pack;
     const C0PackEntry *data, *ent;
     const uint8_t *hdr, *frame;
-    uint32_t addr, frames, frame_bits, frame_bytes, off;
+    uint32_t addr, frames, frame_bits, frame_bytes, off, take;
     uint8_t width;
     int j;
 
-    g_have_idle = 0;
-    g_viewgun_parts = 0;
-    memset(g_idle_rest, 0, sizeof g_idle_rest);
-    g_idle_info[0] = 0;
-    snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_pack");
+    memset(rest, 0, sizeof(float) * PORT_SKEL_GUARD_N * 3);
     pack = port_pack();
-    if (!pack)
-        return;
+    if (!pack) {
+        snprintf(err, errn, "skip=no_pack");
+        return 0;
+    }
     data = c0pack_find(pack, PORT_ANIM_DATA_PATH);
     if (!data)
         data = c0pack_find_tail(pack, PORT_ANIM_DATA_PATH);
     ent = c0pack_find(pack, PORT_ANIM_ENTRY_PATH);
     if (!ent)
         ent = c0pack_find_tail(pack, PORT_ANIM_ENTRY_PATH);
-    if (!data || !ent || data->size < PORT_ANIM_IDLE_OFF + 16u || ent->size == 0) {
-        snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_bins data=%d ent=%d",
-                 data ? (int)data->size : -1, ent ? (int)ent->size : -1);
-        return;
+    if (!data || !ent || data->size < data_off + 16u || ent->size == 0) {
+        snprintf(err, errn, "skip=no_bins data=%d ent=%d", data ? (int)data->size : -1,
+                 ent ? (int)ent->size : -1);
+        return 0;
     }
-    hdr = data->bytes + PORT_ANIM_IDLE_OFF;
+    hdr = data->bytes + data_off;
     addr = be32(hdr);
     frames = be16(hdr + 4);
     width = hdr[6];
     frame_bits = be16(hdr + 14);
     if (frames < 1 || width < 8 || width > 16 || frame_bits < (uint32_t)width) {
-        snprintf(g_idle_info, sizeof g_idle_info,
-                 "idle=0 skip=hdr addr=0x%x fr=%u w=%u bits=%u", addr, frames, width,
+        snprintf(err, errn, "skip=hdr addr=0x%x fr=%u w=%u bits=%u", addr, frames, width,
                  frame_bits);
-        return;
+        return 0;
     }
     frame_bytes = frame_bits >> 3;
     if (frame_bytes == 0 || frame_bytes * 8u < 45u * (uint32_t)width) {
-        snprintf(g_idle_info, sizeof g_idle_info,
-                 "idle=0 skip=frame addr=0x%x bytes=%u w=%u", addr, frame_bytes, width);
-        return;
+        snprintf(err, errn, "skip=frame addr=0x%x bytes=%u w=%u", addr, frame_bytes, width);
+        return 0;
     }
+    take = (uint32_t)want_frame;
+    if (take >= frames)
+        take = frames / 4u;
     off = 0xFFFFFFFFu;
     /* PTR_ANIM_ENTRY_idle is 0: relative offset into entries.bin, not a skip. */
     if (addr >= PORT_ANIM_ENTRIES_ROM_U &&
-        addr + frame_bytes <= PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
+        addr + (take + 1u) * frame_bytes <= PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
         off = addr - PORT_ANIM_ENTRIES_ROM_U;
     else if ((addr & 0x00FFFFFFu) >= PORT_ANIM_ENTRIES_ROM_U &&
-             (addr & 0x00FFFFFFu) + frame_bytes <=
+             (addr & 0x00FFFFFFu) + (take + 1u) * frame_bytes <=
                  PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
         off = (addr & 0x00FFFFFFu) - PORT_ANIM_ENTRIES_ROM_U;
-    else if (addr < (uint32_t)ent->size && addr + frame_bytes <= (uint32_t)ent->size)
+    else if (addr + (take + 1u) * frame_bytes <= (uint32_t)ent->size)
         off = addr;
-    if (off == 0xFFFFFFFFu || off + frame_bytes > (uint32_t)ent->size) {
-        snprintf(g_idle_info, sizeof g_idle_info,
-                 "idle=0 skip=region addr=0x%x ent=%u need=%u", addr, (unsigned)ent->size,
-                 frame_bytes);
-        return;
+    if (off == 0xFFFFFFFFu || off + (take + 1u) * frame_bytes > (uint32_t)ent->size) {
+        snprintf(err, errn, "skip=region addr=0x%x ent=%u need=%u", addr, (unsigned)ent->size,
+                 (take + 1u) * frame_bytes);
+        return 0;
     }
-    frame = ent->bytes + off;
+    frame = ent->bytes + off + take * frame_bytes;
     for (j = 0; j < PORT_SKEL_GUARD_N; j++) {
         uint32_t bo = (uint32_t)k_guard_mtxa[j] * (uint32_t)width;
         uint16_t ax = anim_u16(frame, frame_bytes, width, bo);
         uint16_t ay = anim_u16(frame, frame_bytes, width, bo + width);
         uint16_t az = anim_u16(frame, frame_bytes, width, bo + 2u * width);
-        g_idle_rest[j][0] = (float)ax * (2.f * PI_F) / 65536.f;
-        g_idle_rest[j][1] = (float)ay * (2.f * PI_F) / 65536.f;
-        g_idle_rest[j][2] = (float)az * (2.f * PI_F) / 65536.f;
+        rest[j][0] = (float)ax * (2.f * PI_F) / 65536.f;
+        rest[j][1] = (float)ay * (2.f * PI_F) / 65536.f;
+        rest[j][2] = (float)az * (2.f * PI_F) / 65536.f;
     }
-    g_have_idle = 1;
-    snprintf(g_idle_info, sizeof g_idle_info, "idle=1 addr=0x%x off=%u fr=%u w=%u", addr,
-             off, frames, width);
+    if (addr_out)
+        *addr_out = addr;
+    if (off_out)
+        *off_out = off;
+    if (frames_out)
+        *frames_out = frames;
+    if (width_out)
+        *width_out = width;
+    snprintf(err, errn, "addr=0x%x off=%u fr=%u w=%u f=%u", addr, off, frames, width, take);
+    return 1;
+}
+
+static void load_idle_rest(void)
+{
+    char err[80];
+    uint32_t addr = 0, off = 0, frames = 0;
+    uint8_t width = 0;
+
+    g_have_idle = 0;
+    g_have_walk = 0;
+    g_walkers = 0;
+    g_walk_prop = -1;
+    g_viewgun_parts = 0;
+    g_pose_rest = NULL;
+    memset(g_idle_rest, 0, sizeof g_idle_rest);
+    memset(g_walk_rest, 0, sizeof g_walk_rest);
+    g_idle_info[0] = 0;
+    g_walk_info[0] = 0;
+    snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_pack");
+    snprintf(g_walk_info, sizeof g_walk_info, "walk=0 skip=no_pack");
+    if (decode_anim_frame(PORT_ANIM_IDLE_OFF, 0, g_idle_rest, &addr, &off, &frames, &width, err,
+                          sizeof err)) {
+        g_have_idle = 1;
+        snprintf(g_idle_info, sizeof g_idle_info, "idle=1 addr=0x%x off=%u fr=%u w=%u", addr, off,
+                 frames, width);
+    } else {
+        snprintf(g_idle_info, sizeof g_idle_info, "idle=0 %s", err);
+    }
+    addr = off = frames = 0;
+    width = 0;
+    if (decode_anim_frame(PORT_ANIM_WALK_OFF, PORT_ANIM_WALK_FRAME, g_walk_rest, &addr, &off,
+                          &frames, &width, err, sizeof err)) {
+        g_have_walk = 1;
+        snprintf(g_walk_info, sizeof g_walk_info, "walk=1 addr=0x%x off=%u fr=%u w=%u f=%u n=0",
+                 addr, off, frames, width, (unsigned)PORT_ANIM_WALK_FRAME);
+    } else {
+        snprintf(g_walk_info, sizeof g_walk_info, "walk=0 %s", err);
+    }
 }
 
 static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use_guard,
@@ -355,10 +410,10 @@ static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use
         *rz = be_f32(base + data + 0x28);
         return;
     }
-    if (use_guard && g_have_idle && joint < PORT_SKEL_GUARD_N) {
-        *rx = g_idle_rest[joint][0];
-        *ry = g_idle_rest[joint][1];
-        *rz = g_idle_rest[joint][2];
+    if (use_guard && g_pose_rest && joint < PORT_SKEL_GUARD_N) {
+        *rx = g_pose_rest[joint][0];
+        *ry = g_pose_rest[joint][1];
+        *rz = g_pose_rest[joint][2];
     }
 }
 
@@ -566,7 +621,7 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         m->head_rx = m->head_ry = m->head_rz = 0.f;
         walk_parts(m, 0, use_guard);
     }
-    if (use_guard && g_have_idle && m->npart) {
+    if (use_guard && g_pose_rest && m->npart) {
         int dp;
         float ymin = 1e9f, ymax = -1e9f;
         for (dp = 0; dp < m->npart; dp++) {
@@ -621,34 +676,48 @@ static int inflate_or_copy(const uint8_t *src, size_t n, uint8_t **out, size_t *
 }
 
 static PortModel *load_named(int id, const char *dir, const char *prefix, const PortPropCat *cat,
-                             int use_guard)
+                             int use_guard, const float (*rest)[3])
 {
     const C0Pack *pack;
     const C0PackEntry *e;
+    const float (*save)[3];
     char path[160];
     PortModel *m;
     uint8_t *file = NULL;
     size_t flen = 0;
     int i, rc;
 
+    save = g_pose_rest;
+    g_pose_rest = rest;
+
     for (i = 0; i < g_nmdl; i++) {
-        if (g_mdl[i].id == id)
+        if (g_mdl[i].id == id) {
+            g_pose_rest = save;
             return g_mdl[i].npart ? &g_mdl[i] : NULL;
+        }
     }
-    if (g_nmdl >= PORT_MAX_MODELS || !cat)
+    if (g_nmdl >= PORT_MAX_MODELS || !cat) {
+        g_pose_rest = save;
         return NULL;
+    }
     pack = port_pack();
-    if (!pack)
+    if (!pack) {
+        g_pose_rest = save;
         return NULL;
+    }
     snprintf(path, sizeof path, "assets/obseg/%s/%s%sZ.bin", dir, prefix, cat->name);
     e = c0pack_find(pack, path);
     if (!e)
         e = c0pack_find_tail(pack, path);
-    if (!e || e->size == 0)
+    if (!e || e->size == 0) {
+        g_pose_rest = save;
         return NULL;
+    }
     rc = inflate_or_copy(e->bytes, e->size, &file, &flen);
-    if (rc != 0)
+    if (rc != 0) {
+        g_pose_rest = save;
         return NULL;
+    }
     m = &g_mdl[g_nmdl];
     memset(m, 0, sizeof *m);
     m->id = id;
@@ -659,22 +728,92 @@ static PortModel *load_named(int id, const char *dir, const char *prefix, const 
     if (bind_model_gdl(m, use_guard) != 0) {
         free(file);
         memset(m, 0, sizeof *m);
+        g_pose_rest = save;
         return NULL;
     }
     g_nmdl++;
+    g_pose_rest = save;
     return m;
 }
 
 static PortModel *load_model(int id)
 {
-    return load_named(id, "prop", "P", cat_by_id(id), 0);
+    return load_named(id, "prop", "P", cat_by_id(id), 0, NULL);
 }
 
 /* BodyID is the BODIES / c_item_entries index. Missing pack blob → NULL. */
 static PortModel *load_chr(int body)
 {
     int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
-    return load_named(1000 + body, "chr", "C", chr_by_id(body), use_guard);
+    return load_named(1000 + body, "chr", "C", chr_by_id(body), use_guard,
+                      use_guard && g_have_idle ? g_idle_rest : NULL);
+}
+
+static PortModel *load_chr_walk(int body)
+{
+    int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
+    if (!g_have_walk)
+        return NULL;
+    return load_named(PORT_WALK_ID_BASE + body, "chr", "C", chr_by_id(body), use_guard,
+                      g_walk_rest);
+}
+
+/* Closest-to-spawn setup guard stays idle (start around the corner).
+ * Next-closest is a single posed-walk test mover on its pad. No pathing. */
+static void assign_walkers(void)
+{
+    int i, best = -1, next = -1;
+    float best_d = 1e18f, next_d = 1e18f;
+    float sx = g_have_intro ? g_intro_pos[0] : 0.f;
+    float sz = g_have_intro ? g_intro_pos[2] : 0.f;
+    PortModel *wm;
+    const PortPropCat *cat;
+    size_t wn;
+
+    g_walkers = 0;
+    g_walk_prop = -1;
+    if (!g_have_walk)
+        return;
+    for (i = 0; i < g_nprop; i++) {
+        float dx, dz, d;
+        if (g_prop[i].type != PDEF_GUARD || !g_prop[i].mdl)
+            continue;
+        dx = g_prop[i].pos[0] - sx;
+        dz = g_prop[i].pos[2] - sz;
+        d = dx * dx + dz * dz;
+        if (d < best_d) {
+            next = best;
+            next_d = best_d;
+            best = i;
+            best_d = d;
+        } else if (d < next_d) {
+            next = i;
+            next_d = d;
+        }
+    }
+    if (next < 0)
+        return;
+    wm = load_chr_walk(g_prop[next].model);
+    if (!wm)
+        return;
+    cat = chr_by_id(g_prop[next].model);
+    g_prop[next].mdl = wm;
+    g_prop[next].scale =
+        (cat ? cat->scale : 1.f) * (wm->fit_scale != 0.f ? wm->fit_scale : 1.f);
+    if (wm->have_head) {
+        g_prop[next].head_off[0] = wm->head_off[0];
+        g_prop[next].head_off[1] = wm->head_off[1] - wm->fit_ymin;
+        g_prop[next].head_off[2] = wm->head_off[2];
+        g_prop[next].head_rx = wm->head_rx;
+        g_prop[next].head_ry = wm->head_ry;
+        g_prop[next].head_rz = wm->head_rz;
+    }
+    g_walkers = 1;
+    g_walk_prop = next;
+    wn = strlen(g_walk_info);
+    if (wn >= 3 && g_walk_info[wn - 3] == 'n' && g_walk_info[wn - 1] == '0')
+        g_walk_info[wn - 1] = '1';
+    (void)next_d;
 }
 
 static const char *setup_name(int level_id)
@@ -894,7 +1033,13 @@ void port_prop_unload(void)
     g_have_intro = 0;
     g_intro_pad = -1;
     g_have_idle = 0;
+    g_have_walk = 0;
+    g_walkers = 0;
+    g_walk_prop = -1;
+    g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
+    memset(g_walk_rest, 0, sizeof g_walk_rest);
+    g_walk_info[0] = 0;
     g_retail_slab_ok = 0;
     memset(&g_retail_slab, 0, sizeof g_retail_slab);
 }
@@ -926,6 +1071,7 @@ int port_prop_load(int level_id)
     g_setup_len = clen;
     load_idle_rest();
     parse_setup(g_setup, g_setup_len);
+    assign_walkers();
     (void)load_wppk();
     return PORT_PROP_OK;
 }
@@ -969,6 +1115,10 @@ int port_prop_guard_count(void)
 
 int port_prop_have_idle(void) { return g_have_idle; }
 
+int port_prop_have_walk(void) { return g_have_walk; }
+
+int port_prop_walk_count(void) { return g_walkers; }
+
 int port_prop_guard_parts(void)
 {
     int i;
@@ -981,7 +1131,22 @@ int port_prop_guard_parts(void)
 
 const char *port_prop_idle_info(void)
 {
-    return g_idle_info[0] ? g_idle_info : "idle=0";
+    if (!g_walk_info[0])
+        return g_idle_info[0] ? g_idle_info : "idle=0";
+    snprintf(g_pose_info, sizeof g_pose_info, "%s %s",
+             g_idle_info[0] ? g_idle_info : "idle=0", g_walk_info);
+    return g_pose_info;
+}
+
+int port_prop_walk_xz(float *x, float *z)
+{
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return -1;
+    if (x)
+        *x = g_prop[g_walk_prop].pos[0];
+    if (z)
+        *z = g_prop[g_walk_prop].pos[2];
+    return 0;
 }
 
 int port_prop_guard_xz(int want, float *x, float *z)
@@ -1005,7 +1170,7 @@ int port_prop_guard_xz(int want, float *x, float *z)
 
 static PortModel *load_wppk(void)
 {
-    PortModel *m = load_named(PORT_GUN_WPPK_ID, "gun", "G", &k_wppk_gun, 0);
+    PortModel *m = load_named(PORT_GUN_WPPK_ID, "gun", "G", &k_wppk_gun, 0, NULL);
     if (m && m->npart)
         return m;
     return NULL;

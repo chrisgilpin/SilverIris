@@ -17,10 +17,16 @@ int port_prop_drawn(void);
 int port_prop_guard_count(void);
 /* 1 if ANIM_idle frame 0 decoded from the pack. */
 int port_prop_have_idle(void);
+/* 1 if ANIM_walking mid-stride decoded from the pack. */
+int port_prop_have_walk(void);
+/* Setup guards posed with the walk bind (0 or 1). */
+int port_prop_walk_count(void);
 /* First guard body npart (0 if none). */
 int port_prop_guard_parts(void);
-/* Short idle=1 addr=.. off=.. or skip reason. */
+/* Short idle=1 addr=.. walk=1 addr=.. or skip reason. */
 const char *port_prop_idle_info(void);
+/* Test-mover pad xz. -1 if none. */
+int port_prop_walk_xz(float *x, float *z);
 
 /*
  * Fill out[] with G1 passes for scenery (doors / static props / glass)

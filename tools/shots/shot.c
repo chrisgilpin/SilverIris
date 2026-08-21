@@ -17,6 +17,7 @@
 #include "gfx/tmem.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -390,14 +391,37 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    printf("%s guards=%d parts=%d\n", port_prop_idle_info(), port_prop_guard_count(),
-           port_prop_guard_parts());
+    printf("%s guards=%d parts=%d walkers=%d\n", port_prop_idle_info(),
+           port_prop_guard_count(), port_prop_guard_parts(), port_prop_walk_count());
     {
         int i, ng = port_prop_guard_count();
+        float wx, wz;
         for (i = 0; i < ng && i < 16; i++) {
             float gx, gz;
             if (port_prop_guard_xz(i, &gx, &gz) == 0)
                 printf("guard[%d] xz=%.1f,%.1f\n", i, (double)gx, (double)gz);
+        }
+        if (port_prop_walk_xz(&wx, &wz) == 0)
+            printf("walker xz=%.1f,%.1f\n", (double)wx, (double)wz);
+        {
+            float sx = port_api_player_x(), sz = port_api_player_z();
+            float best = 1e18f, bx = 0.f, bz = 0.f;
+            int bi = -1;
+            for (i = 0; i < ng; i++) {
+                float gx, gz, d;
+                if (port_prop_guard_xz(i, &gx, &gz) != 0)
+                    continue;
+                d = (gx - sx) * (gx - sx) + (gz - sz) * (gz - sz);
+                if (d < best) {
+                    best = d;
+                    bx = gx;
+                    bz = gz;
+                    bi = i;
+                }
+            }
+            if (bi >= 0)
+                printf("idle_corner[%d] xz=%.1f,%.1f dist=%.1f\n", bi, (double)bx,
+                       (double)bz, (double)sqrtf(best));
         }
     }
     spawn_x = port_api_player_x();
@@ -429,6 +453,21 @@ int main(int argc, char **argv)
     }
     if (shot_one(out_dir, "flash_off") != 0)
         goto done;
+    /* Profile of the posed-walk test mover (240u +X, look -X). */
+    {
+        float wx, wz;
+        if (port_prop_walk_xz(&wx, &wz) == 0) {
+            float cx = wx + 240.f, cz = wz;
+            float lx = wx - cx, lz = wz - cz;
+            float th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+            if (th < 0.f)
+                th += 360.f;
+            place(cx, cz, th);
+            port_player_set_pitch(0.f);
+            if (shot_one(out_dir, "walk") != 0)
+                goto done;
+        }
+    }
     rc = 0;
 
 done:
