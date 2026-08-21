@@ -60,6 +60,80 @@ static void build_corridor_stan(uint8_t *s, size_t n)
     wr_s16(s + 0xA0 + 4, 50);
 }
 
+#define CHRIS_SC 1.20648f
+
+static int sc16_pl(float world)
+{
+    return (int)(world * CHRIS_SC + (world >= 0.0f ? 0.5f : -0.5f));
+}
+
+static void build_chris_scale_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0x88 + 0, sc16_pl(57.0f));
+    wr_s16(s + 0x88 + 2, sc16_pl(562.0f));
+    wr_s16(s + 0x88 + 4, sc16_pl(-1234.0f));
+    wr_s16(s + 0x90 + 0, sc16_pl(217.0f));
+    wr_s16(s + 0x90 + 2, sc16_pl(562.0f));
+    wr_s16(s + 0x90 + 4, sc16_pl(-1234.0f));
+    wr_s16(s + 0x98 + 0, sc16_pl(217.0f));
+    wr_s16(s + 0x98 + 2, sc16_pl(562.0f));
+    wr_s16(s + 0x98 + 4, sc16_pl(-1074.0f));
+    wr_s16(s + 0xA0 + 0, sc16_pl(57.0f));
+    wr_s16(s + 0xA0 + 2, sc16_pl(562.0f));
+    wr_s16(s + 0xA0 + 4, sc16_pl(-1074.0f));
+}
+
+static int test_stan_scale_chris_unit(void)
+{
+    uint8_t stan[256];
+    float y, z1;
+    uint32_t t;
+    const float want_y = 562.0f + PORT_EYE_HEIGHT - 562.0f;
+
+    port_stan_unload();
+    build_chris_scale_stan(stan, sizeof stan);
+    port_stan_set_scale(CHRIS_SC);
+    port_stan_set_world_origin(497.0f, 562.0f, 1539.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("chris unit load");
+    if (!port_stan_on_tile(-360.0f, -2693.0f))
+        return fail("chris unit on tile");
+    if (port_stan_eye_y(-360.0f, -2693.0f, &y) != 0)
+        return fail("chris unit eye");
+    if (fabsf(y - want_y) > 1.5f) {
+        fprintf(stderr, "chris unit y=%g want %g\n", (double)y, (double)want_y);
+        return 1;
+    }
+    /* Zero pointer: Rare 0x80 fallback. */
+    wr_be32(stan + 4, 0);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("chris unit 0x80 fallback");
+    if (!port_stan_on_tile(-360.0f, -2693.0f))
+        return fail("chris unit 0x80 tile");
+
+    port_player_spawn();
+    port_player_set_pose(-360.0f, y, -2693.0f, 0.0f);
+    port_set_local_pad(0, 0, (int8_t)70, 0);
+    for (t = 0; t < 80; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("chris unit wall tick");
+    }
+    z1 = port_player_z();
+    if (z1 > (-1074.0f - 1539.0f) + 1.5f) {
+        fprintf(stderr, "chris unit wall z=%g\n", (double)z1);
+        return fail("chris unit wall");
+    }
+    printf("stan_scale_chris_unit y=%.1f z_wall=%.1f tiles=%d\n", (double)port_player_y(),
+           (double)z1, port_stan_tile_count());
+    port_stan_unload();
+    return 0;
+}
+
 static int test_stan_eye_and_clip(void)
 {
     uint8_t stan[256];
@@ -434,6 +508,8 @@ int main(void)
         return 1;
     }
     printf("player walk ok z1=%g z200=%g clock=%d\n", (double)z1, (double)z200, g_ClockTimer);
+    if (test_stan_scale_chris_unit() != 0)
+        return 1;
     if (test_stan_eye_and_clip() != 0)
         return 1;
     if (test_door_use_open() != 0)

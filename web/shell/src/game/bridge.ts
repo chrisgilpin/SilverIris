@@ -102,6 +102,8 @@ export type GameModule = {
   _port_api_chr_action: () => number;
   _port_api_crc_chrs: () => number;
   _port_api_kills: () => number;
+  _port_api_stan_tiles?: () => number;
+  _port_api_stan_on_tile?: () => number;
   _port_api_crc_objectives: () => number;
   _port_api_rng_lo: () => number;
   _port_api_chr_rng_lo: () => number;
@@ -184,6 +186,8 @@ export type GameBridge = {
   chrAction(): number;
   crcChrs(): number;
   kills(): number;
+  stanTiles(): number;
+  stanOnTile(): boolean;
   crcObjectives(): number;
   rngLo(): number;
   chrRngLo(): number;
@@ -451,13 +455,13 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       if (alive) M._port_api_set_look_delta(seat, yawDeg, pitchDeg);
     },
     gunMag(): number {
-      return alive ? M._port_api_gun_mag() : 0;
+      return alive ? M._port_api_gun_mag() | 0 : 0;
     },
     gunReserve(): number {
-      return alive ? M._port_api_gun_reserve() : 0;
+      return alive ? M._port_api_gun_reserve() | 0 : 0;
     },
     gunHits(): number {
-      return alive ? M._port_api_gun_hits() : 0;
+      return alive ? M._port_api_gun_hits() | 0 : 0;
     },
     gunHaveHit(): boolean {
       return alive ? M._port_api_gun_have_hit() !== 0 : false;
@@ -493,7 +497,13 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       return alive ? M._port_api_crc_chrs() >>> 0 : 0;
     },
     kills(): number {
-      return alive ? M._port_api_kills() : 0;
+      return alive ? M._port_api_kills() | 0 : 0;
+    },
+    stanTiles(): number {
+      return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;
+    },
+    stanOnTile(): boolean {
+      return !!(alive && M._port_api_stan_on_tile && M._port_api_stan_on_tile());
     },
     crcObjectives(): number {
       return alive ? M._port_api_crc_objectives() >>> 0 : 0;

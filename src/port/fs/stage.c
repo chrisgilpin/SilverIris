@@ -488,19 +488,23 @@ int port_stage_load(int level_id)
     g1_tex_set_pack(port_pack());
     port_rng_on_stage_load();
     {
-        float sc = 1.0f;
-        /* Retail 1172 tiles are s16 in level-scale space (bg.c). Synthetic
-         * uncompressed stans in tests are already world units. */
-        if (stan_1172) {
-            if (level_id == PORT_LEVEL_FACILITY || level_id == PORT_LEVEL_FACILITY_MP)
-                sc = 1.20648f;
-            else if (level_id == PORT_LEVEL_COMPLEX)
-                sc = 0.94285715f;
-        }
-        port_stan_set_scale(sc);
+        float level_sc = 1.0f;
+        /* Rare tiles are s16 in level-scale space (bg.c). The browser
+         * extractor inflates 1172 before packing, so live retail stan
+         * has no 0x1172 magic — still needs 1.20648 (Facility). Small
+         * uncompressed synthetics stay world units (extent < 800). */
+        if (level_id == PORT_LEVEL_FACILITY || level_id == PORT_LEVEL_FACILITY_MP)
+            level_sc = 1.20648f;
+        else if (level_id == PORT_LEVEL_COMPLEX)
+            level_sc = 0.94285715f;
+        port_stan_set_scale(1.0f);
         if (g_bg_rooms >= 1)
             port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1], g_rm[1].pos[2]);
         port_stan_load(stan, stan_len);
+        if (level_sc != 1.0f && (stan_1172 || port_stan_max_xz() > 800.0f)) {
+            port_stan_set_scale(level_sc);
+            port_stan_load(stan, stan_len);
+        }
     }
     port_player_spawn();
     port_prop_load(level_id);
@@ -540,11 +544,23 @@ int port_stage_load(int level_id)
             }
             /* Rare camera Y = stan floor + 175. Empty synthetic stan keeps
              * pad Y so G1 greyscale / intro magenta tests stay put. Retail
-             * C0 with no parsed tiles still lifts the camera off the floor. */
+             * C0 with no parsed tiles still lifts the camera off the floor.
+             * If room1 origin put xz off every tile, try origin 0 (tiles
+             * already room-local). */
             if (port_stan_eye_y(x, z, &ey) == 0)
                 y = ey;
-            else if (g_gdl_c0)
-                y += PORT_EYE_HEIGHT;
+            else {
+                port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+                if (port_stan_eye_y(x, z, &ey) == 0)
+                    y = ey;
+                else {
+                    if (g_bg_rooms >= 1)
+                        port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1],
+                                                   g_rm[1].pos[2]);
+                    if (g_gdl_c0)
+                        y += PORT_EYE_HEIGHT;
+                }
+            }
             port_player_set_pose(x, y, z, th);
         }
     }

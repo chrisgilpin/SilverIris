@@ -21,6 +21,8 @@ void port_stan_set_scale(float scale);
 void port_stan_set_world_origin(float x, float y, float z);
 int port_stan_load(const uint8_t *bytes, size_t n);
 int port_stan_tile_count(void);
+/* Max |x| or |z| of loaded tile points (after current scale). */
+float port_stan_max_xz(void);
 int port_stan_door_count(void);
 int port_stan_ready(void);
 

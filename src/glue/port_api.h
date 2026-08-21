@@ -93,6 +93,8 @@ PORT_KEEP int port_api_chr_action(void);
 PORT_KEEP uint32_t port_api_crc_chrs(void);
 
 PORT_KEEP int port_api_kills(void);
+PORT_KEEP int port_api_stan_tiles(void);
+PORT_KEEP int port_api_stan_on_tile(void);
 PORT_KEEP uint32_t port_api_crc_objectives(void);
 PORT_KEEP uint32_t port_api_rng_lo(void);
 PORT_KEEP uint32_t port_api_chr_rng_lo(void);

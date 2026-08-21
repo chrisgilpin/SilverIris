@@ -12,6 +12,7 @@
 #include "mp/score.h"
 #include "player/gun.h"
 #include "player/move.h"
+#include "player/stan_walk.h"
 #include "rng/random.h"
 #include "vi/sim_tick.h"
 
@@ -294,6 +295,13 @@ PORT_KEEP uint32_t port_api_crc_chrs(void)
 }
 
 PORT_KEEP int port_api_kills(void) { return port_score_kills(); }
+
+PORT_KEEP int port_api_stan_tiles(void) { return port_stan_tile_count(); }
+
+PORT_KEEP int port_api_stan_on_tile(void)
+{
+    return port_stan_on_tile(port_player_x(), port_player_z());
+}
 
 PORT_KEEP uint32_t port_api_crc_objectives(void)
 {

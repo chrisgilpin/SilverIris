@@ -252,7 +252,7 @@ int port_stan_tile_count(void) { return g_ntile; }
 int port_stan_door_count(void) { return g_ndoor; }
 int port_stan_ready(void) { return g_ntile > 0 || g_ndoor > 0; }
 
-static int parse_tiles(const uint8_t *s, size_t n, int pc_shift)
+static int parse_tiles(const uint8_t *s, size_t n, int pc_shift, uint32_t off_override)
 {
     uint32_t off;
     size_t p;
@@ -260,8 +260,14 @@ static int parse_tiles(const uint8_t *s, size_t n, int pc_shift)
 
     if (n < 12)
         return 0;
-    off = seg_to_off(be32(s + 4));
-    if (off < 8 || off + 8 > n)
+    if (off_override) {
+        off = off_override;
+    } else {
+        off = seg_to_off(be32(s + 4));
+        if (off < 8 || off + 8 > n)
+            return 0;
+    }
+    if (off + 8 > n)
         return 0;
     p = (size_t)off;
     while (p + 8 <= n && tiles < PORT_STAN_MAX_TILES) {
@@ -303,11 +309,39 @@ int port_stan_load(const uint8_t *bytes, size_t n)
     g_ntile = 0;
     if (!bytes || n < 12)
         return PORT_STAN_EMPTY;
-    a = parse_tiles(bytes, n, 12);
+    a = parse_tiles(bytes, n, 12, 0);
     if (a == 0 && n > 256)
-        a = parse_tiles(bytes, n, 0);
+        a = parse_tiles(bytes, n, 0, 0);
+    /* Rare first tile is often file+0x80. A zero/bad pointer left us
+     * reading the prefix (or nothing). */
+    if (a == 0 && n > 0x88) {
+        a = parse_tiles(bytes, n, 12, 0x80);
+        if (a == 0)
+            a = parse_tiles(bytes, n, 0, 0x80);
+    }
     g_ntile = a;
     return a > 0 ? PORT_STAN_OK : PORT_STAN_EMPTY;
+}
+
+float port_stan_max_xz(void)
+{
+    float m = 0.0f;
+    int i, j;
+    for (i = 0; i < g_ntile; i++) {
+        for (j = 0; j < g_tile[i].n; j++) {
+            float ax = g_tile[i].x[j];
+            float az = g_tile[i].z[j];
+            if (ax < 0.0f)
+                ax = -ax;
+            if (az < 0.0f)
+                az = -az;
+            if (ax > m)
+                m = ax;
+            if (az > m)
+                m = az;
+        }
+    }
+    return m;
 }
 
 static int point_in_tile(const StanTile *t, float x, float z)

@@ -3125,6 +3125,143 @@ static int test_stan_floor_walk(void)
     }
     printf("stan_floor_walk y=%.1f x1=%.1f z_wall=%.1f tiles=%d\n", (double)y,
            (double)x1, (double)z1, port_stan_tile_count());
+    if (port_api_gun_mag() != 7 || port_api_gun_reserve() != 21)
+        return fail("stan walk hud mag");
+    if (port_api_kills() != 0)
+        return fail("stan walk hud kills");
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
+/* Uncompressed Facility-scale stan (extractor inflates 1172). Chris's
+ * live xz (-360, -2693) on a tile around Facility pad 167. */
+#define CHRIS_SC 1.20648f
+#define CHRIS_OX 497.0f
+#define CHRIS_OY 562.0f
+#define CHRIS_OZ 1539.0f
+#define CHRIS_PAD_X 137.0f
+#define CHRIS_PAD_Y 562.0f
+#define CHRIS_PAD_Z (-1154.0f)
+
+static int sc16(float world)
+{
+    return (int)(world * CHRIS_SC + (world >= 0.0f ? 0.5f : -0.5f));
+}
+
+static void wr_f32_st(uint8_t *p, float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    wr_be32(p, u);
+}
+
+static void build_chris_scale_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    /* World quad x 57..217, z -1234..-1074, floor 562. */
+    wr_s16_st(s + 0x88 + 0, sc16(57.0f));
+    wr_s16_st(s + 0x88 + 2, sc16(562.0f));
+    wr_s16_st(s + 0x88 + 4, sc16(-1234.0f));
+    wr_s16_st(s + 0x90 + 0, sc16(217.0f));
+    wr_s16_st(s + 0x90 + 2, sc16(562.0f));
+    wr_s16_st(s + 0x90 + 4, sc16(-1234.0f));
+    wr_s16_st(s + 0x98 + 0, sc16(217.0f));
+    wr_s16_st(s + 0x98 + 2, sc16(562.0f));
+    wr_s16_st(s + 0x98 + 4, sc16(-1074.0f));
+    wr_s16_st(s + 0xA0 + 0, sc16(57.0f));
+    wr_s16_st(s + 0xA0 + 2, sc16(562.0f));
+    wr_s16_st(s + 0xA0 + 4, sc16(-1074.0f));
+}
+
+static int test_stan_scale_chris_xz(void)
+{
+    uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE];
+    C0File files[3];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y, x0, z0, z1;
+    int i;
+    const float want_y = 562.0f + PORT_EYE_HEIGHT - CHRIS_OY;
+    const float wall_local_z = -1074.0f - CHRIS_OZ;
+
+    build_g1dl_bg(bg);
+    wr_f32_st(bg + OFF_ROOM1 + 12, CHRIS_OX);
+    wr_f32_st(bg + OFF_ROOM1 + 16, CHRIS_OY);
+    wr_f32_st(bg + OFF_ROOM1 + 20, CHRIS_OZ);
+    build_chris_scale_stan(stan, sizeof stan);
+    build_intro_door_setup(setup, 0, CHRIS_PAD_X, CHRIS_PAD_Y, CHRIS_PAD_Z, -1.f,
+                           0.f, 8000.f, 562.f, 8000.f);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    if (c0pack_build(files, 3, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("chris stan pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("chris stan init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("chris stan load");
+    if (port_stan_tile_count() != 1)
+        return fail("chris stan tiles");
+    if (!port_stan_on_tile(-360.0f, -2693.0f))
+        return fail("chris xz off tile");
+    y = port_api_player_y();
+    if (fabsf(y - want_y) > 1.5f) {
+        fprintf(stderr, "chris y=%g want %g\n", (double)y, (double)want_y);
+        return 1;
+    }
+    if (fabsf(port_api_player_x() + 360.0f) > 1.0f ||
+        fabsf(port_api_player_z() + 2693.0f) > 1.0f) {
+        fprintf(stderr, "chris spawn xz=%g,%g\n", (double)port_api_player_x(),
+                (double)port_api_player_z());
+        return fail("chris spawn xz");
+    }
+    if (port_api_gun_mag() != 7 || port_api_gun_reserve() != 21)
+        return fail("chris hud mag");
+    if (port_api_kills() != 0)
+        return fail("chris hud kills");
+    if (port_api_stan_tiles() != 1 || !port_api_stan_on_tile())
+        return fail("chris hud tiles");
+
+    x0 = port_api_player_x();
+    port_api_set_pad(0, 0, -70, 0);
+    port_player_set_pose(-360.0f, y, -2693.0f, 270.0f);
+    for (i = 0; i < 20; i++) {
+        if (port_api_sim_tick((uint32_t)i) != 0)
+            return fail("chris corridor tick");
+    }
+    if (!(port_api_player_x() < x0 - 40.0f))
+        return fail("chris corridor");
+
+    port_player_set_pose(-360.0f, y, -2693.0f, 0.0f);
+    port_api_set_pad(0, 0, 70, 0);
+    z0 = port_api_player_z();
+    for (i = 0; i < 80; i++) {
+        if (port_api_sim_tick((uint32_t)(100 + i)) != 0)
+            return fail("chris wall tick");
+    }
+    z1 = port_api_player_z();
+    if (z1 > wall_local_z + 1.5f) {
+        fprintf(stderr, "chris wall z=%g edge=%g\n", (double)z1,
+                (double)wall_local_z);
+        return fail("chris wall");
+    }
+    if (!(z1 > z0))
+        return fail("chris wall no step");
+    printf("stan_scale_chris y=%.1f z_wall=%.1f edge=%.1f mag=%d/%d kills=%d\n",
+           (double)y, (double)z1, (double)wall_local_z, port_api_gun_mag(),
+           port_api_gun_reserve(), port_api_kills());
     port_api_shutdown();
     free(pack);
     return 0;
@@ -3627,6 +3764,8 @@ int main(int argc, char **argv)
     if (test_intro_spawn_bound() != 0)
         return 1;
     if (test_stan_floor_walk() != 0)
+        return 1;
+    if (test_stan_scale_chris_xz() != 0)
         return 1;
     if (test_door_open_pose() != 0)
         return 1;
