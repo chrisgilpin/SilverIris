@@ -40,7 +40,7 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 
-/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10.
+/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15.
  * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
 {
@@ -78,11 +78,11 @@ static int path_unlatch_proof(void)
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     no = port_stage_opening_count();
-    /* Prefer the new r8-r5 ground branch (new facing use). */
+    /* Prefer the new catwalk r13-r15 Rare quad (new facing use). */
     for (i = 0; i < no; i++) {
         if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
             continue;
-        if ((ra == 8 && rb == 5) || (ra == 5 && rb == 8)) {
+        if ((ra == 13 && rb == 15) || (ra == 15 && rb == 13)) {
             found = 1;
             break;
         }
@@ -1242,7 +1242,9 @@ int main(int argc, char **argv)
         dump_path_doors();
         if (doors) {
             float sx = port_api_player_x(), sz = port_api_player_z();
-            int urc = path_unlatch_proof();
+            int urc;
+            port_stage_dump_portals();
+            urc = path_unlatch_proof();
             if (urc == 0)
                 urc = wide_door_side_proof();
             if (urc == 0)

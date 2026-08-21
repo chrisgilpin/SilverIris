@@ -14,6 +14,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define BG_SEG_BASE 0x0F000000u
@@ -59,6 +60,7 @@ typedef struct {
     float pos[3];
     float yaw;
     float width;
+    float horiz, tall, thin;
 } PortPortal;
 
 static const StageFiles k_stages[] = {
@@ -232,6 +234,7 @@ static void portal_geom(uint8_t *bg, size_t n, uint32_t off, PortPortal *po)
     po->doorlike = 0;
     po->width = 0.f;
     po->yaw = 0.f;
+    po->horiz = po->tall = po->thin = 0.f;
     po->pos[0] = po->pos[1] = po->pos[2] = 0.f;
     if (!pt || pt + 4 > bg + n)
         return;
@@ -274,6 +277,9 @@ static void portal_geom(uint8_t *bg, size_t n, uint32_t off, PortPortal *po)
         dz = mx[2] - mn[2];
         horiz = dx > dz ? dx : dz;
         thin = dx < dz ? dx : dz;
+        po->horiz = horiz;
+        po->tall = dy;
+        po->thin = thin;
         if (horiz < 80.f || horiz > 450.f || dy < 80.f || dy > 500.f || thin > 80.f)
             return;
         po->width = horiz;
@@ -713,11 +719,31 @@ int port_stage_gdl_sec(void) { return g_gdl_sec; }
 
 int port_stage_portal_count(void) { return g_nportals; }
 
+void port_stage_dump_portals(void)
+{
+    int i;
+    float r1[3];
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    printf("portal_dump n=%d openings=%d\n", g_nportals, port_stage_opening_count());
+    for (i = 0; i < g_nportals; i++) {
+        PortPortal *po = &g_portals[i];
+        printf("portal r%d-r%d doorlike=%d w=%.1f horiz=%.1f tall=%.1f thin=%.1f "
+               "yaw=%.1f world=%.1f,%.1f,%.1f local=%.1f,%.1f\n",
+               (int)po->a, (int)po->b, (int)po->doorlike, (double)po->width,
+               (double)po->horiz, (double)po->tall, (double)po->thin,
+               (double)po->yaw, (double)po->pos[0], (double)po->pos[1],
+               (double)po->pos[2], (double)(po->pos[0] - r1[0]),
+               (double)(po->pos[2] - r1[2]));
+    }
+}
+
 int port_stage_path_opening(int ra, int rb)
 {
     /* Door-sized Rare quads only. Dump first; do not invent slabs.
-     * Added ground r8-r5 / r8-r10. Skip stacked same-xz r8-r6 (over r8-r7, y=-128), r8-r9, r6-r71.
-     * Unbound: catwalk r13-r15, r6 island, gas-plant, alcove. */
+     * Added catwalk r13-r15 (doorlike w=128 tall=129 thin=0 yaw=0).
+     * Skip stacked same-xz r8-r6 (over r8-r7, y=-128), r8-r9, r6-r71.
+     * Unbound: r6 island, gas-plant, alcove. Do not bind r14-r13 / r14-r15 here. */
     return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
            (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
@@ -728,7 +754,8 @@ int port_stage_path_opening(int ra, int rb)
            (ra == 1 && rb == 3) || (ra == 3 && rb == 1) ||
            (ra == 11 && rb == 71) || (ra == 71 && rb == 11) ||
            (ra == 8 && rb == 5) || (ra == 5 && rb == 8) ||
-           (ra == 8 && rb == 10) || (ra == 10 && rb == 8);
+           (ra == 8 && rb == 10) || (ra == 10 && rb == 8) ||
+           (ra == 13 && rb == 15) || (ra == 15 && rb == 13);
 }
 
 static void bind_path_openings(void)
