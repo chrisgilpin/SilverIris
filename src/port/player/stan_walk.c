@@ -193,13 +193,28 @@ void port_stan_add_door_w(float world_x, float world_z, float look_x, float look
                          float width)
 {
     StanDoor *d;
-    float len, inv;
-    if (g_ndoor >= PORT_STAN_MAX_DOORS)
-        return;
+    float len, inv, half_w;
+    int i;
     len = sqrtf(look_x * look_x + look_z * look_z);
     if (len < 1e-4f)
         return;
     inv = 1.0f / len;
+    half_w = (width > 1.0f) ? (0.5f * width) : PORT_DOOR_HALF_W;
+    if (half_w < 1.0f)
+        half_w = PORT_DOOR_HALF_W;
+    /* Same xz as an existing pad/path door: keep one slab, take the wider
+     * half so Z-unlatch cannot leave a second closed 90-wide blocker. */
+    for (i = 0; i < g_ndoor; i++) {
+        float dx = world_x - g_door[i].x;
+        float dz = world_z - g_door[i].z;
+        if (dx * dx + dz * dz <= 1.0f) {
+            if (half_w > g_door[i].half_w)
+                g_door[i].half_w = half_w;
+            return;
+        }
+    }
+    if (g_ndoor >= PORT_STAN_MAX_DOORS)
+        return;
     d = &g_door[g_ndoor++];
     d->x = world_x;
     d->z = world_z;
@@ -207,9 +222,7 @@ void port_stan_add_door_w(float world_x, float world_z, float look_x, float look
     d->nz = look_z * inv;
     d->tx = -d->nz;
     d->tz = d->nx;
-    d->half_w = (width > 1.0f) ? (0.5f * width) : PORT_DOOR_HALF_W;
-    if (d->half_w < 1.0f)
-        d->half_w = PORT_DOOR_HALF_W;
+    d->half_w = half_w;
     d->open = 0;
     d->side = 0;
 }
@@ -294,7 +307,19 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
                       (wz - g_door[best].z) * g_door[best].nz;
         g_door[best].side = (along >= 0.0f) ? 1 : -1;
     }
-    g_door[best].open = !g_door[best].open;
+    {
+        int open = !g_door[best].open;
+        float bx = g_door[best].x, bz = g_door[best].z;
+        int side = g_door[best].side;
+        for (i = 0; i < g_ndoor; i++) {
+            float dx = g_door[i].x - bx;
+            float dz = g_door[i].z - bz;
+            if (dx * dx + dz * dz > 1.0f)
+                continue;
+            g_door[i].open = open;
+            g_door[i].side = side;
+        }
+    }
     return 1;
 }
 

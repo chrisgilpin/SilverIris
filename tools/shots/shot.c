@@ -192,7 +192,7 @@ static int wide_door_side_proof(void)
     float nx, nz, ny, side;
     int i, no, ra = 0, rb = 0, found = 0, used, opened;
     int closed_block = 0, open_pass = 0;
-    static const int pick[][2] = {{7, 8}, {8, 7}, {20, 19}, {19, 20}};
+    static const int pick[][2] = {{7, 8}, {8, 7}, {8, 5}, {5, 8}};
     int p;
 
     r1[0] = r1[1] = r1[2] = 0.f;
@@ -333,7 +333,6 @@ static int wide_door_side_proof(void)
 }
 
 static void usage(void)
-
 {
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
 }
