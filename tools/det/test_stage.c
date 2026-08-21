@@ -3129,6 +3129,11 @@ static int test_stan_floor_walk(void)
         return fail("stan walk hud mag");
     if (port_api_kills() != 0)
         return fail("stan walk hud kills");
+    {
+        int32_t *hud = port_api_hud_i32();
+        if (!hud || hud[0] != 7 || hud[1] != 21 || hud[2] != 0 || hud[3] != 0)
+            return fail("stan walk hud_i32");
+    }
     port_api_shutdown();
     free(pack);
     return 0;
@@ -3231,6 +3236,11 @@ static int test_stan_scale_chris_xz(void)
         return fail("chris hud mag");
     if (port_api_kills() != 0)
         return fail("chris hud kills");
+    {
+        int32_t *hud = port_api_hud_i32();
+        if (!hud || hud[0] != 7 || hud[1] != 21 || hud[2] != 0 || hud[3] != 0)
+            return fail("chris hud_i32");
+    }
     if (port_api_stan_tiles() != 1 || !port_api_stan_on_tile())
         return fail("chris hud tiles");
 

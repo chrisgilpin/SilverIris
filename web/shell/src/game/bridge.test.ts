@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatStageDebug, lastDrawLabel, packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, shouldBlitStageFb } from "./bridge.ts";
+import { formatStageDebug, lastDrawLabel, packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, readHeapI32, shouldBlitStageFb } from "./bridge.ts";
 import { presentLiveView } from "./view.ts";
 
 describe("packHashBytes", () => {
@@ -86,5 +86,22 @@ describe("stage debug line", () => {
     expect(
       formatStageDebug({ lastDraw: PORT_DRAW_STAGE, rooms: 78, gdlC0: true, fbNonzero: 4880, settex: 4, texOk: 0, texMiss: 4 }),
     ).toBe("last_draw STAGE  rooms 78  gdlC0 1  fbNonzero 4880  settex 4  texOk 0  texMiss 4");
+  });
+});
+
+describe("HUD i32 heap view", () => {
+  it("reads mag/reserve/hits/kills as little-endian i32, not HEAPF32 bits", () => {
+    const buf = new Uint8Array(16);
+    const dv = new DataView(buf.buffer);
+    dv.setInt32(0, 7, true);
+    dv.setInt32(4, 21, true);
+    dv.setInt32(8, 0, true);
+    dv.setInt32(12, 0, true);
+    expect(readHeapI32(buf, 0)).toBe(7);
+    expect(readHeapI32(buf, 4)).toBe(21);
+    expect(readHeapI32(buf, 8)).toBe(0);
+    expect(readHeapI32(buf, 12)).toBe(0);
+    dv.setFloat32(0, 1.0, true);
+    expect(readHeapI32(buf, 0)).toBe(1065353216);
   });
 });

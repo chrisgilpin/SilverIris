@@ -102,6 +102,7 @@ export type GameModule = {
   _port_api_chr_action: () => number;
   _port_api_crc_chrs: () => number;
   _port_api_kills: () => number;
+  _port_api_hud_i32?: () => number;
   _port_api_stan_tiles?: () => number;
   _port_api_stan_on_tile?: () => number;
   _port_api_crc_objectives: () => number;
@@ -117,6 +118,7 @@ export type GameModule = {
   _port_api_view_hfov?: () => number;
   HEAPU8: Uint8Array;
   HEAP16?: Int16Array;
+  HEAP32?: Int32Array;
   UTF8ToString?: (p: number) => string;
 };
 
@@ -200,6 +202,22 @@ export type GameBridge = {
   setPerspective(near: number, fovy: number, aspect: number): void;
   viewHfov(): number;
 };
+
+
+/**
+ * HUD counters are i32 in C. Read HEAP32 / DataView.getInt32 — never HEAPF32.
+ * 1.0f bits are 1065353216; |0 is not enough if glue delivered an f32 payload.
+ */
+export function readHeapI32(heap: Uint8Array, ptr: number): number {
+  if (ptr < 0 || ptr + 4 > heap.byteLength) return 0;
+  return new DataView(heap.buffer, heap.byteOffset + ptr, 4).getInt32(0, true);
+}
+
+function hudSlot(mod: GameModule, slot: 0 | 1 | 2 | 3, fallback: () => number): number {
+  const p = mod._port_api_hud_i32?.();
+  if (p) return readHeapI32(mod.HEAPU8, p + slot * 4);
+  return fallback() | 0;
+}
 
 type Factory = (opts?: Record<string, unknown>) => Promise<GameModule>;
 
@@ -455,13 +473,13 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       if (alive) M._port_api_set_look_delta(seat, yawDeg, pitchDeg);
     },
     gunMag(): number {
-      return alive ? M._port_api_gun_mag() | 0 : 0;
+      return alive ? hudSlot(M, 0, () => M._port_api_gun_mag()) : 0;
     },
     gunReserve(): number {
-      return alive ? M._port_api_gun_reserve() | 0 : 0;
+      return alive ? hudSlot(M, 1, () => M._port_api_gun_reserve()) : 0;
     },
     gunHits(): number {
-      return alive ? M._port_api_gun_hits() | 0 : 0;
+      return alive ? hudSlot(M, 2, () => M._port_api_gun_hits()) : 0;
     },
     gunHaveHit(): boolean {
       return alive ? M._port_api_gun_have_hit() !== 0 : false;
@@ -497,7 +515,7 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       return alive ? M._port_api_crc_chrs() >>> 0 : 0;
     },
     kills(): number {
-      return alive ? M._port_api_kills() | 0 : 0;
+      return alive ? hudSlot(M, 3, () => M._port_api_kills()) : 0;
     },
     stanTiles(): number {
       return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;
