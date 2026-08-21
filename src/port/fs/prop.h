@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #define PORT_PROP_OK 0
-#define PORT_PROP_MAX_DRAW 128
+#define PORT_PROP_MAX_DRAW 512
 
 void port_prop_unload(void);
 int port_prop_load(int level_id);

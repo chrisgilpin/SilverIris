@@ -15,6 +15,7 @@
 #include "player/gun.h"
 #include "player/stan_walk.h"
 #include "gfx/tmem.h"
+#include "gfx/gbi_interp.h"
 
 #include <errno.h>
 #include <math.h>
@@ -273,6 +274,21 @@ static void place(float x, float z, float th)
     port_player_set_pose(x, ey, z, th);
 }
 
+/* Open room floor, not a stall cubicle (neighbors walkable). */
+static int cam_open_floor(float x, float z)
+{
+    float ey = 0.f;
+    if (!port_stan_on_tile(x, z))
+        return 0;
+    if (port_stan_eye_y(x, z, &ey) != 0 || ey < 50.f || ey > 160.f)
+        return 0;
+    if (!port_stan_on_tile(x + 40.f, z) || !port_stan_on_tile(x - 40.f, z))
+        return 0;
+    if (!port_stan_on_tile(x, z + 40.f) || !port_stan_on_tile(x, z - 40.f))
+        return 0;
+    return 1;
+}
+
 static int shot_one(const char *out_dir, const char *tag)
 {
     char png[512], hud[512], extra[256];
@@ -463,39 +479,54 @@ int main(int argc, char **argv)
     }
     if (shot_one(out_dir, "flash_off") != 0)
         goto done;
-    /* Two frames of the posed-walk cycle (240u +X, look -X). Snap the
-     * camera onto a tile if the offset is off the pad. */
+    /* Two frames of the posed-walk cycle. Pull the camera ~185u back on
+     * open floor so walk.png is a full 185u figure, not a stall clip. */
     {
         float wx, wy, wz;
         if (port_prop_walk_xyz(&wx, &wy, &wz) == 0) {
             float r1[3], lx, lz, cx, cz, th;
             uint32_t h8, h20, r8, r20;
             int f8, f20;
+            const float walk_pitch = -16.f;
             r1[0] = r1[1] = r1[2] = 0.f;
             (void)port_stage_room1(r1);
             lx = wx - r1[0];
             lz = wz - r1[2];
             wy = wy - r1[1];
-            /* First ground-floor camera whose f=8 vs f=20 FB differs.
-             * East of the walker first; south is the stall wall. */
+            /* Prefer ~240u, open floor, f=8 vs f=20 FBDIFF. Skip spawn
+             * corridor and 90-140u stall clips. */
             {
+                /* Room-71 ground floor is wide in X (~560u) and shallow in Z
+                 * (~160u). 240u north is the upper floor; 240u south is spawn.
+                 * Look along X so walk.png is a full 185u figure in room 71. */
                 static const float try_c[][2] = {
-                    { 140.f, 0.f }, { 180.f, 0.f }, { 90.f, 0.f },
-                    { -140.f, 0.f }, { -90.f, 0.f },
-                    { 0.f, 140.f }, { 0.f, 90.f }, { 0.f, 180.f },
-                    { 90.f, 90.f }, { -90.f, 90.f },
-                    { 0.f, -90.f },
+                    { -100.f, -160.f }, { -80.f, -160.f }, { -120.f, -160.f },
+                    { -100.f, -200.f }, { -60.f, -160.f },
+                    { -200.f, 0.f }, { -160.f, 0.f }, { -240.f, 0.f },
+                    { -200.f, -80.f }, { -160.f, -80.f }, { -100.f, -80.f },
+                    { -100.f, 0.f }, { -280.f, 0.f },
+                    { 200.f, 0.f }, { 240.f, 0.f }, { 160.f, 0.f },
+                    { 200.f, -80.f }, { 160.f, 80.f },
                 };
-                int k, best = -1;
+                int k, best = -1, best_open = 0, best_in71 = 0;
                 uint32_t best_h8 = 0, best_h20 = 0, best_r8 = 0, best_r20 = 0;
-                float best_cx = 0.f, best_cz = 0.f, best_th = 0.f;
-                int best_f8 = 0, best_f20 = 0;
+                float best_cx = 0.f, best_cz = 0.f, best_th = 0.f, best_dist = 0.f;
+                int best_f8 = 0, best_f20 = 0, best_diff = 0;
                 for (k = 0; k < (int)(sizeof try_c / sizeof try_c[0]); k++) {
-                    float ey = 0.f, tcx, tcz, tth, lookx, lookz;
+                    float ey = 0.f, tcx, tcz, tth, lookx, lookz, dist, ds;
                     uint32_t a8, a20, rr8, rr20;
-                    int ff8, ff20;
+                    int ff8, ff20, open, diff;
                     tcx = lx + try_c[k][0];
                     tcz = lz + try_c[k][1];
+                    dist = sqrtf(try_c[k][0] * try_c[k][0] + try_c[k][1] * try_c[k][1]);
+                    ds = (tcx - spawn_x) * (tcx - spawn_x) +
+                         (tcz - spawn_z) * (tcz - spawn_z);
+                    if (ds < 180.f * 180.f)
+                        continue;
+                    /* Stall cubicle ~x=-220. East-of-stall cameras look
+                     * west through beige partitions. */
+                    if (tcx > -200.f)
+                        continue;
                     if (!port_stan_on_tile(tcx, tcz))
                         continue;
                     if (port_stan_eye_y(tcx, tcz, &ey) != 0 || ey < 50.f || ey > 160.f)
@@ -505,11 +536,12 @@ int main(int argc, char **argv)
                     tth = atan2f(lookx, -lookz) * (180.f / 3.14159265f);
                     if (tth < 0.f)
                         tth += 360.f;
+                    open = cam_open_floor(tcx, tcz);
                     port_prop_set_walk_frame(8);
                     ff8 = port_prop_walk_frame();
                     rr8 = port_prop_walk_rest_crc();
                     place(tcx, tcz, tth);
-                    port_player_set_pitch(0.f);
+                    port_player_set_pitch(walk_pitch);
                     port_api_draw();
                     a8 = adler32(port_api_fb(),
                                  (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
@@ -517,32 +549,61 @@ int main(int argc, char **argv)
                     ff20 = port_prop_walk_frame();
                     rr20 = port_prop_walk_rest_crc();
                     place(tcx, tcz, tth);
-                    port_player_set_pitch(0.f);
+                    port_player_set_pitch(walk_pitch);
                     port_api_draw();
                     a20 = adler32(port_api_fb(),
                                   (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
-                    printf("walk_try k=%d cam=%.1f,%.1f th=%.1f room=%d/%d nz=%u %s drawn=%d\n",
-                           k, (double)tcx, (double)tcz, (double)tth,
+                    diff = (a8 != a20);
+                    printf("walk_try k=%d cam=%.1f,%.1f th=%.1f d=%.0f open=%d room=%d/%d nz=%u %s drawn=%d\n",
+                           k, (double)tcx, (double)tcz, (double)tth, (double)dist, open,
                            port_api_rooms_walked(), port_api_current_room(),
                            port_api_fb_nonzero(),
-                           (a8 != a20) ? "FBDIFF" : "fbsame", port_prop_drawn());
-                    if (best < 0 || a8 != a20) {
-                        best = k;
-                        best_cx = tcx;
-                        best_cz = tcz;
-                        best_th = tth;
-                        best_h8 = a8;
-                        best_h20 = a20;
-                        best_r8 = rr8;
-                        best_r20 = rr20;
-                        best_f8 = ff8;
-                        best_f20 = ff20;
-                        if (a8 != a20)
-                            break;
+                           diff ? "FBDIFF" : "fbsame", port_prop_drawn());
+                    {
+                        int room = port_api_current_room();
+                        int in71 = (room == 71);
+                        int better = 0;
+                        if (best < 0)
+                            better = 1;
+                        else if (in71 && !best_in71)
+                            better = 1;
+                        else if (in71 == best_in71 && diff && !best_diff)
+                            better = 1;
+                        else if (in71 == best_in71 && diff == best_diff) {
+                            if (open && !best_open)
+                                better = 1;
+                            else if (open == best_open) {
+                                float d0 = dist, d1 = best_dist;
+                                int far0 = (d0 >= 185.f), far1 = (d1 >= 185.f);
+                                if (far0 && !far1)
+                                    better = 1;
+                                else if (far0 == far1) {
+                                    float e0 = fabsf(d0 - 185.f), e1 = fabsf(d1 - 185.f);
+                                    if (e0 < e1)
+                                        better = 1;
+                                }
+                            }
+                        }
+                        if (better) {
+                            best = k;
+                            best_cx = tcx;
+                            best_cz = tcz;
+                            best_th = tth;
+                            best_h8 = a8;
+                            best_h20 = a20;
+                            best_r8 = rr8;
+                            best_r20 = rr20;
+                            best_f8 = ff8;
+                            best_f20 = ff20;
+                            best_open = open;
+                            best_dist = dist;
+                            best_diff = diff;
+                            best_in71 = in71;
+                        }
                     }
                 }
                 if (best < 0) {
-                    cx = lx + 200.f;
+                    cx = lx + 240.f;
                     cz = lz;
                     {
                         float lookx = lx - cx, lookz = lz - cz;
@@ -567,13 +628,13 @@ int main(int argc, char **argv)
             }
             port_prop_set_walk_frame(8);
             place(cx, cz, th);
-            port_player_set_pitch(0.f);
+            port_player_set_pitch(walk_pitch);
             if (shot_one(out_dir, "walk") != 0)
                 goto done;
             h8 = g_last_fb_adler;
             port_prop_set_walk_frame(20);
             place(cx, cz, th);
-            port_player_set_pitch(0.f);
+            port_player_set_pitch(walk_pitch);
             if (shot_one(out_dir, "walk20") != 0)
                 goto done;
             h20 = g_last_fb_adler;
@@ -583,9 +644,11 @@ int main(int argc, char **argv)
             port_prop_set_walk_frame(20);
             r20 = port_prop_walk_rest_crc();
             f20 = 20;
-            printf("walk_cycle f=%d crc=%08x rest=%08x f=%d crc=%08x rest=%08x %s walker=%.1f,%.1f,%.1f cam=%.1f,%.1f th=%.1f spawn=%.1f,%.1f\n",
+            printf("walk_cycle f=%d crc=%08x rest=%08x f=%d crc=%08x rest=%08x %s walker=%.1f,%.1f,%.1f cam=%.1f,%.1f th=%.1f ph=%.1f ir=%u spawn=%.1f,%.1f\n",
                    f8, h8, r8, f20, h20, r20, (h8 != h20) ? "FBDIFF" : "fbsame",
                    (double)lx, (double)wy, (double)lz, (double)cx, (double)cz, (double)th,
+                   (double)walk_pitch,
+                   g1_last_ir() ? g1_last_ir()->ncmds : 0u,
                    (double)spawn_x, (double)spawn_z);
         }
     }

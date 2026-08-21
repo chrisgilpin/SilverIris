@@ -835,14 +835,25 @@ static void assign_walkers(void)
  * 1510u blob or a walker in the lens. */
 static int spawn_look_slab(float x, float z, float sx, float sz)
 {
-    float dx = x - sx, dz = z - sz;
+    float dx = x - sx, dz = z - sz, fwd;
+    /* Spawn looks 270 (-X). Keep the test mover out of that cone so
+     * spawn.png stays a tiled corridor, not a walker in the lens. */
     if (dx > 40.f)
         return 0;
-    if (dx > -80.f && dx * dx + dz * dz < 180.f * 180.f)
+    fwd = -dx;
+    if (fwd < 80.f && dx * dx + dz * dz < 180.f * 180.f)
         return 1;
-    if (dx < 0.f && dx > -520.f && dz * dz < 95.f * 95.f)
+    if (fwd > 0.f && fwd < 700.f && dz * dz < (0.65f * fwd) * (0.65f * fwd))
         return 1;
     return 0;
+}
+
+static int floor_open(float lx, float lz)
+{
+    /* Cubicles have G1 walls on adjacent tiles. Open room-71 floor
+     * has walkable neighbors ~half a pad step away. */
+    return port_stan_on_tile(lx + 40.f, lz) && port_stan_on_tile(lx - 40.f, lz) &&
+           port_stan_on_tile(lx, lz + 40.f) && port_stan_on_tile(lx, lz - 40.f);
 }
 
 static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3])
@@ -872,9 +883,13 @@ static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1
 int port_prop_place_walker_near_spawn(void)
 {
     float sx, sz, r1[3];
-    int i;
+    int i, pass;
     /* Stall cubicle at -220,-2640 has G1 walls on every adjacent tile.
-     * Sit on the ground-floor room-71 pad north of the hallway turn. */
+     * Sit a few tiles into open room-71 floor north of the hallway turn
+     * so walk.png is a full figure, not a stall clip. */
+    /* Ground-floor open band is z=-2640..-2480, x=-620..-60.
+     * Sit on the north edge (z=-2480) west enough for a 240u east look
+     * from x~-620, but north of the spawn 270 cone. */
     static const float pref[][2] = {
         { -300.f, -2480.f },
         { -380.f, -2480.f },
@@ -882,8 +897,10 @@ int port_prop_place_walker_near_spawn(void)
         { -380.f, -2560.f },
         { -460.f, -2480.f },
         { -220.f, -2480.f },
-        { -587.f, -2340.f },
+        { -460.f, -2560.f },
         { -300.f, -2640.f },
+        { -380.f, -2640.f },
+        { -220.f, -2560.f },
     };
 
     if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
@@ -892,9 +909,14 @@ int port_prop_place_walker_near_spawn(void)
     (void)port_stage_room1(r1);
     sx = port_player_x();
     sz = port_player_z();
-    for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
-        if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1))
-            return 1;
+    /* Pass 0: open floor (neighbors walkable). Pass 1: any ground tile. */
+    for (pass = 0; pass < 2; pass++) {
+        for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
+            if (pass == 0 && !floor_open(pref[i][0], pref[i][1]))
+                continue;
+            if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1))
+                return 1;
+        }
     }
     return 0;
 }
@@ -1891,7 +1913,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             }
         }
     }
-    /* Test mover first so far-away setup guards cannot eat the 128-pass cap. */
+    /* Test mover first so far-away setup guards cannot eat the prop-pass cap. */
     if (g_walk_prop >= 0 && g_walk_prop < g_nprop && k < cap) {
         PortProp *pr = &g_prop[g_walk_prop];
         if (pr->mdl && pr->mdl->npart &&
@@ -1905,23 +1927,53 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                                pr->head_rz, 0.f, 0.f, 0.f, 0.f);
         }
     }
-    for (i = 0; i < g_nprop && k < cap; i++) {
-        PortProp *pr = &g_prop[i];
-        if (i == g_walk_prop)
-            continue;
-        if (!pr->mdl || pr->mdl->npart == 0 || pr->type == PDEF_DOOR)
-            continue;
-        if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
-            continue;
-        if (pr->type == PDEF_GUARD &&
-            port_stan_guard_dead_at(pr->pos[0], pr->pos[2]))
-            continue;
-        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                       0.f, 0.f, 0.f, 0.f);
-        if (pr->head && pr->head->npart)
-            k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0], pr->head_off[1],
-                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz, 0.f,
-                           0.f, 0.f, 0.f);
+    /* Nearest remaining props first so the cap spends on this room and
+     * the next walked rooms, not a far setup cluster. */
+    {
+        int idx[PORT_MAX_PROPS];
+        float d2[PORT_MAX_PROPS];
+        int nidx = 0, a, b;
+        float px = port_player_x() + room1[0];
+        float py = port_player_y() + room1[1];
+        float pz = port_player_z() + room1[2];
+        for (i = 0; i < g_nprop; i++) {
+            PortProp *pr = &g_prop[i];
+            float dx, dy, dz;
+            if (i == g_walk_prop)
+                continue;
+            if (!pr->mdl || pr->mdl->npart == 0 || pr->type == PDEF_DOOR)
+                continue;
+            if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
+                continue;
+            if (pr->type == PDEF_GUARD &&
+                port_stan_guard_dead_at(pr->pos[0], pr->pos[2]))
+                continue;
+            dx = pr->pos[0] - px;
+            dy = pr->pos[1] - py;
+            dz = pr->pos[2] - pz;
+            idx[nidx] = i;
+            d2[nidx] = dx * dx + dy * dy + dz * dz;
+            nidx++;
+        }
+        for (a = 1; a < nidx; a++) {
+            int ii = idx[a];
+            float dd = d2[a];
+            for (b = a; b > 0 && d2[b - 1] > dd; b--) {
+                idx[b] = idx[b - 1];
+                d2[b] = d2[b - 1];
+            }
+            idx[b] = ii;
+            d2[b] = dd;
+        }
+        for (i = 0; i < nidx && k < cap; i++) {
+            PortProp *pr = &g_prop[idx[i]];
+            k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                           0.f, 0.f, 0.f, 0.f);
+            if (pr->head && pr->head->npart)
+                k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0],
+                               pr->head_off[1], pr->head_off[2], pr->head_rx, pr->head_ry,
+                               pr->head_rz, 0.f, 0.f, 0.f, 0.f);
+        }
     }
     g_drawn = k;
     return k;
