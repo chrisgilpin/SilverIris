@@ -36,6 +36,7 @@
 #define STAIR_TH 0.0f
 
 static uint32_t g_last_fb_adler;
+static uint32_t g_spawn_fb_adler;
 
 static void usage(void)
 {
@@ -274,6 +275,13 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
 /* r18 ground stair foot (T2296). Rare-links to T2300/T2302 r15. */
 #define R18_STAIR_X 1165.6f
 #define R18_STAIR_Z (-731.2f)
+/* Chris walk cameras: spawn→r7→r8→r20→r19→r18 foot. Eye 86.8. */
+#define R20_CAM_X 1157.f
+#define R20_CAM_Z (-1536.f)
+#define R19_CAM_X 1476.f
+#define R19_CAM_Z (-1232.f)
+#define R18_CAM_X 1166.f
+#define R18_CAM_Z (-729.f)
 
 /* Walk clip_step from spawn to a ground stair foot. Facility r20 lab
  * north wall is an unlinked gap; Rare point.link hops r20->r19->r18.
@@ -754,6 +762,101 @@ static int shot_one(const char *out_dir, const char *tag)
     return 0;
 }
 
+/* Ground-lab cameras on the walked path. cur must match the tile room,
+ * the frame must be textured and not the spawn stall. Look along the
+ * walk so a doorway into the next lab is in frame. */
+static int lab_cam_proof(const char *out_dir, const char *tag,
+                         float x, float z, int want, float lx, float lz)
+{
+    float dx, dz, th, ey;
+    int cur, tile, at;
+    unsigned texok, nz;
+
+    dx = lx - x;
+    dz = lz - z;
+    th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    if (probe_eye_band(tag, x, z, 70.f, 110.f) != 0)
+        return -1;
+    place(x, z, th);
+    port_player_set_pitch(0.f);
+    port_stan_debug_at(x, z);
+    if (shot_one(out_dir, tag) != 0)
+        return -1;
+    cur = port_api_current_room();
+    tile = port_stan_tile_room(x, z);
+    ey = port_api_player_y();
+    at = port_stage_room_at_local(x, ey, z);
+    texok = port_api_tex_ok();
+    nz = port_api_fb_nonzero();
+    printf("lab_cam %s xz=%.1f,%.1f eye=%.1f th=%.1f cur=%d tile=%d at=%d "
+           "walked=%d texOk=%u fb_nz=%u adler=%08x spawn_adler=%08x %s\n",
+           tag, (double)x, (double)z, (double)ey, (double)th, cur, tile, at,
+           port_api_rooms_walked(), texok, nz, (unsigned)g_last_fb_adler,
+           (unsigned)g_spawn_fb_adler,
+           (g_spawn_fb_adler && g_last_fb_adler == g_spawn_fb_adler)
+               ? "SPAWNSTALL"
+               : "DIFF");
+    if (cur != tile || cur != want) {
+        fprintf(stderr, "%s cur=%d tile=%d (want %d)\n", tag, cur, tile, want);
+        return -1;
+    }
+    if (texok == 0 || nz == 0) {
+        fprintf(stderr, "%s blank texOk=%u nz=%u\n", tag, texok, nz);
+        return -1;
+    }
+    if (g_spawn_fb_adler && g_last_fb_adler == g_spawn_fb_adler) {
+        fprintf(stderr, "%s spawn stall pixels adler=%08x\n", tag,
+                (unsigned)g_last_fb_adler);
+        return -1;
+    }
+    return 0;
+}
+
+static int lab_path_proof(const char *out_dir)
+{
+    float p18[3], p19[3], p20[3];
+    uint32_t n18 = 0, n19 = 0, n20 = 0;
+    int i, nbg;
+
+    memset(p18, 0, sizeof p18);
+    memset(p19, 0, sizeof p19);
+    memset(p20, 0, sizeof p20);
+    (void)port_stage_room_gdl(18, &n18, p18);
+    (void)port_stage_room_gdl(19, &n19, p19);
+    (void)port_stage_room_gdl(20, &n20, p20);
+    printf("lab_gdl r18 ngfx=%u pos=%.1f,%.1f,%.1f  r19 ngfx=%u pos=%.1f,%.1f,%.1f  "
+           "r20 ngfx=%u pos=%.1f,%.1f,%.1f\n",
+           n18, (double)p18[0], (double)p18[1], (double)p18[2],
+           n19, (double)p19[0], (double)p19[1], (double)p19[2],
+           n20, (double)p20[0], (double)p20[1], (double)p20[2]);
+    nbg = port_stage_bg_rooms();
+    for (i = 1; i <= nbg; i++) {
+        if (port_stage_rooms_adjacent(18, i))
+            printf("lab_portal r18-%d\n", i);
+        if (port_stage_rooms_adjacent(19, i))
+            printf("lab_portal r19-%d\n", i);
+        if (port_stage_rooms_adjacent(20, i))
+            printf("lab_portal r20-%d\n", i);
+        if (port_stage_rooms_adjacent(8, i))
+            printf("lab_portal r8-%d\n", i);
+        if (port_stage_rooms_adjacent(7, i))
+            printf("lab_portal r7-%d\n", i);
+    }
+    /* Look along the walk so the next/prev lab is in frame. */
+    if (lab_cam_proof(out_dir, "r20", R20_CAM_X, R20_CAM_Z, 20, R19_CAM_X,
+                      R19_CAM_Z) != 0)
+        return -1;
+    if (lab_cam_proof(out_dir, "r19", R19_CAM_X, R19_CAM_Z, 19, R18_CAM_X,
+                      R18_CAM_Z) != 0)
+        return -1;
+    if (lab_cam_proof(out_dir, "r18", R18_CAM_X, R18_CAM_Z, 18, R19_CAM_X,
+                      R19_CAM_Z) != 0)
+        return -1;
+    return 0;
+}
+
 static void list_anim(const uint8_t *pack, size_t n)
 {
     C0Pack p;
@@ -966,6 +1069,7 @@ int main(int argc, char **argv)
            port_stan_on_tile(spawn_x, spawn_z));
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
+    g_spawn_fb_adler = g_last_fb_adler;
     {
         int cur = port_api_current_room();
         int tile = port_stan_tile_room(spawn_x, spawn_z);
@@ -1124,6 +1228,8 @@ int main(int argc, char **argv)
             goto done;
     }
     if (probe_eye_band("bathroom_after_stairs", -491.9f, -2238.5f, 70.f, 110.f) != 0)
+        goto done;
+    if (lab_path_proof(out_dir) != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */
