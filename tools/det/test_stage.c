@@ -3468,6 +3468,409 @@ static int test_door_open_pose(void)
     return 0;
 }
 
+
+/* Far bright (red) behind a near dark (grey). Last-wins paints the far tri
+ * over the near wall as draw order flips; 16-bit z keeps the near pixels. */
+static int run_zbuf_pair(int far_first, unsigned *grey, unsigned *red)
+{
+    uint8_t vtx_be[6 * 16], gdl[48];
+    Vtx vtx[6];
+    int i, ngfx;
+    const uint8_t *fb;
+
+    memset(vtx, 0, sizeof vtx);
+    /* Near grey wall, z=-50. */
+    vtx[0].v.ob[0] = -50;
+    vtx[0].v.ob[1] = -40;
+    vtx[0].v.ob[2] = -50;
+    vtx[1].v.ob[0] = 50;
+    vtx[1].v.ob[1] = -40;
+    vtx[1].v.ob[2] = -50;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -50;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+    }
+    /* Far bright red, z=-400, same screen coverage. */
+    vtx[3].v.ob[0] = -400;
+    vtx[3].v.ob[1] = -320;
+    vtx[3].v.ob[2] = -400;
+    vtx[4].v.ob[0] = 400;
+    vtx[4].v.ob[1] = -320;
+    vtx[4].v.ob[2] = -400;
+    vtx[5].v.ob[0] = 0;
+    vtx[5].v.ob[1] = 320;
+    vtx[5].v.ob[2] = -400;
+    for (i = 3; i < 6; i++) {
+        vtx[i].v.cn[0] = 255;
+        vtx[i].v.cn[1] = 16;
+        vtx[i].v.cn[2] = 16;
+        vtx[i].v.cn[3] = 255;
+    }
+    for (i = 0; i < 6; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x50 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    if (far_first) {
+        wr_be32(gdl + ngfx * 8, 0xB1000005u);
+        wr_be32(gdl + ngfx * 8 + 4, 0x00000034u);
+        ngfx++;
+        wr_be32(gdl + ngfx * 8, 0xB1000002u);
+        wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+        ngfx++;
+    } else {
+        wr_be32(gdl + ngfx * 8, 0xB1000002u);
+        wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+        ngfx++;
+        wr_be32(gdl + ngfx * 8, 0xB1000005u);
+        wr_be32(gdl + ngfx * 8 + 4, 0x00000034u);
+        ngfx++;
+    }
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_tex_unload();
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("zbuf interpret");
+    *grey = 0;
+    *red = 0;
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        int x = i % G1_FB_W, y = i / G1_FB_W;
+        if (x < 120 || x >= 200 || y < 80 || y >= 160)
+            continue;
+        if (r > 200 && g < 40 && b < 40)
+            (*red)++;
+        else if (r > 140 && r < 220 && g > 140 && g < 220 && b > 140 && b < 220)
+            (*grey)++;
+    }
+    g1_clear_lookat();
+    return 0;
+}
+
+static int test_zbuf_near_wins(void)
+{
+    unsigned g0, r0, g1, r1;
+    if (run_zbuf_pair(0, &g0, &r0) != 0)
+        return 1;
+    if (run_zbuf_pair(1, &g1, &r1) != 0)
+        return 1;
+    if (g0 < 2000 || g1 < 2000)
+        return fail("zbuf near grey missing");
+    if (r0 > 80 || r1 > 80)
+        return fail("far bright overwrote the near wall");
+    printf("zbuf near-wins near-then-far grey=%u red=%u  far-then-near grey=%u red=%u\n",
+           g0, r0, g1, r1);
+    return 0;
+}
+
+/* Later prop SETTEX + far leftover quad must not punch a red/green slab
+ * over the near room wall. */
+static int test_zbuf_prop_settex_no_punch(void)
+{
+    uint8_t ci4[32], vtx_be[6 * 16], gdl[56];
+    uint16_t tlut[2];
+    Vtx vtx[6];
+    int i, ngfx;
+    unsigned grey = 0, red = 0, grn = 0;
+    const uint8_t *fb;
+
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    tlut[0] = 0xF801;
+    tlut[1] = 0x07C1;
+    g1_tex_unload();
+    if (g1_tex_load_raw(30, G1_TEX_CI4, 8, 8, ci4, 32, tlut, 2) != 0)
+        return fail("zbuf-prop load ci4");
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -50;
+    vtx[0].v.ob[1] = -40;
+    vtx[0].v.ob[2] = -50;
+    vtx[1].v.ob[0] = 50;
+    vtx[1].v.ob[1] = -40;
+    vtx[1].v.ob[2] = -50;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 40;
+    vtx[2].v.ob[2] = -50;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+    }
+    vtx[3].v.ob[0] = -400;
+    vtx[3].v.ob[1] = -320;
+    vtx[3].v.ob[2] = -400;
+    vtx[4].v.ob[0] = 400;
+    vtx[4].v.ob[1] = -320;
+    vtx[4].v.ob[2] = -400;
+    vtx[5].v.ob[0] = 0;
+    vtx[5].v.ob[1] = 320;
+    vtx[5].v.ob[2] = -400;
+    for (i = 3; i < 6; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+        vtx[i].v.tc[0] = 256;
+        vtx[i].v.tc[1] = 256;
+    }
+    for (i = 0; i < 6; i++)
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x50 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    /* Room wall first, no SETTEX. */
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    /* Leftover prop SETTEX, then far garbage quad. */
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 30);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000005u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000034u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("zbuf-prop interpret");
+    if (g1_tex_ok_count() < 1)
+        return fail("zbuf-prop SETTEX 30 must bind");
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        int x = i % G1_FB_W, y = i / G1_FB_W;
+        if (x < 120 || x >= 200 || y < 80 || y >= 160)
+            continue;
+        if (r > 160 && g < 80)
+            red++;
+        else if (g > 160 && r < 80)
+            grn++;
+        else if (r > 140 && r < 220 && g > 140 && g < 220 && b > 140 && b < 220)
+            grey++;
+    }
+    if (grey < 2000)
+        return fail("zbuf-prop near wall missing");
+    if (red > 80 || grn > 80)
+        return fail("leftover SETTEX punched a garbage quad over the room");
+    printf("zbuf prop-settex no-punch grey=%u red=%u green=%u ok=%u\n", grey, red, grn,
+           g1_tex_ok_count());
+    g1_clear_lookat();
+    g1_tex_unload();
+    return 0;
+}
+
+/* Slot 200 must survive IR (was int8_t, wrapped negative, sampled grey). */
+static int test_tex_slot_high(void)
+{
+    uint8_t pix[4] = {0xff, 0x00, 0xff, 0xff};
+    uint8_t other[4] = {0x10, 0x10, 0x10, 0xff};
+    uint8_t vtx_be[3 * 16], gdl[40];
+    Vtx vtx[3];
+    int i, ngfx, slot;
+    unsigned mag = 0;
+    const uint8_t *fb;
+
+    g1_tex_unload();
+    for (i = 0; i < 200; i++) {
+        if (g1_tex_load_raw((unsigned)(1000 + i), G1_TEX_RGBA32, 1, 1, other, 4, NULL, 0) !=
+            0)
+            return fail("high-slot fill");
+    }
+    if (g1_tex_load_raw(1300, G1_TEX_RGBA32, 1, 1, pix, 4, NULL, 0) != 0)
+        return fail("high-slot magenta");
+    slot = g1_tex_current_slot();
+    if (slot < 128)
+        return fail("high-slot expected >=128");
+
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[2].v.ob[1] = 1;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+        vtx[i].v.tc[0] = 16;
+        vtx[i].v.tc[1] = 16;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 1300);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_clear_lookat();
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("high-slot interpret");
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        if (r > 200 && b > 200 && g < 40)
+            mag++;
+    }
+    if (mag < 1000)
+        return fail("high-slot 200 painted vertex grey (int8 wrap)");
+    printf("tex slot high slot=%d magenta=%u ok=%u\n", slot, mag, g1_tex_ok_count());
+    g1_tex_unload();
+    return 0;
+}
+
+
+/* Identity-MVP leftover (clip z=0,w=1) after a 3D wall — the live green-red
+ * slab on the gun. Backdrop depth must not punch over the room. */
+static int test_zbuf_identity_leftover(void)
+{
+    uint8_t ci4[32], vtx_a[3 * 16], vtx_b[3 * 16], gdl_a[32], gdl_b[80], host[0x400];
+    uint16_t tlut[2];
+    static Mtx mv, proj;
+    Vtx va[3], vb[3];
+    float id[4][4];
+    int i, j, na, nb;
+    unsigned grey = 0, red = 0, grn = 0;
+    const uint8_t *fb;
+
+    fill_i4_checker(ci4, 8, 8, 0x0, 0x1);
+    tlut[0] = 0xF801;
+    tlut[1] = 0x07C1;
+    g1_tex_unload();
+    if (g1_tex_load_raw(31, G1_TEX_CI4, 8, 8, ci4, 32, tlut, 2) != 0)
+        return fail("id-leftover load");
+
+    memset(va, 0, sizeof va);
+    va[0].v.ob[0] = -50;
+    va[0].v.ob[1] = -40;
+    va[0].v.ob[2] = -50;
+    va[1].v.ob[0] = 50;
+    va[1].v.ob[1] = -40;
+    va[1].v.ob[2] = -50;
+    va[2].v.ob[0] = 0;
+    va[2].v.ob[1] = 40;
+    va[2].v.ob[2] = -50;
+    for (i = 0; i < 3; i++) {
+        va[i].v.cn[0] = 180;
+        va[i].v.cn[1] = 180;
+        va[i].v.cn[2] = 180;
+        va[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_a + (size_t)i * 16, &va[i]);
+    }
+    na = 0;
+    wr_be32(gdl_a + na * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl_a + na * 8 + 4, VTX_SEG14);
+    na++;
+    wr_be32(gdl_a + na * 8, 0xB1000002u);
+    wr_be32(gdl_a + na * 8 + 4, 0x00000010u);
+    na++;
+    wr_be32(gdl_a + na * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl_a + na * 8 + 4, 0);
+    na++;
+
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            id[i][j] = (i == j) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+    memset(vb, 0, sizeof vb);
+    vb[0].v.ob[0] = -1;
+    vb[0].v.ob[1] = -1;
+    vb[1].v.ob[0] = 1;
+    vb[1].v.ob[1] = -1;
+    vb[2].v.ob[1] = 1;
+    for (i = 0; i < 3; i++) {
+        vb[i].v.cn[0] = 180;
+        vb[i].v.cn[1] = 180;
+        vb[i].v.cn[2] = 180;
+        vb[i].v.cn[3] = 255;
+        vb[i].v.tc[0] = 256;
+        vb[i].v.tc[1] = 256;
+        wr_be_vtx(vtx_b + (size_t)i * 16, &vb[i]);
+    }
+    memcpy(host + 0x280, vtx_b, sizeof vtx_b);
+    nb = 0;
+    wr_be32(gdl_b + nb * 8, ((uint32_t)(uint8_t)G_MTX << 24) |
+                                ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl_b + nb * 8 + 4, 0x0F000200u);
+    nb++;
+    wr_be32(gdl_b + nb * 8, ((uint32_t)(uint8_t)G_MTX << 24) |
+                                ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl_b + nb * 8 + 4, 0x0F000240u);
+    nb++;
+    wr_be32(gdl_b + nb * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl_b + nb * 8 + 4, 0x0F000280u);
+    nb++;
+    wr_be32(gdl_b + nb * 8, 0xC0000003u);
+    wr_be32(gdl_b + nb * 8 + 4, 31);
+    nb++;
+    wr_be32(gdl_b + nb * 8, 0xB1000002u);
+    wr_be32(gdl_b + nb * 8 + 4, 0x00000010u);
+    nb++;
+    wr_be32(gdl_b + nb * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl_b + nb * 8 + 4, 0);
+    nb++;
+
+    g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+    g1_set_segment(14, (uintptr_t)vtx_a);
+    g1_set_segment(0xF, (uintptr_t)host);
+    if (g1_interpret_be_dl2(gdl_a, (uint32_t)na, gdl_b, (uint32_t)nb) != 0)
+        return fail("id-leftover interpret");
+    fb = g1_fb_rgba();
+    for (i = 0; i < G1_FB_W * G1_FB_H; i++) {
+        unsigned r = fb[i * 4], g = fb[i * 4 + 1], b = fb[i * 4 + 2];
+        int x = i % G1_FB_W, y = i / G1_FB_W;
+        if (x < 120 || x >= 200 || y < 80 || y >= 160)
+            continue;
+        if (r > 160 && g < 80)
+            red++;
+        else if (g > 160 && r < 80)
+            grn++;
+        else if (r > 140 && r < 220 && g > 140 && g < 220 && b > 140 && b < 220)
+            grey++;
+    }
+    if (grey < 2000)
+        return fail("id-leftover near wall missing");
+    if (red > 80 || grn > 80)
+        return fail("identity leftover SETTEX punched over the room");
+    printf("zbuf identity leftover grey=%u red=%u green=%u ok=%u\n", grey, red, grn,
+           g1_tex_ok_count());
+    g1_clear_lookat();
+    g1_tex_unload();
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -3716,6 +4119,14 @@ int main(int argc, char **argv)
     if (test_ia_alpha0_no_black() != 0)
         return 1;
     if (test_tmem_no_midframe_evict() != 0)
+        return 1;
+    if (test_zbuf_near_wins() != 0)
+        return 1;
+    if (test_zbuf_prop_settex_no_punch() != 0)
+        return 1;
+    if (test_zbuf_identity_leftover() != 0)
+        return 1;
+    if (test_tex_slot_high() != 0)
         return 1;
     if (test_secondary_gdl() != 0)
         return 1;

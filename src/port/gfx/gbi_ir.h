@@ -40,7 +40,7 @@ typedef struct {
         } rect;
         struct {
             GirVert v[3];
-            int8_t tex_slot;
+            int16_t tex_slot;
         } tri;
     } u;
 } GirCmd;

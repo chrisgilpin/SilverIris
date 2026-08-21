@@ -6,6 +6,7 @@
 #include <string.h>
 
 static uint8_t g_fb[G1_FB_H][G1_FB_W][4];
+static uint16_t g_zb[G1_FB_H][G1_FB_W];
 static float g_sx = 160.f, g_sy = 120.f, g_tx = 160.f, g_ty = 120.f;
 
 void sw_raster_clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -17,6 +18,7 @@ void sw_raster_clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
             g_fb[y][x][1] = g;
             g_fb[y][x][2] = b;
             g_fb[y][x][3] = a;
+            g_zb[y][x] = 0xffff;
         }
     }
 }
@@ -46,13 +48,17 @@ void sw_fb_grey_sha256(uint8_t out[32])
     silveriris_sha256(grey, (size_t)n, out);
 }
 
-static void put_px(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+static void put_px(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint16_t z)
 {
     if ((unsigned)x >= G1_FB_W || (unsigned)y >= G1_FB_H)
         return;
     /* Alpha 0 is a punch-through miss / portal — do not stamp black. */
     if (a == 0)
         return;
+    /* Nearer (smaller 16-bit z) wins. Equal depth keeps last-wins. */
+    if (z > g_zb[y][x])
+        return;
+    g_zb[y][x] = z;
     g_fb[y][x][0] = r;
     g_fb[y][x][1] = g;
     g_fb[y][x][2] = b;
@@ -72,7 +78,7 @@ static void fill_rect(int ulx, int uly, int lrx, int lry, uint8_t r, uint8_t g, 
         lry = G1_FB_H;
     for (y = uly; y < lry; y++)
         for (x = ulx; x < lrx; x++)
-            put_px(x, y, r, g, b, a);
+            put_px(x, y, r, g, b, a, 0xffff);
 }
 
 static float edge(float ax, float ay, float bx, float by, float cx, float cy)
@@ -98,10 +104,21 @@ static int clip_to_screen(const GirVert *v, float *sx, float *sy)
     return finite_xy(*sx, *sy);
 }
 
+static uint16_t pack_depth(float ndc_z)
+{
+    int d = (int)((ndc_z + 1.f) * 32767.5f + 0.5f);
+    if (d < 0)
+        d = 0;
+    if (d > 65535)
+        d = 65535;
+    return (uint16_t)d;
+}
+
 static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
 {
     float x0, y0, x1, y1, x2, y2, area;
-    int minx, maxx, miny, maxy, x, y;
+    float z0, z1, z2, iw0, iw1, iw2;
+    int minx, maxx, miny, maxy, x, y, backdrop;
 
     if (!clip_to_screen(v0, &x0, &y0) || !clip_to_screen(v1, &x1, &y1) ||
         !clip_to_screen(v2, &x2, &y2))
@@ -109,6 +126,21 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     area = edge(x0, y0, x1, y1, x2, y2);
     if (area > -0.5f && area < 0.5f)
         return;
+
+    /* ndc z = clip.z/clip.w is linear in screen space. */
+    z0 = v0->z / v0->w;
+    z1 = v1->z / v1->w;
+    z2 = v2->z / v2->w;
+    iw0 = 1.f / v0->w;
+    iw1 = 1.f / v1->w;
+    iw2 = 1.f / v2->w;
+    /* Identity-MVP (G1 synthetic, leftover SETTEX quad) is clip z=0,w=1.
+     * Mid-frustum depth let that slab punch over distant walls and hide
+     * props behind the hash triangle. Park it at far so 3D wins. */
+    backdrop = (v0->z > -1.0e-3f && v0->z < 1.0e-3f && v0->w > 0.99f &&
+                v0->w < 1.01f && v1->z > -1.0e-3f && v1->z < 1.0e-3f &&
+                v1->w > 0.99f && v1->w < 1.01f && v2->z > -1.0e-3f &&
+                v2->z < 1.0e-3f && v2->w > 0.99f && v2->w < 1.01f);
 
     minx = (int)x0;
     if ((int)x1 < minx)
@@ -152,15 +184,26 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 inside = (w0 <= 0 && w1 <= 0 && w2 <= 0);
             if (inside) {
                 float a = w0 / area, b = w1 / area, c = w2 / area;
+                float ia = a * iw0, ib = b * iw1, ic = c * iw2;
+                float inv = ia + ib + ic;
                 uint8_t r, g, bl, al;
+                uint16_t z;
                 r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
                 g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
                 bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
                 al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
+                z = backdrop ? (uint16_t)0xffff : pack_depth(a * z0 + b * z1 + c * z2);
                 if (tex_slot >= 0) {
                     uint8_t sr = r, sg = g, sb = bl, sa = al;
-                    float ss = a * v0->s + b * v1->s + c * v2->s;
-                    float tt = a * v0->t + b * v1->t + c * v2->t;
+                    float ss, tt;
+                    /* Perspective-correct ST. Identity-MVP (w=1) matches affine. */
+                    if (inv > 1.0e-12f) {
+                        ss = (ia * v0->s + ib * v1->s + ic * v2->s) / inv;
+                        tt = (ia * v0->t + ib * v1->t + ic * v2->t) / inv;
+                    } else {
+                        ss = a * v0->s + b * v1->s + c * v2->s;
+                        tt = a * v0->t + b * v1->t + c * v2->t;
+                    }
                     if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
                         r = sr;
                         g = sg;
@@ -169,7 +212,7 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                     }
                     /* Sample miss keeps vertex shade (grey), never forced black. */
                 }
-                put_px(x, y, r, g, bl, al);
+                put_px(x, y, r, g, bl, al, z);
             }
         }
     }

@@ -240,7 +240,7 @@ static void emit_indexed_tri(uint32_t i0, uint32_t i1, uint32_t i2)
         c.u.tri.v[k].b = idx[k]->b;
         c.u.tri.v[k].a = idx[k]->a;
     }
-    c.u.tri.tex_slot = (int8_t)g1_tex_current_slot();
+    c.u.tri.tex_slot = (int16_t)g1_tex_current_slot();
     emit(&c);
 }
 
