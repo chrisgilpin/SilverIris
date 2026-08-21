@@ -134,6 +134,118 @@ static int test_stan_scale_chris_unit(void)
     return 0;
 }
 
+
+/* Live Facility: room1 (-240,-337,2051), pad (137,562,-1154) → local
+ * xz (377,-3205). A Y=0 tile at world pad + room1 origin writes
+ * |room1.y|+175 = 512. Hallway tile at local xz, floor -88 → eye 87. */
+#define LIVE_R1X (-240.0f)
+#define LIVE_R1Y (-337.0f)
+#define LIVE_R1Z 2051.0f
+#define LIVE_PAD_X 137.0f
+#define LIVE_PAD_Y 562.0f
+#define LIVE_PAD_Z (-1154.0f)
+#define LIVE_LX (LIVE_PAD_X - LIVE_R1X)
+#define LIVE_LZ (LIVE_PAD_Z - LIVE_R1Z)
+#define HALL_FLOOR (-88.0f)
+#define HALL_EYE (HALL_FLOOR + PORT_EYE_HEIGHT)
+
+static void wr_scaled_quad(uint8_t *s, size_t hdr, float x0, float x1, float y,
+                           float z0, float z1)
+{
+    s[hdr + 2] = 1;
+    s[hdr + 3] = 1;
+    wr_be16(s + hdr + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + hdr + 8 + 0, sc16_pl(x0));
+    wr_s16(s + hdr + 8 + 2, sc16_pl(y));
+    wr_s16(s + hdr + 8 + 4, sc16_pl(z0));
+    wr_s16(s + hdr + 8 + 8, sc16_pl(x1));
+    wr_s16(s + hdr + 8 + 10, sc16_pl(y));
+    wr_s16(s + hdr + 8 + 12, sc16_pl(z0));
+    wr_s16(s + hdr + 8 + 16, sc16_pl(x1));
+    wr_s16(s + hdr + 8 + 18, sc16_pl(y));
+    wr_s16(s + hdr + 8 + 20, sc16_pl(z1));
+    wr_s16(s + hdr + 8 + 24, sc16_pl(x0));
+    wr_s16(s + hdr + 8 + 26, sc16_pl(y));
+    wr_s16(s + hdr + 8 + 28, sc16_pl(z1));
+}
+
+static void build_live_hall_stan(uint8_t *s, size_t n, int with_decoy)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    /* Tile 0: hallway around intro local xz, floor -88. */
+    wr_scaled_quad(s, 0x80, 300.0f, 460.0f, HALL_FLOOR, -3310.0f, -3100.0f);
+    if (with_decoy) {
+        /* Tile 1 at 0xA8: world pad xz, Y=0 — the 512 trap. */
+        wr_scaled_quad(s, 0xA8, 57.0f, 217.0f, 0.0f, -1234.0f, -1074.0f);
+    }
+}
+
+static int test_intro_spawn_y_hallway_unit(void)
+{
+    uint8_t stan[512];
+    float y0, y1, yn, yoff;
+    float pad_local_y = LIVE_PAD_Y - LIVE_R1Y;
+    const float want = HALL_EYE;
+
+    port_stan_unload();
+    build_live_hall_stan(stan, sizeof stan, 1);
+    port_stan_set_scale(CHRIS_SC);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("hall unit load");
+    if (port_stan_tile_count() < 2)
+        return fail("hall unit tiles");
+
+    /* Why 512: room1 origin maps local xz to world pad, hits Y=0 decoy. */
+    port_stan_set_world_origin(LIVE_R1X, LIVE_R1Y, LIVE_R1Z);
+    if (port_stan_eye_y(LIVE_LX, LIVE_LZ, &y1) != 0)
+        return fail("hall unit decoy eye");
+    printf("why512 tile_floor@world_pad+room1 eye=%.1f |r1y|+175=%.1f pad_local+175=%.1f\n",
+           (double)y1, (double)(-LIVE_R1Y + PORT_EYE_HEIGHT),
+           (double)(pad_local_y + PORT_EYE_HEIGHT));
+    if (fabsf(y1 - 512.0f) > 2.0f) {
+        fprintf(stderr, "expected decoy 512 got %g\n", (double)y1);
+        return fail("hall unit decoy not 512");
+    }
+
+    /* Room-local (origin 0) at intro xz is the hallway tile. */
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (!port_stan_on_tile(LIVE_LX, LIVE_LZ))
+        return fail("hall unit on tile");
+    if (port_stan_eye_y(LIVE_LX, LIVE_LZ, &y0) != 0)
+        return fail("hall unit eye");
+    if (fabsf(y0 - want) > 2.0f) {
+        fprintf(stderr, "hall unit y=%g want %g\n", (double)y0, (double)want);
+        return fail("hall unit y");
+    }
+    /* Same band as a nearby hallway sample. */
+    if (port_stan_eye_y(400.0f, -3200.0f, &yn) != 0)
+        return fail("hall unit nearby");
+    if (fabsf(yn - y0) > 2.0f)
+        return fail("hall unit nearby band");
+
+    /* Pad just off the tile: nearest still hallway, not 512. */
+    port_stan_unload();
+    build_live_hall_stan(stan, sizeof stan, 1);
+    port_stan_set_scale(CHRIS_SC);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("hall near load");
+    if (port_stan_on_tile(LIVE_LX, -3400.0f))
+        return fail("hall near should be off tile");
+    if (port_stan_nearest_eye_y(LIVE_LX, -3400.0f, PORT_STAN_NEAR_XZ, &yoff) != 0)
+        return fail("hall near miss");
+    if (fabsf(yoff - want) > 2.0f) {
+        fprintf(stderr, "hall near y=%g want %g\n", (double)yoff, (double)want);
+        return fail("hall near y");
+    }
+    printf("intro_spawn_y_hallway_unit eye=%.1f nearby=%.1f nearest_off=%.1f (not 512)\n",
+           (double)y0, (double)yn, (double)yoff);
+    port_stan_unload();
+    return 0;
+}
+
 static int test_stan_eye_and_clip(void)
 {
     uint8_t stan[256];
@@ -692,6 +804,8 @@ int main(void)
     }
     printf("player walk ok z1=%g z200=%g clock=%d\n", (double)z1, (double)z200, g_ClockTimer);
     if (test_stan_scale_chris_unit() != 0)
+        return 1;
+    if (test_intro_spawn_y_hallway_unit() != 0)
         return 1;
     if (test_stan_eye_and_clip() != 0)
         return 1;

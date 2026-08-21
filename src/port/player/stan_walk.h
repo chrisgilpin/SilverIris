@@ -54,6 +54,9 @@ int port_stan_door_side_at(float world_x, float world_z);
 /* Room-local xz. Returns 0 and writes floor+eye (room-local) if a tile owns xz. */
 int port_stan_eye_y(float local_x, float local_z, float *y_out);
 int port_stan_on_tile(float local_x, float local_z);
+/* Nearest non-degen tile within max_dist (centroid xz). Writes avgY+175-originY. */
+#define PORT_STAN_NEAR_XZ 800.0f
+int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float *y_out);
 
 /* Clip a proposed room-local step. Writes a legal xz and eye y when ready. */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);

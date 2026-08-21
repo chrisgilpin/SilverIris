@@ -538,6 +538,51 @@ int port_stan_eye_y(float local_x, float local_z, float *y_out)
     return 0;
 }
 
+int port_stan_nearest_eye_y(float local_x, float local_z, float max_dist, float *y_out)
+{
+    float wx, wz, best_d, lim, y;
+    int i, best;
+
+    if (!y_out || g_ntile <= 0)
+        return -1;
+    if (max_dist < 0.0f)
+        max_dist = 0.0f;
+    local_to_world(local_x, local_z, &wx, &wz);
+    lim = max_dist * max_dist;
+    best_d = lim + 1.0f;
+    best = -1;
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float cx = 0.0f, cz = 0.0f, d2, fy;
+        int k;
+        if (t->n < 3 || tile_xz_twice_area(t) < 1.0f)
+            continue;
+        for (k = 0; k < t->n; k++) {
+            cx += t->x[k];
+            cz += t->z[k];
+        }
+        cx /= (float)t->n;
+        cz /= (float)t->n;
+        d2 = (cx - wx) * (cx - wx) + (cz - wz) * (cz - wz);
+        if (d2 > lim)
+            continue;
+        fy = tile_avg_y(t);
+        if (!finite_f(fy))
+            continue;
+        if (d2 < best_d) {
+            best_d = d2;
+            best = i;
+        }
+    }
+    if (best < 0)
+        return -1;
+    y = (tile_avg_y(&g_tile[best]) + PORT_EYE_HEIGHT) - g_oy;
+    if (!finite_f(y))
+        return -1;
+    *y_out = y;
+    return 0;
+}
+
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
 {
     float owx, owz, cwx, cwz;

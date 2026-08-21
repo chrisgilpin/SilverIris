@@ -4015,6 +4015,200 @@ static int test_persp_floor_uv_stable(void)
 }
 
 
+
+/* Live Facility intro: room-local xz + Facility-scale stan. Hallway
+ * floor -88 → eye 87. A Y=0 decoy at world pad + room1 origin is the
+ * 512 trap the old spawn took first. */
+#define LIVE_R1X (-240.0f)
+#define LIVE_R1Y (-337.0f)
+#define LIVE_R1Z 2051.0f
+#define LIVE_PAD_X 137.0f
+#define LIVE_PAD_Y 562.0f
+#define LIVE_PAD_Z (-1154.0f)
+#define LIVE_LX (LIVE_PAD_X - LIVE_R1X)
+#define LIVE_LZ (LIVE_PAD_Z - LIVE_R1Z)
+#define HALL_FLOOR (-88.0f)
+#define HALL_EYE (HALL_FLOOR + PORT_EYE_HEIGHT)
+
+static void wr_scaled_quad_st(uint8_t *s, size_t hdr, float x0, float x1, float y,
+                              float z0, float z1)
+{
+    s[hdr + 2] = 1;
+    s[hdr + 3] = 1;
+    wr_be16(s + hdr + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16_st(s + hdr + 8 + 0, sc16(x0));
+    wr_s16_st(s + hdr + 8 + 2, sc16(y));
+    wr_s16_st(s + hdr + 8 + 4, sc16(z0));
+    wr_s16_st(s + hdr + 8 + 8, sc16(x1));
+    wr_s16_st(s + hdr + 8 + 10, sc16(y));
+    wr_s16_st(s + hdr + 8 + 12, sc16(z0));
+    wr_s16_st(s + hdr + 8 + 16, sc16(x1));
+    wr_s16_st(s + hdr + 8 + 18, sc16(y));
+    wr_s16_st(s + hdr + 8 + 20, sc16(z1));
+    wr_s16_st(s + hdr + 8 + 24, sc16(x0));
+    wr_s16_st(s + hdr + 8 + 26, sc16(y));
+    wr_s16_st(s + hdr + 8 + 28, sc16(z1));
+}
+
+static void build_live_hall_stan_stage(uint8_t *s, size_t n, int with_decoy, int on_pad)
+{
+    float z0 = on_pad ? -3310.0f : -3600.0f;
+    float z1 = on_pad ? -3100.0f : -3350.0f;
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    wr_scaled_quad_st(s, 0x80, 300.0f, 460.0f, HALL_FLOOR, z0, z1);
+    if (with_decoy)
+        wr_scaled_quad_st(s, 0xA8, 57.0f, 217.0f, 0.0f, -1234.0f, -1074.0f);
+}
+
+#define HW_BG_SIZE 0x400
+#define HW_OFF_VTX 0x0A0
+#define HW_OFF_GDL 0x120
+
+/* Corridor floor + side walls in room-local space at the intro pad.
+ * Standing eye (~87) sees tens of thousands of pixels; Y=512 is a sliver. */
+static void build_hallway_g1dl_bg(uint8_t *bg)
+{
+    Vtx vtx[8];
+    int i, ngfx;
+    memset(bg, 0, HW_BG_SIZE);
+    wr_be32(bg + 0, PORT_BG_MAGIC_G1DL);
+    wr_be32(bg + 4, SEG(OFF_ROOMS));
+    wr_be32(bg + 8, SEG(OFF_PORTAL));
+    wr_be32(bg + OFF_ROOM1 + 0, SEG(HW_OFF_VTX));
+    wr_be32(bg + OFF_ROOM1 + 4, SEG(HW_OFF_GDL));
+    wr_be32(bg + OFF_ROOM1 + 8, 0);
+    wr_f32_st(bg + OFF_ROOM1 + 12, LIVE_R1X);
+    wr_f32_st(bg + OFF_ROOM1 + 16, LIVE_R1Y);
+    wr_f32_st(bg + OFF_ROOM1 + 20, LIVE_R1Z);
+
+    memset(vtx, 0, sizeof vtx);
+    /* Floor y=-88, in front of θ=270 (look -X) from (377,-3205). */
+    vtx[0].v.ob[0] = 400;
+    vtx[0].v.ob[1] = (short)HALL_FLOOR;
+    vtx[0].v.ob[2] = -3600;
+    vtx[1].v.ob[0] = 400;
+    vtx[1].v.ob[1] = (short)HALL_FLOOR;
+    vtx[1].v.ob[2] = -2800;
+    vtx[2].v.ob[0] = -400;
+    vtx[2].v.ob[1] = (short)HALL_FLOOR;
+    vtx[2].v.ob[2] = -2800;
+    vtx[3].v.ob[0] = -400;
+    vtx[3].v.ob[1] = (short)HALL_FLOOR;
+    vtx[3].v.ob[2] = -3600;
+    /* Left / right walls y=-88..200, corridor ~160 wide. */
+    vtx[4].v.ob[0] = 400;
+    vtx[4].v.ob[1] = (short)HALL_FLOOR;
+    vtx[4].v.ob[2] = -3285;
+    vtx[5].v.ob[0] = -400;
+    vtx[5].v.ob[1] = 200;
+    vtx[5].v.ob[2] = -3285;
+    vtx[6].v.ob[0] = 400;
+    vtx[6].v.ob[1] = (short)HALL_FLOOR;
+    vtx[6].v.ob[2] = -3125;
+    vtx[7].v.ob[0] = -400;
+    vtx[7].v.ob[1] = 200;
+    vtx[7].v.ob[2] = -3125;
+    for (i = 0; i < 8; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 200;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(bg + HW_OFF_VTX + (size_t)i * 16, &vtx[i]);
+    }
+    ngfx = 0;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x80 << 16));
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, SEG(HW_OFF_VTX));
+    ngfx++;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, 0xB1000002u);
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, 0xB1000003u);
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, 0x00000020u);
+    ngfx++;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, 0xB1000005u);
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, 0x00000410u);
+    ngfx++;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, 0xB1000007u);
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, 0x00000620u);
+    ngfx++;
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(bg + HW_OFF_GDL + ngfx * 8 + 4, 0);
+}
+
+static int run_live_hall_pack(int on_pad, const char *tag)
+{
+    uint8_t bg[HW_BG_SIZE], stan[512], setup[PROP_SETUP_SIZE];
+    C0File files[3];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y;
+    unsigned nz;
+
+    build_hallway_g1dl_bg(bg);
+    build_live_hall_stan_stage(stan, sizeof stan, 1, on_pad);
+    build_intro_door_setup(setup, 0, LIVE_PAD_X, LIVE_PAD_Y, LIVE_PAD_Z, -1.f, 0.f,
+                           8000.f, HALL_FLOOR, 8000.f);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    if (c0pack_build(files, 3, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("hall pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("hall init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("hall load");
+    if (fabsf(port_api_player_x() - LIVE_LX) > 1.0f ||
+        fabsf(port_api_player_z() - LIVE_LZ) > 1.0f) {
+        fprintf(stderr, "%s xz=%g,%g want %g,%g\n", tag,
+                (double)port_api_player_x(), (double)port_api_player_z(),
+                (double)LIVE_LX, (double)LIVE_LZ);
+        return fail("hall spawn xz");
+    }
+    y = port_api_player_y();
+    if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
+        return fail("hall y NaN");
+    if (fabsf(y - HALL_EYE) > 3.0f) {
+        fprintf(stderr, "%s y=%g want ~%.1f (not 512)\n", tag, (double)y,
+                (double)HALL_EYE);
+        return fail("hall spawn y");
+    }
+    if (fabsf(y - 512.0f) < 20.0f)
+        return fail("hall y still 512");
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("hall first draw");
+    nz = port_api_fb_nonzero();
+    if (nz < 20000u) {
+        fprintf(stderr, "%s fb_nonzero=%u want corridor-scale (>=20000), not sliver\n",
+                tag, nz);
+        return fail("hall fb sliver");
+    }
+    printf("%s y=%.1f xz=%.1f,%.1f fb_nonzero=%u tiles=%d\n", tag, (double)y,
+           (double)port_api_player_x(), (double)port_api_player_z(), nz,
+           port_stan_tile_count());
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
+static int test_intro_spawn_y_hallway(void)
+{
+    return run_live_hall_pack(1, "intro_spawn_y_hallway");
+}
+
+static int test_intro_spawn_y_nearest(void)
+{
+    return run_live_hall_pack(0, "intro_spawn_y_nearest");
+}
+
 static int test_stan_offtile_spawn_y(void)
 {
     uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE];
@@ -4372,6 +4566,10 @@ int main(int argc, char **argv)
     if (test_stan_offtile_spawn_y() != 0)
         return 1;
     if (test_stan_scale_chris_xz() != 0)
+        return 1;
+    if (test_intro_spawn_y_hallway() != 0)
+        return 1;
+    if (test_intro_spawn_y_nearest() != 0)
         return 1;
     if (test_door_open_pose() != 0)
         return 1;

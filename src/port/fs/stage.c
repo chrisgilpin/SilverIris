@@ -542,35 +542,46 @@ int port_stage_load(int level_id)
                 if (th < 0.f)
                     th += 360.f;
             }
-            /* Rare camera Y = stan floor + 175. Empty synthetic stan keeps
-             * pad Y so G1 greyscale / intro magenta tests stay put. Retail
-             * C0 with no parsed tiles still lifts the camera off the floor.
-             * If room1 origin put xz off every tile, try origin 0 (tiles
-             * already room-local). A degenerate stair tile must not write
-             * NaN: keep pad Y + 175 when tiles exist but interpolate fails. */
+            /* Rare camera Y = stan floor + 175, in the same space as the
+             * player (room-local GDL). Trying room1 origin first hit a
+             * world-xz tile with Y=0 and wrote |room1.y|+175 (512 on
+             * Facility) — a void above the corridor (hallway ~87). Prefer
+             * origin 0 (tiles already room-local), then a nearby tile,
+             * then world-space synthetics. Empty stan keeps pad Y. */
             {
                 float pad_y = y;
                 int got = 0;
+                float r1x = 0.0f, r1y = 0.0f, r1z = 0.0f;
+                if (g_bg_rooms >= 1) {
+                    r1x = g_rm[1].pos[0];
+                    r1y = g_rm[1].pos[1];
+                    r1z = g_rm[1].pos[2];
+                }
+                port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
                 if (port_stan_eye_y(x, z, &ey) == 0) {
                     y = ey;
                     got = 1;
-                } else {
-                    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+                } else if (port_stan_nearest_eye_y(x, z, PORT_STAN_NEAR_XZ, &ey) == 0) {
+                    y = ey;
+                    got = 1;
+                } else if (g_bg_rooms >= 1) {
+                    port_stan_set_world_origin(r1x, r1y, r1z);
                     if (port_stan_eye_y(x, z, &ey) == 0) {
                         y = ey;
                         got = 1;
-                    } else {
-                        if (g_bg_rooms >= 1)
-                            port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1],
-                                                       g_rm[1].pos[2]);
-                        if (port_stan_tile_count() > 0)
-                            y = pad_y + PORT_EYE_HEIGHT;
-                        else if (g_gdl_c0)
-                            y = pad_y + PORT_EYE_HEIGHT;
+                    } else if (port_stan_nearest_eye_y(x, z, PORT_STAN_NEAR_XZ, &ey) ==
+                               0) {
+                        y = ey;
+                        got = 1;
                     }
                 }
+                if (!got) {
+                    if (port_stan_tile_count() > 0 || g_gdl_c0)
+                        y = PORT_EYE_HEIGHT;
+                }
                 if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
-                    y = pad_y + PORT_EYE_HEIGHT;
+                    y = PORT_EYE_HEIGHT;
+                (void)pad_y;
                 (void)got;
             }
             port_player_set_pose(x, y, z, th);
