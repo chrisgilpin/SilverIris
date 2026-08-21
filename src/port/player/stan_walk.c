@@ -115,6 +115,20 @@ void port_stan_add_guard(float world_x, float world_z)
     g->hit = 0;
 }
 
+void port_stan_move_guard(float from_x, float from_z, float to_x, float to_z)
+{
+    int i;
+    for (i = 0; i < g_nguard; i++) {
+        float dx = from_x - g_guard[i].x;
+        float dz = from_z - g_guard[i].z;
+        if (dx * dx + dz * dz <= 1.0f) {
+            g_guard[i].x = to_x;
+            g_guard[i].z = to_z;
+            return;
+        }
+    }
+}
+
 int port_stan_guard_count(void) { return g_nguard; }
 
 int port_stan_guard_was_hit(int i)

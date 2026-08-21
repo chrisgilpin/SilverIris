@@ -274,6 +274,50 @@ static void place(float x, float z, float th)
     port_player_set_pose(x, ey, z, th);
 }
 
+/* Look at a world-space standing mid-torso from a local camera xz. */
+static void aim_world(float wx, float wy, float wz, float cam_x, float cam_z)
+{
+    float r1[3], tx, ty, tz, dx, dy, dz, th, ph, horiz, ey;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    tx = wx - r1[0];
+    ty = wy - r1[1] + 90.f;
+    tz = wz - r1[2];
+    place(cam_x, cam_z, 0.f);
+    ey = port_api_player_y();
+    dx = tx - cam_x;
+    dy = ty - ey;
+    dz = tz - cam_z;
+    th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    horiz = sqrtf(dx * dx + dz * dz);
+    ph = (horiz < 1e-4f) ? 0.f : atan2f(dy, horiz) * (180.f / 3.14159265f);
+    if (ph > 70.f)
+        ph = 70.f;
+    if (ph < -70.f)
+        ph = -70.f;
+    place(cam_x, cam_z, th);
+    port_player_set_pitch(ph);
+}
+
+/* Distance from point to the xz ray (ox,oz) + t*(dx,dz), t>=0. */
+static float ray_xz_dist(float ox, float oz, float dx, float dz, float px, float pz)
+{
+    float lx = px - ox, lz = pz - oz, t, qx, qz;
+    float inv = dx * dx + dz * dz;
+    if (inv < 1e-8f)
+        return sqrtf(lx * lx + lz * lz);
+    t = (lx * dx + lz * dz) / inv;
+    if (t < 0.f)
+        t = 0.f;
+    qx = ox + dx * t;
+    qz = oz + dz * t;
+    qx = px - qx;
+    qz = pz - qz;
+    return sqrtf(qx * qx + qz * qz);
+}
+
 /* Open room floor, not a stall cubicle (neighbors walkable). */
 static int cam_open_floor(float x, float z)
 {
@@ -704,6 +748,71 @@ int main(int argc, char **argv)
                            (double)dist, pr, wr);
                     if (shot_one(out_dir, "return") != 0)
                         goto done;
+                    /* Player hitscan from this camera: body xz kills and
+                     * hides; the t0 sit pad does not kill the walker. */
+                    {
+                        float padx = x0, pady = y0, padz = z0;
+                        float bx, by, bz, kcx = cx, kcz = cz;
+                        float pdx, pdz, plen;
+                        int k0, k1, k2, drawn0, drawn1, drawn2;
+                        int dead_pad, dead_body, nudged = 0;
+
+                        if (port_prop_walk_xyz(&bx, &by, &bz) != 0)
+                            bx = by = bz = 0.f;
+                        /* If pad and body share the look ray, step south so
+                         * aiming at the empty pad cannot clip the walker. */
+                        pdx = (padx - r10[0]) - kcx;
+                        pdz = (padz - r10[2]) - kcz;
+                        plen = sqrtf(pdx * pdx + pdz * pdz);
+                        if (plen > 1.f) {
+                            float dbody = ray_xz_dist(kcx, kcz, pdx / plen, pdz / plen,
+                                                      bx - r10[0], bz - r10[2]);
+                            if (dbody <= PORT_GUARD_RADIUS + 8.f) {
+                                kcz -= 80.f;
+                                if (!port_stan_on_tile(kcx, kcz))
+                                    kcz += 160.f;
+                                nudged = 1;
+                            }
+                        }
+                        port_api_draw();
+                        drawn0 = port_prop_drawn();
+                        k0 = port_api_kills();
+                        aim_world(padx, pady, padz, kcx, kcz);
+                        port_gun_tick(0);
+                        port_gun_tick(PORT_Z_TRIG);
+                        port_gun_tick(0);
+                        k1 = port_api_kills();
+                        dead_body = port_stan_guard_dead_at(bx, bz);
+                        dead_pad = port_stan_guard_dead_at(padx, padz);
+                        port_api_draw();
+                        drawn1 = port_prop_drawn();
+                        printf("walk_kill_pad kills=%d->%d dead_body=%d dead_pad=%d "
+                               "drawn=%d->%d pad=%.1f,%.1f body=%.1f,%.1f cam=%.1f,%.1f "
+                               "nudge=%d %s\n",
+                               k0, k1, dead_body, dead_pad, drawn0, drawn1,
+                               (double)(padx - r10[0]), (double)(padz - r10[2]),
+                               (double)(bx - r10[0]), (double)(bz - r10[2]),
+                               (double)kcx, (double)kcz, nudged,
+                               (k1 == k0 && !dead_body) ? "PADMISS" : "padhit");
+                        aim_world(bx, by, bz, kcx, kcz);
+                        port_gun_tick(0);
+                        port_gun_tick(PORT_Z_TRIG);
+                        port_gun_tick(0);
+                        k2 = port_api_kills();
+                        dead_body = port_stan_guard_dead_at(bx, bz);
+                        dead_pad = port_stan_guard_dead_at(padx, padz);
+                        place(cx, cz, th);
+                        port_player_set_pitch(walk_pitch);
+                        if (shot_one(out_dir, "dead") != 0)
+                            goto done;
+                        drawn2 = port_prop_drawn();
+                        printf("walk_kill_body kills=%d->%d dead_body=%d dead_pad=%d "
+                               "drawn=%d->%d body=%.1f,%.1f hp=%d %s\n",
+                               k1, k2, dead_body, dead_pad, drawn1, drawn2,
+                               (double)(bx - r10[0]), (double)(bz - r10[2]),
+                               port_api_health(),
+                               (k2 == k1 + 1 && dead_body) ? "BODYKILL" : "bodymiss");
+                    }
                 }
             }
         }

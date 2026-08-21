@@ -208,6 +208,58 @@ static int test_world_hitscan(void)
     printf("hitscan_guard_alive B marked=%d kills=%d\n", port_stan_guard_was_hit(1),
            port_score_kills());
 
+    /* Walking body: cylinder follows xz. Old pad does not kill. */
+    if (load_corridor() != 0)
+        return 1;
+    port_stan_add_guard(260.0f, 0.0f);
+    port_stan_move_guard(260.0f, 0.0f, 260.0f, 40.0f);
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    if (fire_once(150) != 0)
+        return 1;
+    if (port_score_kills() != 0)
+        return fail("old pad kill after move");
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("old pad should still hit far tile");
+    if (fabsf(hx - 400.0f) > 1.0f) {
+        fprintf(stderr, "old pad hit x=%g want ~400\n", (double)hx);
+        return 1;
+    }
+    {
+        float th = atan2f(180.0f, -40.0f) * (180.0f / 3.1415927f);
+        if (th < 0.0f)
+            th += 360.0f;
+        port_player_set_pose(80.0f, y, 0.0f, th);
+    }
+    if (fire_once(152) != 0)
+        return 1;
+    if (port_score_kills() != 1)
+        return fail("moved xz kill");
+    if (!port_stan_guard_was_hit(0))
+        return fail("moved guard not marked");
+    if (!port_stan_guard_dead_at(260.0f, 40.0f))
+        return fail("dead_at moved xz");
+    if (port_stan_guard_dead_at(260.0f, 0.0f))
+        return fail("dead_at old pad after move");
+    printf("hitscan_guard_moved kills=%d dead_new=%d dead_pad=%d (260,0 -> 260,40)\n",
+           port_score_kills(), port_stan_guard_dead_at(260.0f, 40.0f),
+           port_stan_guard_dead_at(260.0f, 0.0f));
+
+    /* 0 hp: rising Z spends no mag. */
+    {
+        int mag0;
+        port_player_spawn();
+        port_player_damage(PORT_PLAYER_HEALTH_MAX);
+        mag0 = port_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        if (port_gun_mag() != mag0)
+            return fail("dead player still fired");
+        if (port_gun_hits() != 0)
+            return fail("dead player scored a hit");
+        printf("gun_dead_nofire mag=%d hp=%d\n", port_gun_mag(), port_player_health());
+    }
+
     /* Door-only, no tiles, look away: miss (fake wall is off). */
     port_stan_unload();
     port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);

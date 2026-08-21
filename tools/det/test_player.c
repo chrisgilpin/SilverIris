@@ -850,6 +850,13 @@ static int test_player_health(void)
     port_player_damage(1);
     if (port_player_health() != 0)
         return fail("dead stay 0");
+    {
+        float x0 = port_player_x();
+        float z0 = port_player_z();
+        port_player_tick(0, 80, 0);
+        if (port_player_x() != x0 || port_player_z() != z0)
+            return fail("dead player still walked");
+    }
     port_player_spawn();
     if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
         return fail("respawn health");

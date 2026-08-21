@@ -136,6 +136,8 @@ void port_gun_tick(uint16_t buttons)
     /* Door use consumed this Z (Rare B-activate vs fire). Still latch prev. */
     if (suppress)
         return;
+    if (port_player_health() <= 0)
+        return;
     if (g->mag <= 0) {
         reload();
         return;

@@ -35,6 +35,8 @@ void port_stan_add_door(float world_x, float world_z, float look_x, float look_z
 #define PORT_DOOR_HEIGHT 250.0f
 void port_stan_clear_guards(void);
 void port_stan_add_guard(float world_x, float world_z);
+/* Follow a walking body: move the cylinder that sits at from xz. Idle pads stay. */
+void port_stan_move_guard(float from_x, float from_z, float to_x, float to_z);
 int port_stan_guard_count(void);
 int port_stan_guard_was_hit(int i);
 void port_stan_mark_ray_guard(void);

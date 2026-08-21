@@ -993,9 +993,19 @@ static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1
     wy = floor_y + r1[1];
     if (!(wy == wy) || wy > 1.0e20f || wy < -1.0e20f)
         return 0;
-    g_prop[g_walk_prop].pos[0] = lx + r1[0];
-    g_prop[g_walk_prop].pos[1] = wy;
-    g_prop[g_walk_prop].pos[2] = lz + r1[2];
+    {
+        float ox = g_prop[g_walk_prop].pos[0];
+        float oz = g_prop[g_walk_prop].pos[2];
+        float nx = lx + r1[0];
+        float nz = lz + r1[2];
+        g_prop[g_walk_prop].pos[0] = nx;
+        g_prop[g_walk_prop].pos[1] = wy;
+        g_prop[g_walk_prop].pos[2] = nz;
+        /* Hitscan / hide-body / pad-kill use the stan cylinder. Keep it
+         * on the walking body. Idle guards never sit, so they stay put. */
+        if (ox != nx || oz != nz)
+            port_stan_move_guard(ox, oz, nx, nz);
+    }
     return 1;
 }
 
@@ -1119,6 +1129,9 @@ void port_prop_tick_walk(void)
     float r1[3], lx, lz, tx, tz, dx, dz, dist, step, nx, nz;
 
     if (!g_have_walk || g_walkers < 1 || g_walk_nframes < 1)
+        return;
+    if (g_walk_prop >= 0 && g_walk_prop < g_nprop &&
+        port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0], g_prop[g_walk_prop].pos[2]))
         return;
     set_walk_frame(g_walk_frame + 1);
     if (!g_walk_path_ok || g_walk_prop < 0 || g_walk_prop >= g_nprop)

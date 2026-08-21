@@ -336,6 +336,8 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
 
     if (!p->spawned)
         return;
+    if (p->health <= 0)
+        return;
 
     walk = (float)analog_deadzone((int)stick_y) / STICK_DIV;
     turn = (float)analog_deadzone((int)stick_x) / STICK_DIV;
