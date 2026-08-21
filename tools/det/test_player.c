@@ -1236,6 +1236,69 @@ static int test_clip_stair_link_keeps_high(void)
     return 0;
 }
 
+
+static void build_wide_corridor_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0x88 + 0, 0);
+    wr_s16(s + 0x88 + 2, 50);
+    wr_s16(s + 0x88 + 4, -200);
+    wr_s16(s + 0x90 + 0, 400);
+    wr_s16(s + 0x90 + 2, 50);
+    wr_s16(s + 0x90 + 4, -200);
+    wr_s16(s + 0x98 + 0, 400);
+    wr_s16(s + 0x98 + 2, 50);
+    wr_s16(s + 0x98 + 4, 200);
+    wr_s16(s + 0xA0 + 0, 0);
+    wr_s16(s + 0xA0 + 2, 50);
+    wr_s16(s + 0xA0 + 4, 200);
+}
+
+/* Fitted 320-wide slab must block a |across|=120 step the old 90-half leaked. */
+static int test_door_fitted_width(void)
+{
+    uint8_t stan[256];
+    float nx, nz, ny, y;
+
+    port_stan_unload();
+    build_wide_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("wide stan load");
+    port_stan_clear_doors();
+    port_stan_add_door_w(300.0f, 0.0f, 1.0f, 0.0f, 320.0f);
+    if (port_stan_eye_y(200.0f, 120.0f, &y) != 0)
+        return fail("wide eye");
+
+    nx = 310.0f;
+    nz = 120.0f;
+    ny = y;
+    port_stan_clip_step(200.0f, 120.0f, &nx, &nz, &ny);
+    if (nx >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "wide closed leaked x=%g z=%g\n", (double)nx, (double)nz);
+        return fail("wide closed side");
+    }
+    printf("door_fitted closed side x=%.1f (want <285)\n", (double)nx);
+
+    port_stan_set_door_open(0, 1);
+    nx = 310.0f;
+    nz = 120.0f;
+    ny = y;
+    port_stan_clip_step(200.0f, 120.0f, &nx, &nz, &ny);
+    if (nx < 300.0f) {
+        fprintf(stderr, "wide open blocked x=%g\n", (double)nx);
+        return fail("wide open side");
+    }
+    printf("door_fitted open side x=%.1f\n", (double)nx);
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -1300,6 +1363,8 @@ int main(void)
     if (test_offtile_recover() != 0)
         return 1;
     if (test_door_use_open() != 0)
+        return 1;
+    if (test_door_fitted_width() != 0)
         return 1;
     if (test_door_use_does_not_fire() != 0)
         return 1;

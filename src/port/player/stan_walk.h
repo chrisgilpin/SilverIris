@@ -28,6 +28,9 @@ int port_stan_ready(void);
 
 void port_stan_clear_doors(void);
 void port_stan_add_door(float world_x, float world_z, float look_x, float look_z);
+/* Full Rare portal/quad width. 0 keeps the default 90 half-slab (pad doors). */
+void port_stan_add_door_w(float world_x, float world_z, float look_x, float look_z,
+                         float width);
 
 /* Standing setup-guard body at the pad (world xz). Radius PORT_GUARD_RADIUS. */
 #define PORT_GUARD_RADIUS 30.0f

@@ -749,7 +749,8 @@ static void bind_path_openings(void)
             lx = 0.f;
             lz = -1.f;
         }
-        port_stan_add_door(g_portals[i].pos[0], g_portals[i].pos[2], lx, lz);
+        port_stan_add_door_w(g_portals[i].pos[0], g_portals[i].pos[2], lx, lz,
+                            g_portals[i].width);
     }
 }
 

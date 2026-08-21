@@ -183,7 +183,157 @@ static int path_unlatch_proof(void)
     return 0;
 }
 
+/* Side-offset closed step at a wide fitted portal. A fixed 90-half slab
+ * left walk-around gaps on r7-r8 / r20-r19 / r8-r5 / r1-r3. */
+static int wide_door_side_proof(void)
+{
+    float r1[3], pos[3], yaw = 0.f, width = 0.f;
+    float ox, oz, lx, lz, tx, tz, px, pz, y = 86.8f, th;
+    float nx, nz, ny, side;
+    int i, no, ra = 0, rb = 0, found = 0, used, opened;
+    int closed_block = 0, open_pass = 0;
+    static const int pick[][2] = {{7, 8}, {8, 7}, {20, 19}, {19, 20}};
+    int p;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    no = port_stage_opening_count();
+    for (p = 0; p < 4 && !found; p++) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (ra == pick[p][0] && rb == pick[p][1] && width > 200.f) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (port_stage_path_opening(ra, rb) && width > 200.f) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        printf("wide_door_side NONE (no wide path portal)\n");
+        fprintf(stderr, "wide_door_side no wide path portal\n");
+        return -1;
+    }
+    ox = pos[0] - r1[0];
+    oz = pos[2] - r1[2];
+    if (yaw == 90.f) {
+        lx = 1.f;
+        lz = 0.f;
+    } else {
+        lx = 0.f;
+        lz = -1.f;
+    }
+    tx = -lz;
+    tz = lx;
+    /* Midway between old 90-half and fitted half so a 90 slab would leak. */
+    side = 0.5f * (90.f + 0.5f * width);
+    if (side < 100.f)
+        side = 100.f;
+    if (side > 0.5f * width - 16.f)
+        side = 0.5f * width - 16.f;
+
+    {
+        int a, b, ok = 0;
+        float slx, slz;
+        for (a = 0; a < 2 && !ok; a++) {
+            slx = (a == 0) ? lx : -lx;
+            slz = (a == 0) ? lz : -lz;
+            for (b = 0; b < 2 && !ok; b++) {
+                float s = (b == 0) ? side : -side;
+                px = ox - slx * 120.f + tx * s;
+                pz = oz - slz * 120.f + tz * s;
+                if (port_stan_on_tile(px, pz)) {
+                    lx = slx;
+                    lz = slz;
+                    side = s;
+                    ok = 1;
+                }
+            }
+        }
+        if (!ok) {
+            printf("wide_door_side r%d-r%d w=%.1f off-tile\n", ra, rb,
+                   (double)width);
+            fprintf(stderr, "wide_door_side stand off-tile\n");
+            return -1;
+        }
+    }
+
+    if (port_stan_eye_y(px, pz, &y) != 0)
+        y = 86.8f;
+    th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    port_player_set_pose(px, y, pz, th);
+    port_player_set_pitch(0.f);
+
+    nx = ox + tx * side;
+    nz = oz + tz * side;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    {
+        float along = (nx - ox) * lx + (nz - oz) * lz;
+        closed_block = (along < -8.f) && !port_stan_door_is_open_at(pos[0], pos[2]);
+    }
+
+    used = port_stan_use_door(px, pz, lx, lz);
+    if (!used)
+        used = port_stan_use_door(px + r1[0], pz + r1[2], lx, lz);
+    opened = port_stan_door_is_open_at(pos[0], pos[2]);
+    if (!opened) {
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5100) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, 0x2000);
+        if (port_api_sim_tick(5101) != 0)
+            return -1;
+        opened = port_stan_door_is_open_at(pos[0], pos[2]);
+        if (opened)
+            used = 1;
+    }
+
+    port_player_set_pose(px, y, pz, th);
+    nx = ox + tx * side;
+    nz = oz + tz * side;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    {
+        float along = (nx - ox) * lx + (nz - oz) * lz;
+        open_pass = (along >= -8.f);
+    }
+    if (opened)
+        (void)port_stan_use_door(px, pz, lx, lz);
+
+    printf("wide_door_side r%d-r%d w=%.1f side=%.1f stand=%.1f,%.1f used=%d "
+           "opened=%d closed_block=%d open_pass=%d %s\n",
+           ra, rb, (double)width, (double)side, (double)px, (double)pz, used,
+           opened, closed_block, open_pass,
+           (closed_block && opened && open_pass) ? "OK" : "FAIL");
+    if (!closed_block) {
+        fprintf(stderr, "wide_door_side closed side step leaked\n");
+        return -1;
+    }
+    if (!opened) {
+        fprintf(stderr, "wide_door_side did not open\n");
+        return -1;
+    }
+    if (!open_pass) {
+        fprintf(stderr, "wide_door_side open side step blocked\n");
+        return -1;
+    }
+    return 0;
+}
+
 static void usage(void)
+
 {
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
 }
@@ -430,8 +580,9 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
 
 /* Walk clip_step from spawn to a ground stair foot. Facility r20 lab
  * north wall is an unlinked gap; Rare point.link hops r20->r19->r18.
- * Setup PROPDEF_DOOR pads sit in the gas-plant cluster (~9ku) and are
- * not bound here. Must REACH the foot in 400 steps. */
+ * Path portal slabs now span the Rare quad, so this walk stops at the
+ * first closed fitted door (r7-r8). Z-unlatch is proved separately.
+ * Setup PROPDEF_DOOR pads sit in the gas-plant cluster (~9ku). */
 static int spawn_to_stair_note(float sx, float sz, float tx, float tz)
 {
     float x = sx, z = sz, ny = 0.f;
@@ -483,6 +634,10 @@ static int spawn_to_stair_note(float sx, float sz, float tx, float tz)
            "eye=%.1f room=%d hops=%d\n",
            blocked ? "DOOR" : "SHORT", k, (double)sx, (double)sz, room0,
            (double)x, (double)z, (double)ny, room1, hops);
+    if (blocked) {
+        printf("spawn_to_stair note: closed path door (Z-unlatch is separate)\n");
+        return 0;
+    }
     fprintf(stderr, "spawn_to_stair failed (want r3/r18 foot)\n");
     return -1;
 }
@@ -1090,6 +1245,8 @@ int main(int argc, char **argv)
             float sx = port_api_player_x(), sz = port_api_player_z();
             int urc = path_unlatch_proof();
             if (urc == 0)
+                urc = wide_door_side_proof();
+            if (urc == 0)
                 urc = spawn_to_stair_note(sx, sz, R18_STAIR_X, R18_STAIR_Z);
             port_api_shutdown();
             free(pack);
@@ -1411,6 +1568,8 @@ int main(int argc, char **argv)
     if (lab_path_proof(out_dir) != 0)
         goto done;
     if (path_unlatch_proof() != 0)
+        goto done;
+    if (wide_door_side_proof() != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */

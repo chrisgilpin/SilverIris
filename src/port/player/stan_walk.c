@@ -11,6 +11,7 @@
 #define PORT_STAN_MAX_PTS 10
 #define PORT_STAN_MAX_DOORS 128
 #define PORT_STAN_MAX_GUARDS 128
+/* Pad-door default. Fitted path portals store Rare quad half-width. */
 #define PORT_DOOR_HALF_W 90.0f
 #define PORT_DOOR_HALF_T 15.0f
 #define PORT_RAY_TMIN 0.05f
@@ -35,6 +36,7 @@ typedef struct {
 
 typedef struct {
     float x, z, nx, nz, tx, tz;
+    float half_w;
     int open;
     int side;
 } StanDoor;
@@ -184,6 +186,12 @@ void port_stan_mark_ray_guard(void)
 
 void port_stan_add_door(float world_x, float world_z, float look_x, float look_z)
 {
+    port_stan_add_door_w(world_x, world_z, look_x, look_z, 0.0f);
+}
+
+void port_stan_add_door_w(float world_x, float world_z, float look_x, float look_z,
+                         float width)
+{
     StanDoor *d;
     float len, inv;
     if (g_ndoor >= PORT_STAN_MAX_DOORS)
@@ -199,6 +207,9 @@ void port_stan_add_door(float world_x, float world_z, float look_x, float look_z
     d->nz = look_z * inv;
     d->tx = -d->nz;
     d->tz = d->nx;
+    d->half_w = (width > 1.0f) ? (0.5f * width) : PORT_DOOR_HALF_W;
+    if (d->half_w < 1.0f)
+        d->half_w = PORT_DOOR_HALF_W;
     d->open = 0;
     d->side = 0;
 }
@@ -590,7 +601,7 @@ static int hit_door_world(float wx, float wz)
             across = -across;
         if (d->open)
             continue;
-        if (along <= PORT_DOOR_HALF_T && across <= PORT_DOOR_HALF_W)
+        if (along <= PORT_DOOR_HALF_T && across <= d->half_w)
             return 1;
     }
     return 0;
@@ -1948,7 +1959,7 @@ static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float 
         t1 = PORT_RAY_TMAX;
         if (!ray_aabb_1d(ox, odx, -PORT_DOOR_HALF_T, PORT_DOOR_HALF_T, &t0, &t1))
             continue;
-        if (!ray_aabb_1d(oz, odz, -PORT_DOOR_HALF_W, PORT_DOOR_HALF_W, &t0, &t1))
+        if (!ray_aabb_1d(oz, odz, -d->half_w, d->half_w, &t0, &t1))
             continue;
         {
             float floor = object_floor_local(d->x, d->z);
