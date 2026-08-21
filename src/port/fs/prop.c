@@ -2904,7 +2904,8 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
  * from the player recorded at use. Sliding parks along that tangent
  * by 2*HALF_W. Vertical lifts. No Rare lock/key.
  * frac 0..1 (PORT_DOOR_OPEN_TICKS) swings the angle / slides the
- * offset so Z-unlatch is not a teleport. Collision uses open, not frac.
+ * offset so Z-unlatch is not a teleport. Close reverse-swings the
+ * same ticks. Collision stays off until frac hits 0.
  */
 static void door_open_pose(const PortProp *pr, float frac, float *add_yaw, float *dx,
                            float *dy, float *dz)

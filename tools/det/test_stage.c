@@ -3561,7 +3561,8 @@ static int test_door_open_pose(void)
     printf("door_open_pose open x=%.1f mag=%u cx=%.1f drawn=%d\n", (double)x1, mag_open,
            (double)cx_open, port_stage_props_drawn());
 
-    /* Second Z closes. */
+    /* Second Z closes. Reverse-swing over the same ticks; first
+     * close frame must not snap to the closed centroid. */
     port_player_set_pose(250.f, y, 0.f, 90.f);
     port_api_set_pad(0, 0, 0, 0);
     if (port_api_sim_tick(1100) != 0)
@@ -3571,7 +3572,25 @@ static int test_door_open_pose(void)
         return fail("open-pose close z");
     if (port_stan_door_is_open(0))
         return fail("open-pose did not close");
+    {
+        float f = port_stan_door_frac_at(300.f, 0.f);
+        if (f <= 0.15f || f >= 0.99f)
+            return fail("open-pose close frac not mid");
+    }
 
+    port_player_set_pose(250.f, y, 0.f, 90.f);
+    port_api_draw();
+    mag_re = magenta_centroid_x(&cx_re);
+    if (mag_re < 20)
+        return fail("open-pose close-mid pixels");
+    if (fabsf(cx_re - cx_closed) < 8.f)
+        return fail("open-pose close snapped");
+
+    port_api_set_pad(0, 0, 0, 0);
+    for (i = 0; i < PORT_DOOR_OPEN_TICKS - 1; i++) {
+        if (port_api_sim_tick((uint32_t)(1102 + i)) != 0)
+            return fail("open-pose close tick");
+    }
     port_player_set_pose(250.f, y, 0.f, 90.f);
     port_api_draw();
     mag_re = magenta_centroid_x(&cx_re);
@@ -3582,6 +3601,8 @@ static int test_door_open_pose(void)
                 (double)cx_closed);
         return fail("open-pose reclose pixels drifted");
     }
+    if (port_stan_door_frac_at(300.f, 0.f) > 0.01f)
+        return fail("open-pose close frac not 0");
 
     port_player_set_pose(200.f, y, 0.f, 90.f);
     port_api_set_pad(0, 0, -70, 0);

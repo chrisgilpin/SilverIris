@@ -55,7 +55,8 @@ int port_stan_door_is_open(int i);
 int port_stan_door_is_open_at(float world_x, float world_z);
 /* Last use: +1 player was on +look, -1 on -look, 0 never used. */
 int port_stan_door_side_at(float world_x, float world_z);
-/* Visual park 0..1 over a few ticks. Collision uses open, not frac. */
+/* Visual park 0..1 over a few ticks either way. Collision is off
+ * while open or frac>0 and returns only when frac hits 0. */
 #define PORT_DOOR_OPEN_TICKS 6
 void port_stan_tick_doors(void);
 float port_stan_door_frac_at(float world_x, float world_z);

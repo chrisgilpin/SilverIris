@@ -296,13 +296,17 @@ float port_stan_door_half_w_at(float world_x, float world_z)
 void port_stan_tick_doors(void)
 {
     int i;
+    const float step = 1.f / (float)PORT_DOOR_OPEN_TICKS;
     for (i = 0; i < g_ndoor; i++) {
         if (g_door[i].open) {
-            g_door[i].frac += 1.f / (float)PORT_DOOR_OPEN_TICKS;
+            g_door[i].frac += step;
             if (g_door[i].frac > 1.f)
                 g_door[i].frac = 1.f;
-        } else {
-            g_door[i].frac = 0.f;
+        } else if (g_door[i].frac > 0.f) {
+            /* Reverse-swing/slide. Spawn stays frac=0 (no auto-close). */
+            g_door[i].frac -= step;
+            if (g_door[i].frac < 1e-5f)
+                g_door[i].frac = 0.f;
         }
     }
 }
@@ -360,8 +364,10 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
                 continue;
             g_door[i].open = open;
             g_door[i].side = side;
-            /* Open: restart swing/slide. Close: snap closed so spawn stall holds. */
-            g_door[i].frac = 0.f;
+            /* Open: restart swing/slide from closed. Close: leave frac
+             * so tick_doors reverse-swings over the same ticks. */
+            if (open)
+                g_door[i].frac = 0.f;
         }
     }
     return 1;
@@ -668,7 +674,9 @@ static int hit_door_world(float wx, float wz)
             along = -along;
         if (across < 0.0f)
             across = -across;
-        if (d->open)
+        /* Walkable while opening or reverse-closing. Collision
+         * returns only when frac hits 0 (spawn first frame). */
+        if (d->open || d->frac > 0.f)
             continue;
         if (along <= PORT_DOOR_HALF_T && across <= d->half_w)
             return 1;
@@ -2018,7 +2026,7 @@ static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float 
     for (i = 0; i < g_ndoor; i++) {
         const StanDoor *d = &g_door[i];
         float ox, oz, odx, odz, t0, t1;
-        if (d->open)
+        if (d->open || d->frac > 0.f)
             continue;
         ox = (wx - d->x) * d->nx + (wz - d->z) * d->nz;
         oz = (wx - d->x) * d->tx + (wz - d->z) * d->tz;

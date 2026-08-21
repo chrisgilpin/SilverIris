@@ -764,6 +764,11 @@ static int test_door_use_open(void)
         return fail("use close z");
     if (port_stan_door_is_open(0))
         return fail("use did not close");
+    {
+        float f = port_stan_door_frac_at(300.0f, 0.0f);
+        if (f <= 0.15f || f >= 0.99f)
+            return fail("use close frac not mid");
+    }
 
     port_player_set_pose(200.0f, y, 0.0f, 90.0f);
     port_set_local_pad(0, 0, (int8_t)-70, 0);

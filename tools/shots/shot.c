@@ -39,6 +39,7 @@ static uint32_t g_last_fb_adler;
 static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
+static void door_tick_n(int n);
 
 /* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15 / ground r2-r3 / r3-r5 / r5-r4 / r10-r11 / r21-r22 / r72-r3 / r73-r11.
  * Far-links with no slab are not listed — do not invent doors. */
@@ -213,6 +214,7 @@ static int path_unlatch_proof(void)
         parked = (pdx * pdx + pdz * pdz > 40.f * 40.f) || (fabsf(pyaw) > 30.f);
         if (opened)
             (void)port_stan_use_door(px, pz, lx, lz);
+        door_tick_n(PORT_DOOR_OPEN_TICKS);
 
         printf("path_unlatch r%d-r%d local=%.1f,%.1f stand=%.1f,%.1f used=%d "
                "opened=%d closed_block=%d open_pass=%d frac=%.2f park=%.1f,%.1f "
@@ -234,6 +236,160 @@ static int path_unlatch_proof(void)
                     (double)frac, (double)pdx, (double)pdz, (double)pyaw);
             return -1;
         }
+    }
+    return 0;
+}
+
+static void door_tick_n(int n)
+{
+    int tck;
+    for (tck = 0; tck < n; tck++)
+        port_stan_tick_doors();
+}
+
+/* Open a documented path door (prefer r8-r7), then Z-close: after a
+ * few ticks frac is mid and collision is still off; after 6 close
+ * ticks frac=0, pose is closed, collision on. No auto-close timer. */
+static int path_close_swing_proof(void)
+{
+    float r1[3], pos[3], yaw = 0.f, width = 0.f;
+    float ox, oz, lx, lz, px, pz, y = 86.8f, th;
+    float nx, nz, ny, ax, az;
+    float frac_mid = -1.f, frac_end = -1.f, pdx = 0.f, pdz = 0.f, pyaw = 0.f;
+    int i, no, ra = 0, rb = 0, found = 0, used, opened;
+    int mid_pass = 0, closed_block = 0, pose_closed = 0, still_shut = 0;
+    static const int pick[][2] = {{8, 7}, {7, 8}};
+    int p;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    no = port_stage_opening_count();
+    for (p = 0; p < 2 && !found; p++) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (ra != pick[p][0] || rb != pick[p][1])
+                continue;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        printf("path_close_swing NONE (no r8-r7)\n");
+        fprintf(stderr, "path_close_swing no r8-r7 portal\n");
+        return -1;
+    }
+    ox = pos[0] - r1[0];
+    oz = pos[2] - r1[2];
+    if (yaw == 90.f) {
+        lx = 1.f;
+        lz = 0.f;
+    } else {
+        lx = 0.f;
+        lz = -1.f;
+    }
+    px = ox - lx * 120.f;
+    pz = oz - lz * 120.f;
+    if (!port_stan_on_tile(px, pz)) {
+        px = ox + lx * 120.f;
+        pz = oz + lz * 120.f;
+        lx = -lx;
+        lz = -lz;
+    }
+    if (!port_stan_on_tile(px, pz)) {
+        printf("path_close_swing r%d-r%d off-tile\n", ra, rb);
+        fprintf(stderr, "path_close_swing stand off-tile\n");
+        return -1;
+    }
+    if (port_stan_eye_y(px, pz, &y) != 0)
+        y = 86.8f;
+    th = atan2f(lx, -lz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    port_player_set_pose(px, y, pz, th);
+    port_player_set_pitch(0.f);
+
+    /* Park open first so close has a full 6-tick reverse. */
+    used = port_stan_use_door(px, pz, lx, lz);
+    if (!used)
+        used = port_stan_use_door(px + r1[0], pz + r1[2], lx, lz);
+    opened = port_stan_door_is_open_at(pos[0], pos[2]);
+    if (!opened) {
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5300) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, 0x2000);
+        if (port_api_sim_tick(5301) != 0)
+            return -1;
+        opened = port_stan_door_is_open_at(pos[0], pos[2]);
+        if (opened)
+            used = 1;
+    }
+    if (!opened) {
+        printf("path_close_swing r%d-r%d did not open\n", ra, rb);
+        fprintf(stderr, "path_close_swing did not open\n");
+        return -1;
+    }
+    door_tick_n(PORT_DOOR_OPEN_TICKS);
+
+    /* Z-close (or the existing close path). */
+    (void)port_stan_use_door(px, pz, lx, lz);
+    if (port_stan_door_is_open_at(pos[0], pos[2])) {
+        fprintf(stderr, "path_close_swing did not close\n");
+        return -1;
+    }
+
+    door_tick_n(3);
+    frac_mid = port_stan_door_frac_at(pos[0], pos[2]);
+    port_player_set_pose(px, y, pz, th);
+    nx = ox;
+    nz = oz;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    ax = nx - ox;
+    az = nz - oz;
+    mid_pass = (frac_mid > 0.15f && frac_mid < 0.99f) &&
+               (ax * ax + az * az <= 400.f);
+
+    door_tick_n(PORT_DOOR_OPEN_TICKS - 3);
+    frac_end = port_stan_door_frac_at(pos[0], pos[2]);
+    (void)port_prop_door_park_offset(pos[0], pos[2], yaw, &pdx, &pdz, &pyaw);
+    port_player_set_pose(px, y, pz, th);
+    nx = ox;
+    nz = oz;
+    ny = y;
+    port_stan_clip_step(px, pz, &nx, &nz, &ny);
+    ax = nx - ox;
+    az = nz - oz;
+    closed_block = (frac_end <= 0.01f) && (ax * ax + az * az > 25.f);
+    pose_closed = (pdx * pdx + pdz * pdz < 16.f) && (fabsf(pyaw) < 2.f);
+
+    /* Extra ticks must not auto-reopen. */
+    door_tick_n(PORT_DOOR_OPEN_TICKS);
+    still_shut = (port_stan_door_frac_at(pos[0], pos[2]) <= 0.01f) &&
+                 !port_stan_door_is_open_at(pos[0], pos[2]);
+
+    printf("path_close_swing r%d-r%d stand=%.1f,%.1f used=%d mid_frac=%.2f "
+           "mid_pass=%d end_frac=%.2f closed_block=%d pose=%.1f,%.1f "
+           "yaw=%.1f still_shut=%d spawn_adler=%08x %s\n",
+           ra, rb, (double)px, (double)pz, used, (double)frac_mid, mid_pass,
+           (double)frac_end, closed_block, (double)pdx, (double)pdz,
+           (double)pyaw, still_shut, g_spawn_fb_adler,
+           (mid_pass && closed_block && pose_closed && still_shut) ? "OK"
+                                                                   : "FAIL");
+    if (!mid_pass) {
+        fprintf(stderr, "path_close_swing mid frac=%g not walkable\n",
+                (double)frac_mid);
+        return -1;
+    }
+    if (!closed_block || !pose_closed) {
+        fprintf(stderr, "path_close_swing end frac=%g park=%.1f,%.1f yaw=%.1f\n",
+                (double)frac_end, (double)pdx, (double)pdz, (double)pyaw);
+        return -1;
+    }
+    if (!still_shut) {
+        fprintf(stderr, "path_close_swing auto-moved after close\n");
+        return -1;
     }
     return 0;
 }
@@ -366,6 +522,7 @@ static int wide_door_side_proof(void)
     }
     if (opened)
         (void)port_stan_use_door(px, pz, lx, lz);
+    door_tick_n(PORT_DOOR_OPEN_TICKS);
 
     printf("wide_door_side r%d-r%d w=%.1f side=%.1f stand=%.1f,%.1f used=%d "
            "opened=%d closed_block=%d open_pass=%d %s\n",
@@ -506,6 +663,7 @@ static int hinge_park_one(const int pick[][2], int npick, float wlo, float whi,
             ok = 0; /* flew across the room */
         if (opened)
             (void)port_stan_use_door(px, pz, lx, lz);
+        door_tick_n(PORT_DOOR_OPEN_TICKS);
         printf("hinge_park %s r%d-r%d w=%.1f hw=%.1f stand=%.1f,%.1f used=%d "
                "opened=%d frac=%.2f park=%.1f,%.1f along=%.1f dist=%.1f "
                "yaw=%.1f %s\n",
@@ -1451,6 +1609,8 @@ int main(int argc, char **argv)
             if (urc == 0)
                 urc = hinge_width_park_proof();
             if (urc == 0)
+                urc = path_close_swing_proof();
+            if (urc == 0)
                 urc = spawn_to_stair_note(sx, sz, R18_STAIR_X, R18_STAIR_Z);
             port_api_shutdown();
             free(pack);
@@ -1776,6 +1936,8 @@ int main(int argc, char **argv)
     if (wide_door_side_proof() != 0)
         goto done;
     if (hinge_width_park_proof() != 0)
+        goto done;
+    if (path_close_swing_proof() != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */
