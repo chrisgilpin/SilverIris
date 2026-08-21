@@ -1006,23 +1006,42 @@ static PortModel *load_chr_aim(int body)
  * stepping chasers borrow the same per-body walk model. */
 static void assign_walkers(void)
 {
-    int i, best = -1, next = -1;
+    int i, best = -1, next = -1, prev_walk;
     float best_d = 1e18f, next_d = 1e18f;
-    float sx = g_have_intro ? g_intro_pos[0] : 0.f;
-    float sz = g_have_intro ? g_intro_pos[2] : 0.f;
+    float r1[3];
+    float sx, sz;
     PortModel *wm;
     const PortPropCat *cat;
     size_t wn;
 
+    /* Rank from snapped Bond (local), not raw intro pad 167. That pad
+     * sits 144u past the last walkway tile; ranking from it can leave
+     * the look-slab idle on the spawn 270 cone. */
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    if (g_have_spawn_xz) {
+        sx = g_walk_spawn_x;
+        sz = g_walk_spawn_z;
+    } else if (g_have_intro) {
+        sx = g_intro_pos[0] - r1[0];
+        sz = g_intro_pos[2] - r1[2];
+    } else {
+        sx = 0.f;
+        sz = 0.f;
+    }
+
+    prev_walk = g_walk_prop;
     g_walkers = 0;
     g_walk_prop = -1;
     g_idle_prop = -1;
     for (i = 0; i < g_nprop; i++) {
-        float dx, dz, d;
+        float lx, lz, dx, dz, d;
         if (g_prop[i].type != PDEF_GUARD || !g_prop[i].mdl)
             continue;
-        dx = g_prop[i].pos[0] - sx;
-        dz = g_prop[i].pos[2] - sz;
+        lx = g_prop[i].pos[0] - r1[0];
+        lz = g_prop[i].pos[2] - r1[2];
+        dx = lx - sx;
+        dz = lz - sz;
         d = dx * dx + dz * dz;
         if (d < best_d) {
             next = best;
@@ -1035,6 +1054,28 @@ static void assign_walkers(void)
         }
     }
     g_idle_prop = best;
+    /* Re-rank after the stall snap may pick a different mover. */
+    if (prev_walk >= 0 && prev_walk < g_nprop && prev_walk != next) {
+        PortModel *im = load_chr(g_prop[prev_walk].model);
+        const PortPropCat *icat = chr_by_id(g_prop[prev_walk].model);
+        if (im) {
+            g_prop[prev_walk].mdl = im;
+            g_prop[prev_walk].scale =
+                (icat ? icat->scale : 1.f) *
+                (im->fit_scale != 0.f ? im->fit_scale : 1.f);
+            if (im->have_head) {
+                g_prop[prev_walk].head_off[0] = im->head_off[0];
+                g_prop[prev_walk].head_off[1] = im->head_off[1] - im->fit_ymin;
+                g_prop[prev_walk].head_off[2] = im->head_off[2];
+                g_prop[prev_walk].head_rx = im->head_rx;
+                g_prop[prev_walk].head_ry = im->head_ry;
+                g_prop[prev_walk].head_rz = im->head_rz;
+            }
+        }
+    }
+    if (g_have_spawn_xz && (best >= 0 || next >= 0))
+        printf("walker_rank snapped=1 sx=%.1f,%.1f idle=%d walk=%d\n",
+               (double)sx, (double)sz, best, next);
     if (!g_have_walk || next < 0)
         return;
     wm = load_chr_walk(g_prop[next].model);
@@ -1353,6 +1394,7 @@ int port_prop_place_walker_near_spawn(void)
     g_walk_spawn_x = sx;
     g_walk_spawn_z = sz;
     g_have_spawn_xz = 1;
+    assign_walkers();
     if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
         return 0;
     /* Pass 0: open floor (neighbors walkable). Pass 1: any ground tile. */

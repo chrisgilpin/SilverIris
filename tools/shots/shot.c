@@ -2029,6 +2029,28 @@ int main(int argc, char **argv)
                    (double)wx, (double)wy, (double)wz,
                    (double)(wx - r1[0]), (double)(wy - r1[1]), (double)(wz - r1[2]),
                    port_prop_walk_frame());
+            {
+                float lx = wx - r1[0], lz = wz - r1[2];
+                float sx = port_api_player_x(), sz = port_api_player_z();
+                float dx = lx - sx, dz = lz - sz, fwd = -dx;
+                int slab = 0;
+                /* Same cone as spawn_look_slab: spawn looks 270 (-X). */
+                if (dx <= 40.f) {
+                    if (fwd < 80.f && dx * dx + dz * dz < 180.f * 180.f)
+                        slab = 1;
+                    if (fwd > 0.f && fwd < 700.f &&
+                        dz * dz < (0.65f * fwd) * (0.65f * fwd))
+                        slab = 1;
+                }
+                printf("walker_offslab local=%.1f,%.1f spawn=%.1f,%.1f slab=%d %s\n",
+                       (double)lx, (double)lz, (double)sx, (double)sz, slab,
+                       slab ? "ONSLAB" : "OFFSLAB");
+                if (slab) {
+                    fprintf(stderr, "walker sat on spawn look slab\n");
+                    free(pack);
+                    return 3;
+                }
+            }
         }
         {
             float sx = port_api_player_x(), sz = port_api_player_z();
