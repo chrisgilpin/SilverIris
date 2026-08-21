@@ -3871,6 +3871,129 @@ static int test_zbuf_identity_leftover(void)
     return 0;
 }
 
+
+/* Receding textured floor, two camera Z. Affine ST crawls the red|green
+ * seam as the near edge grows; 1/w sample keeps world X=0 at screen center. */
+static int run_persp_floor(float cam_z, int *edge_x, unsigned *nred, unsigned *ngrn)
+{
+    uint8_t pix[32], vtx_be[4 * 16], gdl[48];
+    Vtx vtx[4];
+    int i, ngfx, y, x, edges = 0, edge_sum = 0;
+    unsigned red = 0, grn = 0;
+    const uint8_t *fb;
+
+    memset(pix, 0, sizeof pix);
+    for (i = 0; i < 8; i++) {
+        if (i < 4) {
+            pix[i * 4 + 0] = 240;
+            pix[i * 4 + 3] = 255;
+        } else {
+            pix[i * 4 + 1] = 220;
+            pix[i * 4 + 3] = 255;
+        }
+    }
+    g1_tex_unload();
+    if (g1_tex_load_raw(42, G1_TEX_RGBA32, 8, 1, pix, 32, NULL, 0) != 0)
+        return fail("persp-floor load");
+
+    memset(vtx, 0, sizeof vtx);
+    /* World floor y=0, x=±160, z=-80..-640. U=0 left, U=256 right; seam at X=0. */
+    vtx[0].v.ob[0] = -160;
+    vtx[0].v.ob[2] = -80;
+    vtx[0].v.tc[0] = 0;
+    vtx[1].v.ob[0] = 160;
+    vtx[1].v.ob[2] = -80;
+    vtx[1].v.tc[0] = 256;
+    vtx[2].v.ob[0] = -160;
+    vtx[2].v.ob[2] = -640;
+    vtx[2].v.tc[0] = 0;
+    vtx[2].v.tc[1] = 256;
+    vtx[3].v.ob[0] = 160;
+    vtx[3].v.ob[2] = -640;
+    vtx[3].v.tc[0] = 256;
+    vtx[3].v.tc[1] = 256;
+    for (i = 0; i < 4; i++) {
+        vtx[i].v.cn[0] = 180;
+        vtx[i].v.cn[1] = 180;
+        vtx[i].v.cn[2] = 180;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x30 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, VTX_SEG14);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 42);
+    ngfx++;
+    /* TRI4: (0,1,2) + (1,3,2) */
+    wr_be32(gdl + ngfx * 8, 0xB1000022u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00003110u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+
+    g1_set_lookat(0.f, 80.f, cam_z, 0.f);
+    g1_set_pitch(-28.f);
+    g1_set_segment(14, (uintptr_t)vtx_be);
+    if (g1_interpret_be_dl(gdl, (uint32_t)ngfx) != 0)
+        return fail("persp-floor interpret");
+    if (g1_tex_ok_count() < 1)
+        return fail("persp-floor SETTEX");
+
+    fb = g1_fb_rgba();
+    for (y = 120; y < G1_FB_H; y++) {
+        int first_g = -1, last_r = -1;
+        for (x = 40; x < G1_FB_W - 40; x++) {
+            unsigned r = fb[(y * G1_FB_W + x) * 4];
+            unsigned g = fb[(y * G1_FB_W + x) * 4 + 1];
+            int is_r = (r > 180 && g < 80);
+            int is_g = (g > 160 && r < 80);
+            if (is_r) {
+                last_r = x;
+                if (x >= 100 && x < 150)
+                    red++;
+            } else if (is_g) {
+                if (first_g < 0)
+                    first_g = x;
+                if (x >= 170 && x < 220)
+                    grn++;
+            }
+        }
+        if (last_r > 0 && first_g > last_r && first_g - last_r <= 6) {
+            edge_sum += (last_r + first_g) / 2;
+            edges++;
+        }
+    }
+    *nred = red;
+    *ngrn = grn;
+    *edge_x = edges ? (edge_sum / edges) : -1;
+    g1_clear_lookat();
+    g1_tex_unload();
+    return 0;
+}
+
+static int test_persp_floor_uv_stable(void)
+{
+    int e0, e1;
+    unsigned r0, g0, r1, g1;
+    if (run_persp_floor(0.f, &e0, &r0, &g0) != 0)
+        return 1;
+    if (run_persp_floor(-70.f, &e1, &r1, &g1) != 0)
+        return 1;
+    if (r0 < 80 || g0 < 80 || r1 < 80 || g1 < 80)
+        return fail("persp-floor missing red/green stripes");
+    if (e0 < 150 || e0 > 170 || e1 < 150 || e1 > 170)
+        return fail("persp-floor seam left screen center");
+    if (e0 - e1 > 3 || e1 - e0 > 3)
+        return fail("persp-floor seam crawled while walking");
+    printf("persp_floor_uv_stable edge0=%d edge1=%d d=%d red=%u/%u green=%u/%u\n",
+           e0, e1, e1 - e0, r0, r1, g0, g1);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -4127,6 +4250,8 @@ int main(int argc, char **argv)
     if (test_zbuf_identity_leftover() != 0)
         return 1;
     if (test_tex_slot_high() != 0)
+        return 1;
+    if (test_persp_floor_uv_stable() != 0)
         return 1;
     if (test_secondary_gdl() != 0)
         return 1;
