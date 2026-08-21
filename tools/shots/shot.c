@@ -309,7 +309,7 @@ static void spawn_to_stair_note(float sx, float sz, float tx, float tz)
     }
     room1 = port_stan_tile_room(x, z);
     printf("spawn_to_stair %s step=%d start=%.1f,%.1f room=%d end=%.1f,%.1f "
-           "eye=%.1f room=%d (closed door / wall; climb proved from stair foot)\n",
+           "eye=%.1f room=%d (spawn path unfinished; climb proved from stair foot)\n",
            blocked ? "DOOR" : "SHORT", k, (double)sx, (double)sz, room0,
            (double)x, (double)z, (double)ny, room1);
 }
