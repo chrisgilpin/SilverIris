@@ -14,6 +14,8 @@
 
 void port_gun_reset(void);
 void port_gun_tick(uint16_t buttons);
+/* Skip this rising Z: it was a door use, not a shot. */
+void port_gun_suppress_fire(void);
 
 int32_t *port_ammoheldarr(void);
 int port_gun_mag(void);

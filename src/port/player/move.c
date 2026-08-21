@@ -318,7 +318,8 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     if ((buttons & PORT_Z_TRIG) && !(p->prev_buttons & PORT_Z_TRIG)) {
         float lx = sinf(rad);
         float lz = -cosf(rad);
-        port_stan_use_door(p->x, p->z, lx, lz);
+        if (port_stan_use_door(p->x, p->z, lx, lz))
+            port_gun_suppress_fire();
     }
     p->prev_buttons = buttons;
 }

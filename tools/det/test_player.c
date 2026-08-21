@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "overrides/lv_clock.h"
+#include "player/gun.h"
 #include "player/move.h"
 #include "player/stan_walk.h"
 #include <string.h>
@@ -251,6 +252,92 @@ static int test_door_use_open(void)
     return 0;
 }
 
+/* Same rising Z that uses a door must not spend a PP7 shot. */
+static int test_door_use_does_not_fire(void)
+{
+    uint8_t stan[256];
+    float y;
+    int mag0, hits0;
+
+    port_stan_unload();
+    build_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("nofire stan load");
+    port_stan_clear_doors();
+    port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
+
+    port_player_spawn();
+    if (port_stan_eye_y(250.0f, 0.0f, &y) != 0)
+        return fail("nofire eye");
+
+    /* Facing door in range: Z opens, mag/hits stay put. */
+    port_player_set_pose(250.0f, y, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(900) != 0)
+        return fail("nofire idle");
+    mag0 = port_gun_mag();
+    hits0 = port_gun_hits();
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(901) != 0)
+        return fail("nofire use z");
+    if (!port_stan_door_is_open(0))
+        return fail("nofire did not open");
+    if (port_gun_mag() != mag0)
+        return fail("nofire use spent mag");
+    if (port_gun_hits() != hits0)
+        return fail("nofire use scored hit");
+
+    /* Close is also a use. */
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(902) != 0)
+        return fail("nofire close idle");
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(903) != 0)
+        return fail("nofire close z");
+    if (port_stan_door_is_open(0))
+        return fail("nofire did not close");
+    if (port_gun_mag() != mag0)
+        return fail("nofire close spent mag");
+    if (port_gun_hits() != hits0)
+        return fail("nofire close scored hit");
+
+    /* Facing away: not a use, so Z still fires (mag, not necessarily a wall). */
+    port_player_set_pose(250.0f, y, 0.0f, 270.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(904) != 0)
+        return fail("nofire away idle");
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(905) != 0)
+        return fail("nofire away z");
+    if (port_stan_door_is_open(0))
+        return fail("nofire away opened");
+    if (port_gun_mag() != mag0 - 1)
+        return fail("nofire away did not fire");
+
+    /* No door in range, face -Z: wall at z=-50 still counts a hit.
+     * Spawn resets mag/hits so a glancing away-shot cannot pollute this. */
+    port_stan_clear_doors();
+    port_player_spawn();
+    port_player_set_pose(0.0f, 0.0f, 0.0f, 0.0f);
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(906) != 0)
+        return fail("nofire fire idle");
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(907) != 0)
+        return fail("nofire fire z");
+    if (port_gun_mag() != PORT_PP7_MAG - 1)
+        return fail("nofire no-door did not fire");
+    if (port_gun_hits() != 1)
+        return fail("nofire no-door did not hit");
+
+    printf("door_use nofire open/close mag=%d hits=%d; away mag=%d; shot mag=%d hits=%d\n",
+           mag0, hits0, mag0 - 1, port_gun_mag(), port_gun_hits());
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -293,6 +380,8 @@ int main(void)
     if (test_stan_eye_and_clip() != 0)
         return 1;
     if (test_door_use_open() != 0)
+        return 1;
+    if (test_door_use_does_not_fire() != 0)
         return 1;
     return 0;
 }
