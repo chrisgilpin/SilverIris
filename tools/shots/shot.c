@@ -40,8 +40,8 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 
-/* Door-sized Rare quads on spawn->r7->r8->r20->r19->r18. Far-links
- * with no slab are not listed — do not invent doors. */
+/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3 / r21.
+ * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
 {
     float r1[3];
@@ -78,11 +78,11 @@ static int path_unlatch_proof(void)
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     no = port_stage_opening_count();
-    /* Prefer the r20-r19 lab door Chris walks. */
+    /* Prefer the spawn r71-r7 door Chris walks first (new facing use). */
     for (i = 0; i < no; i++) {
         if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
             continue;
-        if ((ra == 20 && rb == 19) || (ra == 19 && rb == 20)) {
+        if ((ra == 71 && rb == 7) || (ra == 7 && rb == 71)) {
             found = 1;
             break;
         }
