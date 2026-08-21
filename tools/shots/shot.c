@@ -591,16 +591,25 @@ int main(int argc, char **argv)
     /* Chris Chrome clip: x -454.6 z -2694.9 y 86.8 snapped cur=14. */
     {
         const float bx = -454.6f, bz = -2694.9f;
-        int cur, tile, dark;
+        int cur, tile, at, near, dark;
+        float by;
         place(bx, bz, HALL_TH);
         if (shot_one(out_dir, "bathhall") != 0)
             goto done;
+        by = port_api_player_y();
         cur = port_api_current_room();
         tile = port_stan_tile_room(bx, bz);
-        dark = (cur == 12 || cur == 14);
-        printf("bathhall_room xz=%.1f,%.1f y=%.1f cur=%d tile=%d %s\n",
-               (double)bx, (double)bz, (double)port_api_player_y(), cur, tile,
+        near = port_stan_nearest_tile_room(bx, bz, PORT_STAN_NEAR_XZ);
+        at = port_stage_room_at_local(bx, by, bz);
+        dark = (cur == 12 || cur == 14 || at == 12 || at == 14);
+        printf("bathhall_room xz=%.1f,%.1f y=%.1f cur=%d tile=%d near=%d at=%d %s\n",
+               (double)bx, (double)bz, (double)by, cur, tile, near, at,
                dark ? "DARK14" : "PINNED");
+        if (at != cur || at != 71 || dark) {
+            fprintf(stderr, "bathhall room_at=%d cur=%d (want 71, not 12/14)\n",
+                    at, cur);
+            goto done;
+        }
     }
     place(STAIR_X, STAIR_Z, STAIR_TH);
     if (shot_one(out_dir, "stairs") != 0)
@@ -796,6 +805,11 @@ int main(int argc, char **argv)
                    combat, hp0, hp1, s0, s1, port_prop_guard_alerted(),
                    port_prop_guard_los(), hear_n, turn_n, box_n,
                    (hp1 == 8 && s1 == s0 && !combat) ? "SAFE" : "HIT");
+            if (!(hp1 == 8 && s1 == s0 && !combat) ||
+                port_prop_guard_alerted() < 2) {
+                fprintf(stderr, "spawn_hear want SAFE + two room-71 alerts\n");
+                goto done;
+            }
             /* Walk clip_step toward spawn without moving bodies. Same
              * rules as chase_step: Rare walls + spawn fire box. Must
              * not enter xz near (-27,-2740). */

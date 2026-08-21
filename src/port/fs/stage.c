@@ -781,8 +781,18 @@ static int room_nearest_world(float px, float py, float pz)
 
 int port_stage_room_at_local(float lx, float ly, float lz)
 {
+    int tile_rm;
     if (g_bg_rooms < 1)
         return 0;
+    /* Same pin as the camera: lowest-floor stan tile, then a nearby
+     * ground tile. Nearest bg-room centre snaps the bathroom hall
+     * onto 12/14 so hear/fire treat a ground actor as upstairs. */
+    tile_rm = port_stan_tile_room(lx, lz);
+    if (tile_rm >= 1 && tile_rm <= g_bg_rooms)
+        return tile_rm;
+    tile_rm = port_stan_nearest_tile_room(lx, lz, PORT_STAN_NEAR_XZ);
+    if (tile_rm >= 1 && tile_rm <= g_bg_rooms)
+        return tile_rm;
     return room_nearest_world(lx + g_rm[1].pos[0], ly + g_rm[1].pos[1],
                               lz + g_rm[1].pos[2]);
 }
@@ -802,18 +812,10 @@ int port_stage_rooms_adjacent(int a, int b)
 
 static int pick_current_room(void)
 {
-    int tile_rm;
     if (g_bg_rooms < 1)
         return 0;
-    /* Lowest-floor stan tile owns the GDL origin. Nearest bg-room
-     * centre snaps the spawn/bathroom hall onto rooms 12/14 (dark
-     * GDL, exploded props). Fall back to nearest when off-mesh. */
-    tile_rm = port_stan_tile_room(port_player_x(), port_player_z());
-    if (tile_rm >= 1 && tile_rm <= g_bg_rooms)
-        return tile_rm;
-    return room_nearest_world(port_player_x() + g_rm[1].pos[0],
-                              port_player_y() + g_rm[1].pos[1],
-                              port_player_z() + g_rm[1].pos[2]);
+    return port_stage_room_at_local(port_player_x(), port_player_y(),
+                                    port_player_z());
 }
 
 static int select_rooms(uint8_t *out, int cap)

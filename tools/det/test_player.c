@@ -303,6 +303,41 @@ static int test_tile_room_lowest_floor(void)
     return 0;
 }
 
+/* Off-mesh pad nearer a high room-14 walkway: nearest_tile_room must
+ * still take the low room-71 hall (same pin as snap_walkable). */
+static int test_nearest_tile_room_prefers_hall(void)
+{
+    uint8_t stan[512];
+    const float pad_x = 377.0f, pad_z = -3205.0f;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 300, 460, 225, -3100, -2940);
+    stan[0x80 + 3] = 14;
+    wr_unit_quad(stan, 0xA8, 300, 460, -88, -2680, -2520);
+    stan[0xA8 + 3] = 71;
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("near_room load");
+    if (port_stan_tile_count() != 2)
+        return fail("near_room tiles");
+    if (port_stan_on_tile(pad_x, pad_z))
+        return fail("near_room pad should be off tile");
+    if (port_stan_tile_room(pad_x, pad_z) != 0)
+        return fail("near_room on-tile should be 0");
+    if (port_stan_nearest_tile_room(pad_x, pad_z, PORT_STAN_NEAR_XZ) != 71)
+        return fail("near_room off-mesh not 71");
+    if (port_stan_tile_room(380.0f, -2600.0f) != 71)
+        return fail("near_room hall tile");
+    if (port_stan_nearest_tile_room(380.0f, -2600.0f, PORT_STAN_NEAR_XZ) != 71)
+        return fail("near_room hall nearest");
+    printf("nearest_tile_room off-mesh pad -> 71 (high decoy 14 ignored)\n");
+    port_stan_unload();
+    return 0;
+}
+
 /* Adjacent tiles, shared edge unlinked: clip_step must not cross (chase
  * through a Facility stall G1). At least one other link enables walls. */
 static int test_clip_unlinked_wall(void)
@@ -1062,6 +1097,8 @@ int main(void)
     if (test_snap_walkable_prefers_hall() != 0)
         return 1;
     if (test_tile_room_lowest_floor() != 0)
+        return 1;
+    if (test_nearest_tile_room_prefers_hall() != 0)
         return 1;
     if (test_clip_unlinked_wall() != 0)
         return 1;

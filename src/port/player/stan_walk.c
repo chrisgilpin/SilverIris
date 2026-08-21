@@ -795,6 +795,24 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
     return 0;
 }
 
+int port_stan_nearest_tile_room(float local_x, float local_z, float max_dist)
+{
+    float sx, sz, y;
+    int rm;
+
+    /* On-mesh: same lowest-floor tile as port_stan_tile_room. */
+    rm = port_stan_tile_room(local_x, local_z);
+    if (rm >= 1)
+        return rm;
+    /* Off-mesh: snap onto the low-band tile (not a high 12/14 walkway)
+     * and read that tile's room. */
+    sx = local_x;
+    sz = local_z;
+    if (port_stan_snap_walkable(&sx, &sz, 0.0f, 0.0f, max_dist, &y) != 0)
+        return 0;
+    return port_stan_tile_room(sx, sz);
+}
+
 /* Closed segments (ox,oz)->(nx,nz) vs tile edge (ax,az)->(bx,bz). */
 static int seg_cross(float ax, float az, float bx, float bz, float cx, float cz,
                      float dx, float dz)

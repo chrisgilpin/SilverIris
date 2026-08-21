@@ -36,6 +36,7 @@ int port_stage_portal_count(void);
 int port_stage_opening_count(void);
 int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
 int port_stage_current_room(void);
+/* Lowest-floor tile, else nearby ground tile, else nearest bg centre. */
 int port_stage_room_at_local(float lx, float ly, float lz);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
