@@ -76,6 +76,8 @@ static void cur_clear(void) { g_ncur = 0; }
 void port_stan_clear_current(void) { cur_clear(); }
 
 static void local_to_world(float lx, float lz, float *wx, float *wz);
+static int hit_door_world(float wx, float wz);
+static int find_use_door(float wx, float wz, float look_x, float look_z);
 
 static uint32_t be32(const uint8_t *p)
 {
@@ -311,20 +313,13 @@ void port_stan_tick_doors(void)
     }
 }
 
-int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
+static int find_use_door(float wx, float wz, float look_x, float look_z)
 {
-    float wx, wz, llen, inv, nearest;
+    float nearest;
     int i, best;
 
     if (g_ndoor <= 0)
-        return 0;
-    llen = sqrtf(look_x * look_x + look_z * look_z);
-    if (llen < 1e-4f)
-        return 0;
-    inv = 1.0f / llen;
-    look_x *= inv;
-    look_z *= inv;
-    local_to_world(local_x, local_z, &wx, &wz);
+        return -1;
     nearest = PORT_DOOR_USE_RANGE * PORT_DOOR_USE_RANGE + 1.0f;
     best = -1;
     for (i = 0; i < g_ndoor; i++) {
@@ -346,6 +341,49 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
             best = i;
         }
     }
+    return best;
+}
+
+int port_stan_closed_door_at_local(float local_x, float local_z)
+{
+    float wx, wz;
+    local_to_world(local_x, local_z, &wx, &wz);
+    return hit_door_world(wx, wz);
+}
+
+int port_stan_unlatch_closed(float local_x, float local_z, float look_x, float look_z)
+{
+    float wx, wz, llen, inv;
+    int best;
+
+    llen = sqrtf(look_x * look_x + look_z * look_z);
+    if (llen < 1e-4f)
+        return 0;
+    inv = 1.0f / llen;
+    look_x *= inv;
+    look_z *= inv;
+    local_to_world(local_x, local_z, &wx, &wz);
+    best = find_use_door(wx, wz, look_x, look_z);
+    if (best < 0 || g_door[best].open)
+        return 0;
+    return port_stan_use_door(local_x, local_z, look_x, look_z);
+}
+
+int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
+{
+    float wx, wz, llen, inv;
+    int i, best;
+
+    if (g_ndoor <= 0)
+        return 0;
+    llen = sqrtf(look_x * look_x + look_z * look_z);
+    if (llen < 1e-4f)
+        return 0;
+    inv = 1.0f / llen;
+    look_x *= inv;
+    look_z *= inv;
+    local_to_world(local_x, local_z, &wx, &wz);
+    best = find_use_door(wx, wz, look_x, look_z);
     if (best < 0)
         return 0;
     if (!g_door[best].open) {
@@ -678,7 +716,9 @@ static int hit_door_world(float wx, float wz)
          * returns only when frac hits 0 (spawn first frame). */
         if (d->open || d->frac > 0.f)
             continue;
-        if (along <= PORT_DOOR_HALF_T && across <= d->half_w)
+        /* Strict along so a 3u chase step cannot land on the face
+         * and then walk through via start_in_door. */
+        if (along < PORT_DOOR_HALF_T && across <= d->half_w)
             return 1;
     }
     return 0;
@@ -1260,6 +1300,45 @@ static int legal_step(float owx, float owz, float cwx, float cwz, int start_door
     return 1;
 }
 
+int port_stan_door_blocks_only(float ox, float oz, float nx, float nz)
+{
+    float cwx, cwz;
+
+    (void)ox;
+    (void)oz;
+    if (g_ndoor <= 0)
+        return 0;
+    local_to_world(nx, nz, &cwx, &cwz);
+    /* Dest in a closed slab is the door. The unlinked portal edge
+     * under a bound door is that door, not a stall G1 wall. */
+    return hit_door_world(cwx, cwz);
+}
+
+/* Hop landing sits past the 15u slab, so hit_door_world(landing) misses.
+ * Refuse a same-floor hop that crosses a closed door plane. */
+static int hop_hits_closed_door(float ox, float oz, float hx, float hz)
+{
+    int i;
+    for (i = 0; i < g_ndoor; i++) {
+        const StanDoor *d = &g_door[i];
+        float a, b, mx, mz, across;
+        if (d->open || d->frac > 0.f)
+            continue;
+        a = (ox - d->x) * d->nx + (oz - d->z) * d->nz;
+        b = (hx - d->x) * d->nx + (hz - d->z) * d->nz;
+        if (a * b > 0.f)
+            continue;
+        mx = 0.5f * (ox + hx) - d->x;
+        mz = 0.5f * (oz + hz) - d->z;
+        across = mx * d->tx + mz * d->tz;
+        if (across < 0.f)
+            across = -across;
+        if (across <= d->half_w + 20.f)
+            return 1;
+    }
+    return 0;
+}
+
 static int trapped_world(float wx, float wz)
 {
     if (g_ntile > 0 && !tile_at_world(wx, wz))
@@ -1400,7 +1479,9 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
                 hop = rising_landing(hop);
                 if (hop && hop->room != ot->room) {
                     snap_onto_tile(hop, &hx, &hz);
-                    if (!(g_ndoor > 0 && hit_door_world(hx, hz))) {
+                    if (!(g_ndoor > 0 &&
+                          (hit_door_world(hx, hz) ||
+                           hop_hits_closed_door(owx, owz, hx, hz)))) {
                         cx = hx - g_ox;
                         cz = hz - g_oz;
                         *nx = cx;
@@ -1410,7 +1491,8 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
                             if (finite_f(ey))
                                 *ny = ey;
                         }
-                        cur_put(hx, hz, hop);
+                        if (follow)
+                            cur_put(hx, hz, hop);
                         return;
                     }
                 }

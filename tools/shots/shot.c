@@ -394,6 +394,199 @@ static int path_close_swing_proof(void)
     return 0;
 }
 
+/* Walker on one side of a documented closed path door (prefer r8-r7):
+ * clip_step_ground and live chase both stop while closed; after the
+ * door is open (auto-unlatch or Z) the next chase step passes. Restore
+ * the walker so spawn-room SAFE / walk shots stay put. */
+static int chase_door_proof(void)
+{
+    float r1[3], pos[3], yaw = 0.f, width = 0.f;
+    float ox, oz, lx, lz, wx, wz, px, pz, y = 86.8f, th;
+    float save_x = 0.f, save_z = 0.f;
+    float gx0 = 0.f, gz0 = 0.f, gx1 = 0.f, gz1 = 0.f, gx2 = 0.f, gz2 = 0.f;
+    float nx, nz, ny, ax, az, wside, side;
+    int i, no, ra = 0, rb = 0, found = 0, have_save = 0;
+    int closed_block = 0, opened = 0, passed = 0, used = 0;
+    int crossed_closed = 0, auto_unlatch = 0, placed;
+    int tck;
+    static const int pick[][2] = {{8, 7}, {7, 8}, {71, 7}, {7, 71}};
+    int p;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    if (port_prop_walk_xz(&save_x, &save_z) == 0) {
+        save_x -= r1[0];
+        save_z -= r1[2];
+        have_save = 1;
+    }
+    no = port_stage_opening_count();
+    for (p = 0; p < 4 && !found; p++) {
+        for (i = 0; i < no; i++) {
+            if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            if (ra != pick[p][0] || rb != pick[p][1])
+                continue;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        printf("chase_door NONE (no r8-r7 / r71-r7)\n");
+        fprintf(stderr, "chase_door no documented path door\n");
+        return -1;
+    }
+    ox = pos[0] - r1[0];
+    oz = pos[2] - r1[2];
+    if (yaw == 90.f) {
+        lx = 1.f;
+        lz = 0.f;
+    } else {
+        lx = 0.f;
+        lz = -1.f;
+    }
+    wx = ox - lx * 120.f;
+    wz = oz - lz * 120.f;
+    if (!port_stan_on_tile(wx, wz)) {
+        wx = ox + lx * 120.f;
+        wz = oz + lz * 120.f;
+        lx = -lx;
+        lz = -lz;
+    }
+    /* Player far enough that |dz| stays >200 even when the walker
+     * reaches the slab — otherwise they enter LOS and stop chasing. */
+    {
+        static const float pdist[] = { 260.f, 240.f, 220.f, 200.f, 180.f, 160.f, 120.f };
+        int k, got_p = 0;
+        for (k = 0; k < (int)(sizeof pdist / sizeof pdist[0]); k++) {
+            float cand_x = ox + lx * pdist[k];
+            float cand_z = oz + lz * pdist[k];
+            if (!port_stan_on_tile(cand_x, cand_z))
+                continue;
+            px = cand_x;
+            pz = cand_z;
+            got_p = 1;
+            if (fabsf(pz - wz) > 200.f)
+                break;
+        }
+        if (!got_p || !port_stan_on_tile(wx, wz)) {
+            printf("chase_door r%d-r%d off-tile\n", ra, rb);
+            fprintf(stderr, "chase_door stand off-tile\n");
+            return -1;
+        }
+    }
+    if (port_stan_door_is_open_at(pos[0], pos[2])) {
+        (void)port_stan_use_door(wx, wz, lx, lz);
+        door_tick_n(PORT_DOOR_OPEN_TICKS);
+    }
+
+    placed = port_prop_place_walker_at(wx, wz);
+    if (!placed) {
+        printf("chase_door r%d-r%d no walker\n", ra, rb);
+        fprintf(stderr, "chase_door place walker failed\n");
+        return -1;
+    }
+    if (port_stan_eye_y(px, pz, &y) != 0)
+        y = 86.8f;
+    /* From the player side, look toward the door (-look). */
+    th = atan2f(-lx, lz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    port_player_set_pose(px, y, pz, th);
+    port_player_set_pitch(0.f);
+
+    /* clip_step_ground from walker toward the portal: closed must block. */
+    nx = ox;
+    nz = oz;
+    ny = y;
+    port_stan_clip_step_ground(wx, wz, &nx, &nz, &ny);
+    ax = nx - ox;
+    az = nz - oz;
+    closed_block = (ax * ax + az * az > 25.f) &&
+                   !port_stan_door_is_open_at(pos[0], pos[2]);
+
+    wside = (wx - ox) * lx + (wz - oz) * lz;
+    (void)port_prop_alert_walker();
+    if (port_prop_walk_xz(&gx0, &gz0) == 0) {
+        gx0 -= r1[0];
+        gz0 -= r1[2];
+    }
+
+    for (tck = 0; tck < 80; tck++) {
+        int was_open = port_stan_door_is_open_at(pos[0], pos[2]);
+        (void)port_prop_tick_guard_fire();
+        if (port_prop_walk_xz(&gx1, &gz1) == 0) {
+            gx1 -= r1[0];
+            gz1 -= r1[2];
+            side = (gx1 - ox) * lx + (gz1 - oz) * lz;
+            /* Same-tick unlatch drops collision so the retry sit can
+             * pass. Only a still-closed cross is a leak. */
+            if (!was_open && !port_stan_door_is_open_at(pos[0], pos[2]) &&
+                (wside * side < 0.f) && fabsf(side) > 15.f)
+                crossed_closed = 1;
+        }
+        if (port_stan_door_is_open_at(pos[0], pos[2])) {
+            opened = 1;
+            used = 1;
+            auto_unlatch = 1;
+            break;
+        }
+    }
+    if (!opened) {
+        used = port_stan_use_door(px, pz, -lx, -lz);
+        if (!used)
+            used = port_stan_use_door(wx, wz, lx, lz);
+        opened = port_stan_door_is_open_at(pos[0], pos[2]);
+    }
+    door_tick_n(PORT_DOOR_OPEN_TICKS);
+    for (tck = 0; tck < 80; tck++) {
+        (void)port_prop_tick_guard_fire();
+        if (port_prop_walk_xz(&gx2, &gz2) == 0) {
+            gx2 -= r1[0];
+            gz2 -= r1[2];
+            side = (gx2 - ox) * lx + (gz2 - oz) * lz;
+            if ((wside * side < 0.f) && fabsf(side) > 15.f) {
+                passed = 1;
+                break;
+            }
+        }
+    }
+
+    printf("chase_door r%d-r%d walk=%.1f,%.1f player=%.1f,%.1f "
+           "clip_closed=%d auto=%d opened=%d used=%d crossed_closed=%d "
+           "pass=%d gz=%.1f->%.1f->%.1f %s\n",
+           ra, rb, (double)wx, (double)wz, (double)px, (double)pz,
+           closed_block, auto_unlatch, opened, used, crossed_closed, passed,
+           (double)gz0, (double)gz1, (double)gz2,
+           (closed_block && opened && passed && !crossed_closed) ? "OK"
+                                                                : "FAIL");
+
+    /* Restore: close the door and sit the walker back for spawn SAFE. */
+    if (port_stan_door_is_open_at(pos[0], pos[2])) {
+        (void)port_stan_use_door(wx, wz, lx, lz);
+        door_tick_n(PORT_DOOR_OPEN_TICKS);
+    }
+    if (have_save)
+        (void)port_prop_place_walker_at(save_x, save_z);
+
+    if (!closed_block) {
+        fprintf(stderr, "chase_door clip_step_ground did not block closed\n");
+        return -1;
+    }
+    if (crossed_closed) {
+        fprintf(stderr, "chase_door crossed while closed\n");
+        return -1;
+    }
+    if (!opened) {
+        fprintf(stderr, "chase_door did not open\n");
+        return -1;
+    }
+    if (!passed) {
+        fprintf(stderr, "chase_door did not pass after open\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* Side-offset closed step at a wide fitted portal. A fixed 90-half slab
  * left walk-around gaps on r7-r8 / r20-r19 / r8-r5 / r1-r3. */
 static int wide_door_side_proof(void)
@@ -1611,6 +1804,8 @@ int main(int argc, char **argv)
             if (urc == 0)
                 urc = path_close_swing_proof();
             if (urc == 0)
+                urc = chase_door_proof();
+            if (urc == 0)
                 urc = spawn_to_stair_note(sx, sz, R18_STAIR_X, R18_STAIR_Z);
             port_api_shutdown();
             free(pack);
@@ -1938,6 +2133,8 @@ int main(int argc, char **argv)
     if (hinge_width_park_proof() != 0)
         goto done;
     if (path_close_swing_proof() != 0)
+        goto done;
+    if (chase_door_proof() != 0)
         goto done;
     /* Flash cards at spawn. Tick the gun directly so a facing door does
      * not swallow Z. Not committed. */

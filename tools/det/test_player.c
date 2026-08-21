@@ -786,6 +786,51 @@ static int test_door_use_open(void)
     return 0;
 }
 
+/* Chase uses clip_step_ground: closed slab blocks, unlatch opens, next step passes. */
+static int test_clip_ground_door(void)
+{
+    uint8_t stan[256];
+    float nx, nz, ny;
+
+    port_stan_unload();
+    build_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("ground door stan");
+    port_stan_clear_doors();
+    port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
+    if (port_stan_door_count() != 1 || port_stan_door_is_open(0))
+        return fail("ground door starts closed");
+
+    nx = 310.0f;
+    nz = 0.0f;
+    ny = 0.0f;
+    port_stan_clip_step_ground(280.0f, 0.0f, &nx, &nz, &ny);
+    if (nx >= 300.0f - 15.0f + 0.5f)
+        return fail("ground clip leaked closed");
+    if (!port_stan_closed_door_at_local(300.0f, 0.0f))
+        return fail("closed_door_at_local miss");
+    if (port_stan_unlatch_closed(250.0f, 0.0f, -1.0f, 0.0f))
+        return fail("unlatch behind");
+    if (!port_stan_unlatch_closed(250.0f, 0.0f, 1.0f, 0.0f))
+        return fail("unlatch facing");
+    if (!port_stan_door_is_open(0))
+        return fail("unlatch did not open");
+    if (port_stan_unlatch_closed(250.0f, 0.0f, 1.0f, 0.0f))
+        return fail("unlatch closed an open door");
+
+    nx = 330.0f;
+    nz = 0.0f;
+    ny = 0.0f;
+    port_stan_clip_step_ground(280.0f, 0.0f, &nx, &nz, &ny);
+    if (nx <= 300.0f)
+        return fail("ground clip blocked open");
+    printf("clip_ground_door closed_block open_pass nx=%.1f\n", (double)nx);
+    port_stan_unload();
+    return 0;
+}
+
 /* Same rising Z that uses a door must not spend a PP7 shot. */
 static int test_door_use_does_not_fire(void)
 {
@@ -1311,6 +1356,57 @@ static int test_door_fitted_width(void)
     return 0;
 }
 
+
+/* Chase uses clip_step_ground: same closed slab block / open pass as
+ * the player. door_blocks_only is the auto-unlatch gate (not a wall). */
+static int test_chase_clip_door(void)
+{
+    uint8_t stan[256];
+    float nx, nz, ny, y;
+
+    port_stan_unload();
+    build_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("chase door stan");
+    port_stan_clear_doors();
+    port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
+    if (port_stan_eye_y(280.0f, 0.0f, &y) != 0)
+        return fail("chase door eye");
+
+    nx = 310.0f;
+    nz = 0.0f;
+    ny = y;
+    port_stan_clip_step_ground(280.0f, 0.0f, &nx, &nz, &ny);
+    if (nx >= 300.0f - 15.0f + 0.5f) {
+        fprintf(stderr, "chase ground closed leaked x=%g\n", (double)nx);
+        return fail("chase ground closed");
+    }
+    if (!port_stan_door_blocks_only(280.0f, 0.0f, 310.0f, 0.0f))
+        return fail("chase door_blocks_only closed");
+    printf("chase_clip closed x=%.1f\n", (double)nx);
+
+    port_stan_set_door_open(0, 1);
+    nx = 310.0f;
+    nz = 0.0f;
+    ny = y;
+    port_stan_clip_step_ground(280.0f, 0.0f, &nx, &nz, &ny);
+    if (nx < 300.0f) {
+        fprintf(stderr, "chase ground open blocked x=%g\n", (double)nx);
+        return fail("chase ground open");
+    }
+    if (port_stan_door_blocks_only(280.0f, 0.0f, 310.0f, 0.0f))
+        return fail("chase door_blocks_only open");
+    printf("chase_clip open x=%.1f\n", (double)nx);
+
+    port_stan_set_door_open(0, 0);
+    if (port_stan_door_blocks_only(200.0f, 0.0f, 200.0f, 80.0f))
+        return fail("chase door_blocks_only wall");
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -1377,6 +1473,10 @@ int main(void)
     if (test_door_use_open() != 0)
         return 1;
     if (test_door_fitted_width() != 0)
+        return 1;
+    if (test_clip_ground_door() != 0)
+        return 1;
+    if (test_chase_clip_door() != 0)
         return 1;
     if (test_door_use_does_not_fire() != 0)
         return 1;

@@ -1341,6 +1341,28 @@ int port_prop_place_walker_near_spawn(void)
     return 0;
 }
 
+int port_prop_place_walker_at(float local_x, float local_z)
+{
+    float r1[3];
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
+    return sit_guard_tile(g_walk_prop, local_x, local_z, r1);
+}
+
+int port_prop_alert_walker(void)
+{
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
+    if (port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0],
+                                g_prop[g_walk_prop].pos[2]))
+        return 0;
+    g_prop[g_walk_prop].alerted = 1;
+    face_player_prop(g_walk_prop);
+    return 1;
+}
+
 static int mdl_is_walk(const PortModel *m)
 {
     return m && m->id >= PORT_WALK_ID_BASE && m->id < PORT_DIE_ID_BASE;
@@ -1739,6 +1761,17 @@ static int chase_step(int pi, float lx, float lz, float px, float pz, const floa
         return 1;
     if (try_chase_sit(pi, lx, lz, lx, nz, r1))
         return 1;
+    /* Closed door is the only block: same Z-use, never a G1 wall.
+     * Collision drops on the use tick so the next sit can pass. */
+    if (port_stan_door_blocks_only(lx, lz, nx, nz) &&
+        port_stan_unlatch_closed(lx, lz, dx, dz)) {
+        if (try_chase_sit(pi, lx, lz, nx, nz, r1))
+            return 1;
+        if (try_chase_sit(pi, lx, lz, nx, lz, r1))
+            return 1;
+        if (try_chase_sit(pi, lx, lz, lx, nz, r1))
+            return 1;
+    }
     return 0;
 }
 

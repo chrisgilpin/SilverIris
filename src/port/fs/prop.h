@@ -91,6 +91,11 @@ uint32_t port_prop_die_rest_crc(void);
 /* After stan/origin are live: sit the test mover on a ground-floor
  * tile just around the Facility spawn corner. 1 if moved. */
 int port_prop_place_walker_near_spawn(void);
+/* Sit the test mover on a ground-floor tile at room-local xz. No spawn
+ * cone and no fire-box retarget. 1 if sat. */
+int port_prop_place_walker_at(float local_x, float local_z);
+/* Mark the test mover alerted and face the player. Does not hear others. */
+int port_prop_alert_walker(void);
 
 /*
  * Fill out[] with G1 passes for scenery (doors / static props / glass)

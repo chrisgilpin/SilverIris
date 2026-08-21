@@ -50,6 +50,11 @@ int port_stan_guard_dead_at(float world_x, float world_z);
 /* Rare doorTestForInteract: xz^2 < 40000 (200 units). Port use is Z_TRIG. */
 #define PORT_DOOR_USE_RANGE 200.0f
 int port_stan_use_door(float local_x, float local_z, float look_x, float look_z);
+/* 1 if room-local xz sits inside a closed (frac=0) door slab. */
+int port_stan_closed_door_at_local(float local_x, float local_z);
+/* Open a closed door in use range facing look. Never closes. Same
+ * swing/side as Z-use. 1 if a door opened. */
+int port_stan_unlatch_closed(float local_x, float local_z, float look_x, float look_z);
 void port_stan_set_door_open(int i, int open);
 int port_stan_door_is_open(int i);
 int port_stan_door_is_open_at(float world_x, float world_z);
@@ -98,6 +103,9 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
 /* Same xz clip, but always the lowest floor (guards / chase). Does not
  * touch the player's current-tile cache. */
 void port_stan_clip_step_ground(float ox, float oz, float *nx, float *nz, float *ny);
+/* 1 if dest sits inside a closed door slab. Chasers unlatch only then.
+ * A stall G1 wall dest is not a slab. */
+int port_stan_door_blocks_only(float ox, float oz, float nx, float nz);
 /* Drop the current-tile cache (spawn / set_pose). */
 void port_stan_clear_current(void);
 
