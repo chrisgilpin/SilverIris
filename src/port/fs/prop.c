@@ -14,7 +14,7 @@
 
 #define PORT_MAX_PROPS 256
 #define PORT_MAX_MODELS 64
-#define PORT_MODEL_PARTS 12
+#define PORT_MODEL_PARTS 32
 #define PORT_MODEL_SEG 5
 #define PORT_MODEL_BASE 0x05000000u
 #define PORT_PAD_BYTES 44
@@ -25,7 +25,7 @@
 #define INTRO_END 9
 #define INTRO_MAX 10
 #define PORT_PROP_NEAR 4000.f
-#define PORT_NODE_MAX 96
+#define PORT_NODE_MAX 128
 #define PORT_GDL_MAX 512
 #define PORT_SKEL_GUARD_N 16
 #define PORT_ANIM_IDLE_OFF 0x1Cu
@@ -52,6 +52,8 @@
 #define PORT_DOOR_OPEN_YAW 90.f
 #define PORT_DOOR_SLIDE 180.f
 #define PORT_DOOR_HALF_W 90.f
+/* Posed C*Z idle AABB is ~1510 (480 spine + ~900 legs), not 480. Fit to 185. */
+#define PORT_CHR_STAND 185.f
 
 #define PI_F 3.14159265f
 
@@ -88,6 +90,8 @@ typedef struct {
     float head_off[3];
     float head_rx, head_ry, head_rz;
     int have_head;
+    float fit_scale;
+    float fit_ymin;
 } PortModel;
 
 typedef struct {
@@ -121,6 +125,7 @@ static float g_intro_pos[3];
 static float g_intro_look[3];
 static float g_idle_rest[PORT_SKEL_GUARD_N][3];
 static int g_have_idle;
+static char g_idle_info[96];
 
 /* SKELETON(guard) JOINTLIST mtxA — bitstream channel base per JointID. */
 static const uint16_t k_guard_mtxa[PORT_SKEL_GUARD_N] = {
@@ -253,6 +258,8 @@ static void load_idle_rest(void)
 
     g_have_idle = 0;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
+    g_idle_info[0] = 0;
+    snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_pack");
     pack = port_pack();
     if (!pack)
         return;
@@ -262,19 +269,30 @@ static void load_idle_rest(void)
     ent = c0pack_find(pack, PORT_ANIM_ENTRY_PATH);
     if (!ent)
         ent = c0pack_find_tail(pack, PORT_ANIM_ENTRY_PATH);
-    if (!data || !ent || data->size < PORT_ANIM_IDLE_OFF + 16u || ent->size == 0)
+    if (!data || !ent || data->size < PORT_ANIM_IDLE_OFF + 16u || ent->size == 0) {
+        snprintf(g_idle_info, sizeof g_idle_info, "idle=0 skip=no_bins data=%d ent=%d",
+                 data ? (int)data->size : -1, ent ? (int)ent->size : -1);
         return;
+    }
     hdr = data->bytes + PORT_ANIM_IDLE_OFF;
     addr = be32(hdr);
     frames = be16(hdr + 4);
     width = hdr[6];
     frame_bits = be16(hdr + 14);
-    if (frames < 1 || width < 8 || width > 16 || frame_bits < (uint32_t)width)
+    if (frames < 1 || width < 8 || width > 16 || frame_bits < (uint32_t)width) {
+        snprintf(g_idle_info, sizeof g_idle_info,
+                 "idle=0 skip=hdr addr=0x%x fr=%u w=%u bits=%u", addr, frames, width,
+                 frame_bits);
         return;
+    }
     frame_bytes = frame_bits >> 3;
-    if (frame_bytes == 0 || frame_bytes * 8u < 45u * (uint32_t)width)
+    if (frame_bytes == 0 || frame_bytes * 8u < 45u * (uint32_t)width) {
+        snprintf(g_idle_info, sizeof g_idle_info,
+                 "idle=0 skip=frame addr=0x%x bytes=%u w=%u", addr, frame_bytes, width);
         return;
+    }
     off = 0xFFFFFFFFu;
+    /* PTR_ANIM_ENTRY_idle is 0: relative offset into entries.bin, not a skip. */
     if (addr >= PORT_ANIM_ENTRIES_ROM_U &&
         addr + frame_bytes <= PORT_ANIM_ENTRIES_ROM_U + (uint32_t)ent->size)
         off = addr - PORT_ANIM_ENTRIES_ROM_U;
@@ -284,8 +302,12 @@ static void load_idle_rest(void)
         off = (addr & 0x00FFFFFFu) - PORT_ANIM_ENTRIES_ROM_U;
     else if (addr < (uint32_t)ent->size && addr + frame_bytes <= (uint32_t)ent->size)
         off = addr;
-    if (off == 0xFFFFFFFFu || off + frame_bytes > (uint32_t)ent->size)
+    if (off == 0xFFFFFFFFu || off + frame_bytes > (uint32_t)ent->size) {
+        snprintf(g_idle_info, sizeof g_idle_info,
+                 "idle=0 skip=region addr=0x%x ent=%u need=%u", addr, (unsigned)ent->size,
+                 frame_bytes);
         return;
+    }
     frame = ent->bytes + off;
     for (j = 0; j < PORT_SKEL_GUARD_N; j++) {
         uint32_t bo = (uint32_t)k_guard_mtxa[j] * (uint32_t)width;
@@ -297,6 +319,8 @@ static void load_idle_rest(void)
         g_idle_rest[j][2] = (float)az * (2.f * PI_F) / 65536.f;
     }
     g_have_idle = 1;
+    snprintf(g_idle_info, sizeof g_idle_info, "idle=1 addr=0x%x off=%u fr=%u w=%u", addr,
+             off, frames, width);
 }
 
 static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use_guard,
@@ -500,6 +524,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
     m->npart = 0;
     m->have_head = 0;
     m->head_rx = m->head_ry = m->head_rz = 0.f;
+    m->fit_scale = 1.f;
+    m->fit_ymin = 0.f;
     if (!m->file || m->file_len < 8)
         return -1;
     if (be32(m->file) == PORT_BG_MAGIC_G1DL) {
@@ -521,6 +547,26 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         m->have_head = 0;
         m->head_rx = m->head_ry = m->head_rz = 0.f;
         walk_parts(m, 0, use_guard);
+    }
+    if (use_guard && g_have_idle && m->npart) {
+        int dp;
+        float ymin = 1e9f, ymax = -1e9f;
+        for (dp = 0; dp < m->npart; dp++) {
+            if (m->part[dp].oy < ymin)
+                ymin = m->part[dp].oy;
+            if (m->part[dp].oy > ymax)
+                ymax = m->part[dp].oy;
+        }
+        if (ymax > ymin + 1.f) {
+            m->fit_ymin = ymin;
+            m->fit_scale = PORT_CHR_STAND / (ymax - ymin);
+            if (!strstr(g_idle_info, " fit=")) {
+                char base[96];
+                snprintf(base, sizeof base, "%s", g_idle_info);
+                snprintf(g_idle_info, sizeof g_idle_info, "%s fit=%.3f h=%.0f",
+                         base, m->fit_scale, ymax - ymin);
+            }
+        }
     }
     return m->npart ? 0 : -1;
 }
@@ -792,11 +838,13 @@ static int parse_setup(const uint8_t *st, size_t n)
             PortModel *mdl;
             if (pd && body >= 0 && (mdl = load_chr(body)) != NULL) {
                 PortProp *pr = &g_prop[g_nprop];
-                fill_pad_prop(pr, type, body, pad, pd, cat ? cat->scale : 1.f);
+                fill_pad_prop(pr, type, body, pad, pd,
+                              (cat ? cat->scale : 1.f) *
+                                  (mdl->fit_scale != 0.f ? mdl->fit_scale : 1.f));
                 pr->mdl = mdl;
                 if (mdl->have_head) {
                     pr->head_off[0] = mdl->head_off[0];
-                    pr->head_off[1] = mdl->head_off[1];
+                    pr->head_off[1] = mdl->head_off[1] - mdl->fit_ymin;
                     pr->head_off[2] = mdl->head_off[2];
                     pr->head_rx = mdl->head_rx;
                     pr->head_ry = mdl->head_ry;
@@ -898,6 +946,23 @@ int port_prop_guard_count(void)
             n++;
     }
     return n;
+}
+
+int port_prop_have_idle(void) { return g_have_idle; }
+
+int port_prop_guard_parts(void)
+{
+    int i;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type == PDEF_GUARD && g_prop[i].mdl)
+            return g_prop[i].mdl->npart;
+    }
+    return 0;
+}
+
+const char *port_prop_idle_info(void)
+{
+    return g_idle_info[0] ? g_idle_info : "idle=0";
 }
 
 int port_prop_guard_xz(int want, float *x, float *z)
@@ -1149,6 +1214,12 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         mtx_euler(world, &rx, &ry, &rz);
         if (rx * rx + ry * ry + rz * rz < 1e-8f)
             rx = ry = rz = 0.f;
+        if (mdl->fit_scale != 1.f || mdl->fit_ymin != 0.f) {
+            float sc = (pr->scale != 0.f) ? pr->scale : 1.f;
+            lx *= sc;
+            ly = (ly - mdl->fit_ymin) * sc;
+            lz *= sc;
+        }
         wx = c * lx + s * lz;
         wz = -s * lx + c * lz;
         memset(&out[k], 0, sizeof out[k]);
@@ -1159,6 +1230,7 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].ox = pr->pos[0] - room1[0] + wx + wdx;
         out[k].oy = pr->pos[1] - room1[1] + ly + wdy;
         out[k].oz = pr->pos[2] - room1[2] + wz + wdz;
+
         out[k].yaw = pr->yaw + add_yaw;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;

@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #define PORT_PROP_OK 0
-#define PORT_PROP_MAX_DRAW 48
+#define PORT_PROP_MAX_DRAW 96
 
 void port_prop_unload(void);
 int port_prop_load(int level_id);
@@ -15,6 +15,12 @@ int port_prop_count(void);
 int port_prop_models(void);
 int port_prop_drawn(void);
 int port_prop_guard_count(void);
+/* 1 if ANIM_idle frame 0 decoded from the pack. */
+int port_prop_have_idle(void);
+/* First guard body npart (0 if none). */
+int port_prop_guard_parts(void);
+/* Short idle=1 addr=.. off=.. or skip reason. */
+const char *port_prop_idle_info(void);
 
 /*
  * Fill out[] with G1 passes for scenery (doors / static props / glass)
