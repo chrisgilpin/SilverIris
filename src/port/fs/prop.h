@@ -41,6 +41,8 @@ int port_prop_guard_xz(int i, float *x, float *z);
 
 /*
  * First-person GwppkZ (PP7) as a static camera-space viewmodel.
+ * Hold is documented in prop.c (Rare wppk_stats Pos, G1 near-plane Z).
+ * SKEL_FLASH cards are omitted unless port_gun_flash_frames() > 0.
  * 0 if the pack has no gun file or bind failed. Does not bump drawn.
  */
 int port_prop_fill_viewgun(G1RoomDl *out, int cap);

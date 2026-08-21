@@ -373,10 +373,14 @@ int main(void)
     port_checksum(0, &a);
 
     port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_gun_flash_frames() != 0)
+        return fail("idle flash off");
     if (port_sim_tick(0) != 0)
         return fail("fire tick");
     if (port_gun_mag() != PORT_PP7_MAG - 1)
         return fail("mag spend");
+    if (port_gun_flash_frames() != PORT_MUZZLE_FLASH_FRAMES)
+        return fail("flash on fire");
     if (port_gun_reserve() != PORT_PP7_RESERVE)
         return fail("reserve unchanged");
     if (port_gun_hits() != 1)
@@ -398,9 +402,15 @@ int main(void)
         return fail("hold");
     if (port_gun_mag() != PORT_PP7_MAG - 1)
         return fail("no auto on hold");
+    if (port_gun_flash_frames() != PORT_MUZZLE_FLASH_FRAMES - 1)
+        return fail("flash decays on hold tick");
 
     port_set_local_pad(0, 0, 0, 0);
     port_sim_tick(2);
+    port_sim_tick(100);
+    port_sim_tick(101);
+    if (port_gun_flash_frames() != 0)
+        return fail("flash hides after a few ticks");
     for (i = 0; i < 6; i++) {
         port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
         port_sim_tick((uint32_t)(3 + i * 2));
@@ -420,6 +430,8 @@ int main(void)
         return fail("reload reserve");
     if (port_gun_hits() != 7)
         return fail("reload is not a shot");
+    if (port_gun_flash_frames() == PORT_MUZZLE_FLASH_FRAMES)
+        return fail("reload is not a flash");
 
     printf("gun ok mag=%d reserve=%d hits=%d hitz=%g crc=%08x (no_assets z=-50)\n",
            port_gun_mag(), port_gun_reserve(), port_gun_hits(), (double)hz,

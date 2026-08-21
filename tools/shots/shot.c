@@ -12,6 +12,7 @@
 #include "fs/stage.h"
 #include "fs/prop.h"
 #include "player/move.h"
+#include "player/gun.h"
 #include "player/stan_walk.h"
 #include "gfx/tmem.h"
 
@@ -289,14 +290,15 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s guards=%d parts=%d "
-             "drawn=%d viewgun=%d",
+             "drawn=%d viewgun=%d flash=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
-             port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts());
+             port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts(),
+             port_gun_flash_frames());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
@@ -343,6 +345,7 @@ int main(int argc, char **argv)
     size_t pack_len = 0;
     uint8_t hash[32];
     int a, rc = 1;
+    float spawn_x = 0.f, spawn_z = 0.f, spawn_th = 0.f;
 
     for (a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--pack") == 0 && a + 1 < argc)
@@ -397,6 +400,9 @@ int main(int argc, char **argv)
                 printf("guard[%d] xz=%.1f,%.1f\n", i, (double)gx, (double)gz);
         }
     }
+    spawn_x = port_api_player_x();
+    spawn_z = port_api_player_z();
+    spawn_th = port_api_player_theta();
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
     port_player_set_pitch(-35.f);
@@ -408,6 +414,20 @@ int main(int argc, char **argv)
         goto done;
     place(STAIR_X, STAIR_Z, STAIR_TH);
     if (shot_one(out_dir, "stairs") != 0)
+        goto done;
+    /* Flash cards at spawn. Tick the gun directly so a facing door does
+     * not swallow Z. Not committed. */
+    place(spawn_x, spawn_z, spawn_th);
+    port_player_set_pitch(0.f);
+    port_gun_tick(PORT_Z_TRIG);
+    if (shot_one(out_dir, "flash") != 0)
+        goto done;
+    {
+        int i;
+        for (i = 0; i < 4; i++)
+            port_gun_tick(0);
+    }
+    if (shot_one(out_dir, "flash_off") != 0)
         goto done;
     rc = 0;
 

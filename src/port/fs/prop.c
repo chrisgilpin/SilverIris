@@ -5,6 +5,7 @@
 #include "pack_dma.h"
 #include "player/stan_walk.h"
 #include "player/move.h"
+#include "player/gun.h"
 #include "stage.h"
 
 #include <math.h>
@@ -58,11 +59,14 @@
 #define PORT_GUN_WPPK_ID 9001
 #define PORT_GUN_WPPK_NSW 0x24
 #define PORT_GUN_WPPK_NTEX 0x0C
-/* Camera-space hold. Rare GUNFILERECORD is (20,97,579); sit closer than
- * the 10-unit near plane and below center so the pistol is a viewmodel. */
-#define PORT_VIEWGUN_X 22.f
-#define PORT_VIEWGUN_Y (-28.f)
-#define PORT_VIEWGUN_Z (-72.f)
+/* Camera-space hold. Rare wppk_stats on-screen Pos is (11, -20.8, -33.5).
+ * X matches Rare (was +22, too far right). Y is a bit below Rare so the
+ * mesh reads bottom-center. Z stays farther than Rare because G1 near=10
+ * and the grip sits toward the eye after the 180 Y; -60 keeps the AABB
+ * in front of the near plane without the old -72 right-corner scale. */
+#define PORT_VIEWGUN_X 11.f
+#define PORT_VIEWGUN_Y (-24.f)
+#define PORT_VIEWGUN_Z (-60.f)
 
 #define PI_F 3.14159265f
 
@@ -1013,11 +1017,18 @@ int port_prop_viewgun_parts(void) { return g_viewgun_parts; }
  * Static first-person PP7. Walk Rare nodes (no recoil/reload). Model +Z is
  * Rare forward; G1 looks -Z so hold * R180 * part. Camera-space via .view.
  */
+static int viewgun_is_flash(int p, const PortPart *pt)
+{
+    /* SKEL_FLASH: two ~20-cmd z=0 cards walked first. Idle hides them. */
+    return p < 2 && pt && pt->pri_n <= 22u;
+}
+
 int port_prop_fill_viewgun(G1RoomDl *out, int cap)
 {
     PortModel *m;
     int p, k = 0;
     float hold[4][4], r180[4][4];
+    int show_flash;
 
     g_viewgun_parts = 0;
     if (!out || cap < 1)
@@ -1025,6 +1036,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
     m = load_wppk();
     if (!m || m->npart == 0)
         return 0;
+    show_flash = port_gun_flash_frames() > 0;
     mtx_local(hold, PORT_VIEWGUN_X, PORT_VIEWGUN_Y, PORT_VIEWGUN_Z, 0.f, 0.f, 0.f);
     mtx_local(r180, 0.f, 0.f, 0.f, 0.f, PI_F, 0.f);
     for (p = 0; p < m->npart && k < cap; p++) {
@@ -1033,8 +1045,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         float rx, ry, rz;
         if (!pt->pri || pt->pri_n == 0)
             continue;
-        /* SKEL_FLASH cards: 20-cmd z=0 quads. Idle viewmodel hides them. */
-        if (p < 2 && pt->pri_n <= 22u)
+        if (viewgun_is_flash(p, pt) && !show_flash)
             continue;
         mtx_local(part, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
         mtx_mul4(tmp, r180, part);

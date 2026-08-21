@@ -25,6 +25,7 @@ typedef struct {
     float hit_x, hit_y, hit_z;
     int have_hit;
     int suppress_fire;
+    int flash_frames;
 } PortGun;
 
 static PortGun g_gun[PORT_MAX_PLAYERS];
@@ -128,6 +129,8 @@ void port_gun_tick(uint16_t buttons)
     int suppress = g->suppress_fire;
     g->suppress_fire = 0;
     g->prev_buttons = buttons;
+    if (g->flash_frames > 0)
+        g->flash_frames--;
     if (!rising)
         return;
     /* Door use consumed this Z (Rare B-activate vs fire). Still latch prev. */
@@ -138,8 +141,11 @@ void port_gun_tick(uint16_t buttons)
         return;
     }
     g->mag -= 1;
+    g->flash_frames = PORT_MUZZLE_FLASH_FRAMES;
     fire_hitscan();
 }
+
+int port_gun_flash_frames(void) { return G()->flash_frames; }
 
 int32_t *port_ammoheldarr(void) { return G()->ammo; }
 int port_gun_mag(void) { return G()->mag; }
