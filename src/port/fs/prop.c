@@ -873,15 +873,17 @@ int port_prop_place_walker_near_spawn(void)
 {
     float sx, sz, r1[3];
     int i;
+    /* Stall cubicle at -220,-2640 has G1 walls on every adjacent tile.
+     * Sit on the ground-floor room-71 pad north of the hallway turn. */
     static const float pref[][2] = {
-        { -220.f, -2640.f },
-        { -300.f, -2640.f },
-        { -220.f, -2560.f },
+        { -300.f, -2480.f },
+        { -380.f, -2480.f },
         { -300.f, -2560.f },
         { -380.f, -2560.f },
-        { -380.f, -2640.f },
+        { -460.f, -2480.f },
         { -220.f, -2480.f },
-        { -300.f, -2480.f },
+        { -587.f, -2340.f },
+        { -300.f, -2640.f },
     };
 
     if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
@@ -1889,8 +1891,24 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             }
         }
     }
+    /* Test mover first so far-away setup guards cannot eat the 128-pass cap. */
+    if (g_walk_prop >= 0 && g_walk_prop < g_nprop && k < cap) {
+        PortProp *pr = &g_prop[g_walk_prop];
+        if (pr->mdl && pr->mdl->npart &&
+            near_room(pr, room1, room_xyz, nrooms, room_ids) &&
+            !port_stan_guard_dead_at(pr->pos[0], pr->pos[2])) {
+            k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                           0.f, 0.f, 0.f, 0.f);
+            if (pr->head && pr->head->npart)
+                k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0],
+                               pr->head_off[1], pr->head_off[2], pr->head_rx, pr->head_ry,
+                               pr->head_rz, 0.f, 0.f, 0.f, 0.f);
+        }
+    }
     for (i = 0; i < g_nprop && k < cap; i++) {
         PortProp *pr = &g_prop[i];
+        if (i == g_walk_prop)
+            continue;
         if (!pr->mdl || pr->mdl->npart == 0 || pr->type == PDEF_DOOR)
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
