@@ -27,6 +27,19 @@ int port_prop_guard_parts(void);
 const char *port_prop_idle_info(void);
 /* Test-mover pad xz. -1 if none. */
 int port_prop_walk_xz(float *x, float *z);
+/* Test-mover pad xyz. -1 if none. */
+int port_prop_walk_xyz(float *x, float *y, float *z);
+/* Loop ANIM_walking one frame on the test mover. No-op if none. */
+void port_prop_tick_walk(void);
+/* Snap the test mover to a walk frame (loops). */
+void port_prop_set_walk_frame(int frame);
+/* Current walk frame, or -1. */
+int port_prop_walk_frame(void);
+/* crc32 of the current walk rest eulers. */
+uint32_t port_prop_walk_rest_crc(void);
+/* After stan/origin are live: sit the test mover on a ground-floor
+ * tile just around the Facility spawn corner. 1 if moved. */
+int port_prop_place_walker_near_spawn(void);
 
 /*
  * Fill out[] with G1 passes for scenery (doors / static props / glass)

@@ -145,6 +145,10 @@ static int g_have_idle;
 static int g_have_walk;
 static int g_walkers;
 static int g_walk_prop;
+static int g_walk_frame;
+static uint32_t g_walk_nframes;
+static float g_walk_fit_scale;
+static float g_walk_fit_ymin;
 static char g_idle_info[96];
 static char g_walk_info[96];
 static char g_pose_info[192];
@@ -368,6 +372,10 @@ static void load_idle_rest(void)
     g_have_walk = 0;
     g_walkers = 0;
     g_walk_prop = -1;
+    g_walk_frame = 0;
+    g_walk_nframes = 0;
+    g_walk_fit_scale = 0.f;
+    g_walk_fit_ymin = 0.f;
     g_viewgun_parts = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
@@ -389,6 +397,8 @@ static void load_idle_rest(void)
     if (decode_anim_frame(PORT_ANIM_WALK_OFF, PORT_ANIM_WALK_FRAME, g_walk_rest, &addr, &off,
                           &frames, &width, err, sizeof err)) {
         g_have_walk = 1;
+        g_walk_frame = PORT_ANIM_WALK_FRAME;
+        g_walk_nframes = frames;
         snprintf(g_walk_info, sizeof g_walk_info, "walk=1 addr=0x%x off=%u fr=%u w=%u f=%u n=0",
                  addr, off, frames, width, (unsigned)PORT_ANIM_WALK_FRAME);
     } else {
@@ -810,10 +820,194 @@ static void assign_walkers(void)
     }
     g_walkers = 1;
     g_walk_prop = next;
+    if (wm) {
+        g_walk_fit_scale = wm->fit_scale;
+        g_walk_fit_ymin = wm->fit_ymin;
+    }
     wn = strlen(g_walk_info);
     if (wn >= 3 && g_walk_info[wn - 3] == 'n' && g_walk_info[wn - 1] == '0')
         g_walk_info[wn - 1] = '1';
     (void)next_d;
+}
+
+/* Spawn looks 270 (-X). Player-space corridor is a west slab around
+ * spawn z. Stay off that so spawn.png stays a tiled corridor, not a
+ * 1510u blob or a walker in the lens. */
+static int spawn_look_slab(float x, float z, float sx, float sz)
+{
+    float dx = x - sx, dz = z - sz;
+    if (dx > 40.f)
+        return 0;
+    if (dx > -80.f && dx * dx + dz * dz < 180.f * 180.f)
+        return 1;
+    if (dx < 0.f && dx > -520.f && dz * dz < 95.f * 95.f)
+        return 1;
+    return 0;
+}
+
+static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3])
+{
+    float ey = 0.f, floor_y, wy;
+    if (!port_stan_on_tile(lx, lz))
+        return 0;
+    if (port_stan_eye_y(lx, lz, &ey) != 0)
+        return 0;
+    if (!(ey == ey) || ey < 50.f || ey > 160.f)
+        return 0;
+    if (spawn_look_slab(lx, lz, sx, sz))
+        return 0;
+    floor_y = ey - PORT_EYE_HEIGHT;
+    wy = floor_y + r1[1];
+    if (!(wy == wy) || wy > 1.0e20f || wy < -1.0e20f)
+        return 0;
+    g_prop[g_walk_prop].pos[0] = lx + r1[0];
+    g_prop[g_walk_prop].pos[1] = wy;
+    g_prop[g_walk_prop].pos[2] = lz + r1[2];
+    return 1;
+}
+
+/* After intro snap: origin/tiles match the player. Sit on a ground-floor
+ * tile around the spawn corner (hallway turn). Do not retouch stan origin.
+ * If every candidate clips / NaN Y, leave them on the setup pad. */
+int port_prop_place_walker_near_spawn(void)
+{
+    float sx, sz, r1[3];
+    int i;
+    static const float pref[][2] = {
+        { -220.f, -2640.f },
+        { -300.f, -2640.f },
+        { -220.f, -2560.f },
+        { -300.f, -2560.f },
+        { -380.f, -2560.f },
+        { -380.f, -2640.f },
+        { -220.f, -2480.f },
+        { -300.f, -2480.f },
+    };
+
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    sx = port_player_x();
+    sz = port_player_z();
+    for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
+        if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1))
+            return 1;
+    }
+    return 0;
+}
+
+static void apply_walk_bind(void)
+{
+    PortModel *m;
+    const float (*save)[3];
+    const PortPropCat *cat;
+    int body, use_guard;
+
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return;
+    m = g_prop[g_walk_prop].mdl;
+    if (!m || !m->file)
+        return;
+    body = g_prop[g_walk_prop].model;
+    use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
+    save = g_pose_rest;
+    g_pose_rest = g_walk_rest;
+    bind_model_gdl(m, use_guard);
+    if (g_walk_fit_scale != 0.f) {
+        m->fit_scale = g_walk_fit_scale;
+        m->fit_ymin = g_walk_fit_ymin;
+    } else {
+        g_walk_fit_scale = m->fit_scale;
+        g_walk_fit_ymin = m->fit_ymin;
+    }
+    g_pose_rest = save;
+    cat = chr_by_id(body);
+    g_prop[g_walk_prop].scale =
+        (cat ? cat->scale : 1.f) * (m->fit_scale != 0.f ? m->fit_scale : 1.f);
+    if (m->have_head) {
+        g_prop[g_walk_prop].head_off[0] = m->head_off[0];
+        g_prop[g_walk_prop].head_off[1] = m->head_off[1] - m->fit_ymin;
+        g_prop[g_walk_prop].head_off[2] = m->head_off[2];
+        g_prop[g_walk_prop].head_rx = m->head_rx;
+        g_prop[g_walk_prop].head_ry = m->head_ry;
+        g_prop[g_walk_prop].head_rz = m->head_rz;
+    }
+}
+
+static int set_walk_frame(int frame)
+{
+    char err[80];
+    uint32_t addr = 0, off = 0, frames = 0;
+    uint8_t width = 0;
+    unsigned take;
+
+    if (!g_have_walk)
+        return -1;
+    if (g_walk_nframes > 0) {
+        int n = (int)g_walk_nframes;
+        frame %= n;
+        if (frame < 0)
+            frame += n;
+    }
+    if (!decode_anim_frame(PORT_ANIM_WALK_OFF, frame, g_walk_rest, &addr, &off,
+                           &frames, &width, err, sizeof err))
+        return -1;
+    if (frames > 0)
+        g_walk_nframes = frames;
+    take = (unsigned)frame;
+    if (g_walk_nframes > 0 && take >= g_walk_nframes)
+        take %= g_walk_nframes;
+    g_walk_frame = (int)take;
+    snprintf(g_walk_info, sizeof g_walk_info, "walk=1 addr=0x%x off=%u fr=%u w=%u f=%u n=%d",
+             addr, off, frames, width, take, g_walkers);
+    if (g_walk_prop >= 0)
+        apply_walk_bind();
+    return 0;
+}
+
+void port_prop_tick_walk(void)
+{
+    if (!g_have_walk || g_walkers < 1 || g_walk_nframes < 1)
+        return;
+    set_walk_frame(g_walk_frame + 1);
+}
+
+void port_prop_set_walk_frame(int frame)
+{
+    if (!g_have_walk)
+        return;
+    set_walk_frame(frame);
+}
+
+int port_prop_walk_frame(void)
+{
+    if (!g_have_walk || g_walkers < 1)
+        return -1;
+    return g_walk_frame;
+}
+
+uint32_t port_prop_walk_rest_crc(void)
+{
+    const uint8_t *p = (const uint8_t *)g_walk_rest;
+    uint32_t crc = 0xFFFFFFFFu;
+    size_t i, n = sizeof g_walk_rest;
+    for (i = 0; i < n; i++)
+        crc = (crc >> 8) ^ ((crc ^ p[i]) * 16777619u);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+int port_prop_walk_xyz(float *x, float *y, float *z)
+{
+    if (g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return -1;
+    if (x)
+        *x = g_prop[g_walk_prop].pos[0];
+    if (y)
+        *y = g_prop[g_walk_prop].pos[1];
+    if (z)
+        *z = g_prop[g_walk_prop].pos[2];
+    return 0;
 }
 
 static const char *setup_name(int level_id)
@@ -1036,6 +1230,10 @@ void port_prop_unload(void)
     g_have_walk = 0;
     g_walkers = 0;
     g_walk_prop = -1;
+    g_walk_frame = 0;
+    g_walk_nframes = 0;
+    g_walk_fit_scale = 0.f;
+    g_walk_fit_ymin = 0.f;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);

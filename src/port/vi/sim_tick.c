@@ -5,6 +5,8 @@
 #include "player/gun.h"
 #include "player/move.h"
 
+void port_prop_tick_walk(void) __attribute__((weak));
+
 #include "game/frametiming.h"
 
 void updateFrameCounters(s32 deltaFrames);
@@ -41,5 +43,7 @@ int port_sim_tick(uint32_t tick)
         port_set_cur_player(saved);
     }
     port_chr_tick();
+    if (port_prop_tick_walk)
+        port_prop_tick_walk();
     return 0;
 }

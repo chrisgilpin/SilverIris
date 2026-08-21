@@ -660,6 +660,18 @@ int port_stage_load(int level_id)
             port_player_set_pose(x, y, z, th);
         }
     }
+    /* Tiles/origin are live. Sit the walk test mover on a ground-floor
+     * tile around the spawn corner, then re-register stan cylinders. */
+    port_prop_place_walker_near_spawn();
+    port_stan_clear_guards();
+    {
+        int i, ng = port_prop_guard_count();
+        for (i = 0; i < ng; i++) {
+            float gx, gz;
+            if (port_prop_guard_xz(i, &gx, &gz) == 0)
+                port_stan_add_guard(gx, gz);
+        }
+    }
     return PORT_STAGE_OK;
 }
 
@@ -668,6 +680,18 @@ int port_stage_level_id(void) { return g_level; }
 int port_stage_room_count(void) { return g_rooms; }
 
 int port_stage_bg_rooms(void) { return g_bg_rooms; }
+
+int port_stage_room1(float pos[3])
+{
+    if (g_bg_rooms < 1)
+        return -1;
+    if (pos) {
+        pos[0] = g_rm[1].pos[0];
+        pos[1] = g_rm[1].pos[1];
+        pos[2] = g_rm[1].pos[2];
+    }
+    return 0;
+}
 
 int port_stage_gdl_raw(void) { return g_gdl_raw; }
 

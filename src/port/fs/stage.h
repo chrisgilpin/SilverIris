@@ -25,6 +25,8 @@ const char *port_stage_last_error(void);
 int port_stage_level_id(void);
 int port_stage_room_count(void);
 int port_stage_bg_rooms(void);
+/* Bg room 1 origin (world). 0 if present. */
+int port_stage_room1(float pos[3]);
 int port_stage_gdl_raw(void);
 int port_stage_gdl_c0(void);
 int port_stage_gdl_vtx(void);

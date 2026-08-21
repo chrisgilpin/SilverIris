@@ -34,6 +34,8 @@
 #define STAIR_Z (-2394.0f)
 #define STAIR_TH 0.0f
 
+static uint32_t g_last_fb_adler;
+
 static void usage(void)
 {
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
@@ -283,6 +285,7 @@ static int shot_one(const char *out_dir, const char *tag)
     fb = port_api_fb();
     if (!fb)
         return -1;
+    g_last_fb_adler = adler32(fb, (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
     nz = port_api_fb_nonzero();
     mag = port_api_gun_mag();
     reserve = port_api_gun_reserve();
@@ -395,14 +398,21 @@ int main(int argc, char **argv)
            port_prop_guard_count(), port_prop_guard_parts(), port_prop_walk_count());
     {
         int i, ng = port_prop_guard_count();
-        float wx, wz;
+        float wx, wy, wz;
         for (i = 0; i < ng && i < 16; i++) {
             float gx, gz;
             if (port_prop_guard_xz(i, &gx, &gz) == 0)
                 printf("guard[%d] xz=%.1f,%.1f\n", i, (double)gx, (double)gz);
         }
-        if (port_prop_walk_xz(&wx, &wz) == 0)
-            printf("walker xz=%.1f,%.1f\n", (double)wx, (double)wz);
+        if (port_prop_walk_xyz(&wx, &wy, &wz) == 0) {
+            float r1[3];
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            printf("walker xyz=%.1f,%.1f,%.1f (local %.1f,%.1f,%.1f) f=%d\n",
+                   (double)wx, (double)wy, (double)wz,
+                   (double)(wx - r1[0]), (double)(wy - r1[1]), (double)(wz - r1[2]),
+                   port_prop_walk_frame());
+        }
         {
             float sx = port_api_player_x(), sz = port_api_player_z();
             float best = 1e18f, bx = 0.f, bz = 0.f;
@@ -453,19 +463,74 @@ int main(int argc, char **argv)
     }
     if (shot_one(out_dir, "flash_off") != 0)
         goto done;
-    /* Profile of the posed-walk test mover (240u +X, look -X). */
+    /* Two frames of the posed-walk cycle (240u +X, look -X). Snap the
+     * camera onto a tile if the offset is off the pad. */
     {
-        float wx, wz;
-        if (port_prop_walk_xz(&wx, &wz) == 0) {
-            float cx = wx + 240.f, cz = wz;
-            float lx = wx - cx, lz = wz - cz;
-            float th = atan2f(lx, -lz) * (180.f / 3.14159265f);
-            if (th < 0.f)
-                th += 360.f;
+        float wx, wy, wz;
+        if (port_prop_walk_xyz(&wx, &wy, &wz) == 0) {
+            float r1[3], lx, lz, cx, cz, th;
+            uint32_t h8, h20, r8, r20;
+            int f8, f20;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            lx = wx - r1[0];
+            lz = wz - r1[2];
+            wy = wy - r1[1];
+            /* Ground-floor camera, same row, 180u east looking west. */
+            {
+                int k, ok = 0;
+                const float try_c[4][2] = {
+                    { lx, lz - 90.f },
+                    { lx + 90.f, lz },
+                    { lx, lz + 90.f },
+                    { lx - 90.f, lz },
+                };
+                for (k = 0; k < 4 && !ok; k++) {
+                    float ey = 0.f;
+                    cx = try_c[k][0];
+                    cz = try_c[k][1];
+                    if (!port_stan_on_tile(cx, cz))
+                        continue;
+                    if (port_stan_eye_y(cx, cz, &ey) != 0 || ey < 50.f || ey > 160.f)
+                        continue;
+                    {
+                        float lookx = lx - cx, lookz = lz - cz;
+                        th = atan2f(lookx, -lookz) * (180.f / 3.14159265f);
+                        if (th < 0.f)
+                            th += 360.f;
+                    }
+                    ok = 1;
+                }
+                if (!ok) {
+                    cx = lx + 200.f;
+                    cz = lz;
+                    {
+                        float lookx = lx - cx, lookz = lz - cz;
+                        th = atan2f(lookx, -lookz) * (180.f / 3.14159265f);
+                        if (th < 0.f)
+                            th += 360.f;
+                    }
+                }
+            }
+            port_prop_set_walk_frame(8);
+            f8 = port_prop_walk_frame();
+            r8 = port_prop_walk_rest_crc();
             place(cx, cz, th);
             port_player_set_pitch(0.f);
             if (shot_one(out_dir, "walk") != 0)
                 goto done;
+            h8 = g_last_fb_adler;
+            port_prop_set_walk_frame(20);
+            f20 = port_prop_walk_frame();
+            r20 = port_prop_walk_rest_crc();
+            place(cx, cz, th);
+            port_player_set_pitch(0.f);
+            if (shot_one(out_dir, "walk20") != 0)
+                goto done;
+            h20 = g_last_fb_adler;
+            printf("walk_cycle f=%d crc=%08x rest=%08x f=%d crc=%08x rest=%08x %s walker=%.1f,%.1f,%.1f spawn=%.1f,%.1f\n",
+                   f8, h8, r8, f20, h20, r20, (h8 != h20 || r8 != r20) ? "DIFF" : "SAME",
+                   (double)lx, (double)wy, (double)lz, (double)spawn_x, (double)spawn_z);
         }
     }
     rc = 0;
