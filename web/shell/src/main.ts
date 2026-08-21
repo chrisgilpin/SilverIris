@@ -154,7 +154,7 @@ function drawHud(): void {
   ctx.fillRect(0, 0, canvas.width, 62);
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  θ ${th.toFixed(0)}°`, 8, 14);
+  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°`, 8, 14);
   ctx.fillText(
     `PP7 ${game.gunMag()}/${game.gunReserve()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
@@ -168,7 +168,7 @@ function drawHud(): void {
     );
   }
   ctx.fillText(
-    `last_draw ${game.lastDrawName()}  rooms ${game.bgRooms()}  walked ${game.roomsWalked()}  cur ${game.currentRoom()}  gdlC0 ${game.gdlC0() ? 1 : 0}  vtx ${game.gdlVtx() ? 1 : 0}  fbNonzero ${game.fbNonzero()}  settex ${game.settex()}  texOk ${game.texOk()}  texMiss ${game.texMiss()} abs ${game.texMissAbsent()} dec ${game.texMissDecode()}`,
+    `fb ${game.fbNonzero()}  last ${game.lastDrawName()}  rm ${game.bgRooms()} wlk ${game.roomsWalked()} cur ${game.currentRoom()} c0 ${game.gdlC0() ? 1 : 0} vtx ${game.gdlVtx() ? 1 : 0} tex ${game.settex()}/${game.texOk()}/${game.texMiss()}`,
     8,
     56,
   );
@@ -274,6 +274,9 @@ function paint(now: number): void {
     if (drawable) {
       game.rasterStage();
       stageFb = game.stageFb() ?? undefined;
+      /* A cleared FB is not a picture — keep the PORT mesh (never black). */
+      if (stageFb && game.fbNonzero() === 0)
+        stageFb = undefined;
     }
     if (drawable && stageFb) {
       const viewSeat = netLock ? mySeat : game.viewSeat();

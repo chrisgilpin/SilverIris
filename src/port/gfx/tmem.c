@@ -24,11 +24,17 @@ static int g_cur = -1;
 static float g_ss = 1.f, g_st = 1.f;
 static const C0Pack *g_pack;
 static unsigned g_settex_n, g_ok_n, g_miss_n, g_miss_abs, g_miss_dec, g_use;
+static unsigned g_frame_base;
 static uint8_t g_last_miss_why;
 static uint16_t g_last_id;
 
 void g1_tex_begin_dl(void)
 {
+    /* Slots stamped after this must not be evicted: GIR_DRAW_TRIS keep the
+     * integer slot they were emitted with. A later SETTEX that reused that
+     * slot would sample A=0 / wrong texels and punch the FB back to clear.
+     */
+    g_frame_base = g_use;
     g_cur = -1;
     g_ss = 1.f;
     g_st = 1.f;
@@ -107,12 +113,18 @@ static int find_slot(unsigned id)
 
 static int alloc_slot(void)
 {
-    int i, best = 0;
+    int i, best = -1;
     unsigned oldest = 0xffffffffu;
 
     for (i = 0; i < G1_TEX_SLOTS; i++) {
         if (!g_slots[i].loaded)
             return i;
+    }
+    /* Reuse only tiles not bound since g1_tex_begin_dl. Evicting a
+     * this-frame slot rewrites texels under already-emitted tris. */
+    for (i = 0; i < G1_TEX_SLOTS; i++) {
+        if (g_slots[i].stamp > g_frame_base)
+            continue;
         if (g_slots[i].stamp < oldest) {
             oldest = g_slots[i].stamp;
             best = i;
@@ -142,6 +154,8 @@ int g1_tex_load_raw(unsigned id, uint8_t fmt, unsigned w, unsigned h, const uint
     slot = find_slot(id);
     if (slot < 0)
         slot = alloc_slot();
+    if (slot < 0)
+        return -1;
     t = &g_slots[slot];
     memset(t, 0, sizeof *t);
     t->loaded = 1;

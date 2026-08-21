@@ -26,7 +26,7 @@
 #define G1_TEX_MAX_W 128
 #define G1_TEX_MAX_H 128
 #define G1_TEX_MAX_BYTES 16384
-#define G1_TEX_SLOTS 64
+#define G1_TEX_SLOTS 256
 #define G1_SITX_MAGIC "SITX"
 
 /* Names from images.def (generated, no texels). */

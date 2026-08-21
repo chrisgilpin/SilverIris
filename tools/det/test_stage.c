@@ -1270,6 +1270,34 @@ static int test_near_clip_keeps_marker(void)
     return 0;
 }
 
+
+/* A later SETTEX must not steal the slot an earlier tri already recorded. */
+static int test_tmem_no_midframe_evict(void)
+{
+    uint8_t red[4] = {0xff, 0x00, 0x00, 0xff};
+    uint8_t clear[4] = {0x00, 0x00, 0x00, 0x00};
+    uint8_t r, g, b, a;
+    int slot0, i;
+
+    g1_tex_unload();
+    g1_tex_begin_dl();
+    if (g1_tex_load_raw(1, G1_TEX_RGBA32, 1, 1, red, 4, NULL, 0) != 0)
+        return fail("load red marker");
+    slot0 = g1_tex_current_slot();
+    if (slot0 < 0)
+        return fail("red slot");
+    for (i = 0; i < G1_TEX_SLOTS + 8; i++) {
+        if (g1_tex_load_raw((unsigned)(2 + i), G1_TEX_RGBA32, 1, 1, clear, 4, NULL, 0) != 0)
+            break;
+    }
+    if (!g1_tex_sample_slot(slot0, 0.f, 0.f, &r, &g, &b, &a))
+        return fail("marker slot unloaded");
+    if (r < 200 || a < 200)
+        return fail("mid-frame SETTEX evicted an already-emitted tile");
+    printf("tmem no mid-frame evict slot0=%d r=%u a=%u\n", slot0, (unsigned)r, (unsigned)a);
+    return 0;
+}
+
 /* IA8 all-zero (I=0,A=0) over a red marker must not stamp black. */
 static int test_ia_alpha0_no_black(void)
 {
@@ -3456,6 +3484,8 @@ int main(int argc, char **argv)
     if (test_center_cover_black_rect() != 0)
         return 1;
     if (test_ia_alpha0_no_black() != 0)
+        return 1;
+    if (test_tmem_no_midframe_evict() != 0)
         return 1;
     if (test_secondary_gdl() != 0)
         return 1;

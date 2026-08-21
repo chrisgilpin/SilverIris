@@ -44,7 +44,7 @@ secondary room GDL (`pSecMappingBin`) was not walked, and large floor
 tris that crossed the near plane were discarded whole. After 3550dc9
 those floors sampled, but a `w>0.01` clip (no x/y frustum) projected
 near-camera slivers across the whole FB as black, overwriting brick
-and the gun. G1 now keeps a per-triangle tile cache, samples
+and the gun. G1 now keeps a per-triangle tile cache (a SETTEX in the same display list must not evict a slot already recorded on a tri — that punched Facility walls to the cleared FB after setup guards/doors added more unique ids), samples
 IA/RGBA32, inflates the secondary GDL, and clips homogeneous
 `w`/`±x`/`±y`/`±z` so a near-camera floor cannot fill the screen
 and a door/portal closer than the projection near plane cannot
