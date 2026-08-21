@@ -268,7 +268,7 @@ function drawOverlayMarks(
   ctx.lineTo(w / 2, h / 2 + 5);
   ctx.stroke();
 
-  /* G1 path draws GwppkZ in camera space; keep the PORT trapezoid only
+  /* G1 path draws GwppkZ / Gak47Z in camera space; keep the PORT trapezoid only
    * on the no-pack placeholder so the grey slab is not composited twice. */
   if (drawGun) {
     const gun = overlayGunGeom(w, h, cam.phi ?? 0);

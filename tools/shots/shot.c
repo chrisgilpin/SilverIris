@@ -1438,6 +1438,7 @@ static int drop_proof(const char *out_dir, float death_wx, float death_wz)
     int drawn0, drawn1, hid0, hid1;
     int res0, res1;
     int present, gone, hud_ok, at_death;
+    int vg0, vg1;
 
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
@@ -1477,6 +1478,7 @@ static int drop_proof(const char *out_dir, float death_wx, float death_wz)
     drawn0 = port_prop_drop_drawn();
     hid0 = port_prop_drop_hidden();
     res0 = port_api_gun_reserve();
+    vg0 = port_prop_viewgun_id();
     nx = lx;
     nz = lz;
     ny = port_api_player_y();
@@ -1492,21 +1494,23 @@ static int drop_proof(const char *out_dir, float death_wx, float death_wz)
     drawn1 = port_prop_drop_drawn();
     hid1 = port_prop_drop_hidden();
     res1 = port_api_gun_reserve();
+    vg1 = port_prop_viewgun_id();
     present = (drawn0 && !hid0);
     gone = (hid1 && !drawn1);
     hud_ok = (res1 > res0);
     printf("drop_proof model=%d death=%.1f,%.1f drop=%.1f,%.1f ddeath=%.1f "
            "stand=%.1f,%.1f step=%.1f,%.1f drawn=%d->%d hidden=%d->%d "
-           "res=%d->%d %s %s %s %s\n",
+           "res=%d->%d viewgun=%d->%d %s %s %s %s %s\n",
            port_prop_drop_model(),
            (double)(death_wx - r1[0]), (double)(death_wz - r1[2]),
            (double)lx, (double)lz, (double)ddist,
            (double)sx, (double)sz, (double)nx, (double)nz,
-           drawn0, drawn1, hid0, hid1, res0, res1,
+           drawn0, drawn1, hid0, hid1, res0, res1, vg0, vg1,
            at_death ? "ATDEATH" : "away",
            present ? "PRESENT" : "absent",
            gone ? "GONE" : "still",
-           hud_ok ? "RESERVE" : "ressame");
+           hud_ok ? "RESERVE" : "ressame",
+           vg1 == PORT_GUN_AK47_ID ? "KF7FP" : "nofpkf7");
     if (!at_death) {
         fprintf(stderr, "drop_proof drop not at death xz\n");
         return -1;
@@ -1521,6 +1525,14 @@ static int drop_proof(const char *out_dir, float death_wx, float death_wz)
     }
     if (!hud_ok) {
         fprintf(stderr, "drop_proof HUD reserve unchanged\n");
+        return -1;
+    }
+    if (vg0 != PORT_GUN_WPPK_ID) {
+        fprintf(stderr, "drop_proof viewgun was not PP7 before collect id=%d\n", vg0);
+        return -1;
+    }
+    if (vg1 != PORT_GUN_AK47_ID) {
+        fprintf(stderr, "drop_proof viewgun id=%d (no FP KF7 Gak47Z bind)\n", vg1);
         return -1;
     }
     return 0;
@@ -1777,7 +1789,7 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d viewgun=%d flash=%d pickup=%d",
+             "guards=%d parts=%d drawn=%d viewgun=%d viewid=%d flash=%d pickup=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
@@ -1787,6 +1799,7 @@ static int shot_one(const char *out_dir, const char *tag)
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
              port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts(),
+             port_prop_viewgun_id(),
              port_gun_flash_frames(), port_prop_pickup_drawn());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
@@ -2178,6 +2191,14 @@ int main(int argc, char **argv)
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
     g_spawn_fb_adler = g_last_fb_adler;
+    printf("spawn_viewgun id=%d parts=%d %s\n", port_prop_viewgun_id(),
+           port_prop_viewgun_parts(),
+           port_prop_viewgun_id() == PORT_GUN_WPPK_ID ? "PP7" : "not_pp7");
+    if (port_prop_viewgun_id() != PORT_GUN_WPPK_ID) {
+        fprintf(stderr, "spawn viewgun id=%d want PP7 %d\n",
+                port_prop_viewgun_id(), PORT_GUN_WPPK_ID);
+        goto done;
+    }
     {
         int cur = port_api_current_room();
         int tile = port_stan_tile_room(spawn_x, spawn_z);

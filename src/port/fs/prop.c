@@ -89,9 +89,14 @@
 /* Posed C*Z idle AABB is ~1510 (480 spine + ~900 legs), not 480. Fit to 185. */
 #define PORT_CHR_STAND 185.f
 /* GwppkZ MODELFILEHEADER: NUMSWITCHES=0x24 NUMTEXTURES=0xC. */
-#define PORT_GUN_WPPK_ID 9001
 #define PORT_GUN_WPPK_NSW 0x24
 #define PORT_GUN_WPPK_NTEX 0x0C
+/* Pack FP KF7 is Gak47Z (filelist + pack dump). No Gkalash.
+ * MODELFILEHEADER: NUMSWITCHES=0x24 NUMTEXTURES=0x12.
+ * PchrkalashZ is third-person only — never a first-person hold. */
+#define PORT_GUN_AK47_NSW 0x24
+#define PORT_GUN_AK47_NTEX 0x12
+#define PORT_PROP_CHRKALASH 184
 /* Camera-space hold. Rare wppk_stats on-screen Pos is (11, -20.8, -33.5).
  * X matches Rare (was +22, too far right). Y is a bit below Rare so the
  * mesh reads bottom-center. Z stays farther than Rare because G1 near=10
@@ -242,9 +247,13 @@ static char g_die_info[96];
 static char g_pose_info[400];
 static const float (*g_pose_rest)[3];
 static int g_viewgun_parts;
+static int g_viewgun_id = PORT_GUN_WPPK_ID;
 static PortModel *load_wppk(void);
+static PortModel *load_ak47(void);
 static const PortPropCat k_wppk_gun = { PORT_GUN_WPPK_ID, PORT_GUN_WPPK_NSW,
                                        PORT_GUN_WPPK_NTEX, 1.f, "wppk" };
+static const PortPropCat k_ak47_gun = { PORT_GUN_AK47_ID, PORT_GUN_AK47_NSW,
+                                       PORT_GUN_AK47_NTEX, 1.f, "ak47" };
 
 /* SKELETON(guard) JOINTLIST mtxA — bitstream channel base per JointID. */
 static const uint16_t k_guard_mtxa[PORT_SKEL_GUARD_N] = {
@@ -482,6 +491,7 @@ static void load_idle_rest(void)
     g_guard_shots = 0;
     g_guard_los = 0;
     g_viewgun_parts = 0;
+    g_viewgun_id = PORT_GUN_WPPK_ID;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);
@@ -2900,6 +2910,8 @@ void port_prop_unload(void)
     memset(g_pcand, 0, sizeof g_pcand);
     memset(g_chr_gun, 0, sizeof g_chr_gun);
     g_nmdl = 0;
+    g_viewgun_parts = 0;
+    g_viewgun_id = PORT_GUN_WPPK_ID;
     g_drawn = 0;
     g_have_intro = 0;
     g_intro_pad = -1;
@@ -2969,6 +2981,7 @@ int port_prop_load(int level_id)
     parse_setup(g_setup, g_setup_len);
     assign_walkers();
     (void)load_wppk();
+    (void)load_ak47(); /* bind Gak47Z if present; viewgun stays PP7 */
     return PORT_PROP_OK;
 }
 
@@ -3087,11 +3100,32 @@ static PortModel *load_wppk(void)
     return NULL;
 }
 
+static PortModel *load_ak47(void)
+{
+    PortModel *m = load_named(PORT_GUN_AK47_ID, "gun", "G", &k_ak47_gun, 0, NULL);
+    if (m && m->npart)
+        return m;
+    return NULL;
+}
+
+static PortModel *load_viewgun(void)
+{
+    if (g_viewgun_id == PORT_GUN_AK47_ID) {
+        PortModel *m = load_ak47();
+        if (m)
+            return m;
+    }
+    return load_wppk();
+}
+
 int port_prop_viewgun_parts(void) { return g_viewgun_parts; }
 
+int port_prop_viewgun_id(void) { return g_viewgun_id; }
+
 /*
- * Static first-person PP7. Walk Rare nodes (no recoil/reload). Model +Z is
- * Rare forward; G1 looks -Z so hold * R180 * part. Camera-space via .view.
+ * Static first-person pack gun (GwppkZ, or Gak47Z after KF7 drop).
+ * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
+ * -Z so hold * R180 * part. Camera-space via .view. Same hold for both.
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -3109,7 +3143,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
     g_viewgun_parts = 0;
     if (!out || cap < 1)
         return 0;
-    m = load_wppk();
+    m = load_viewgun();
     if (!m || m->npart == 0)
         return 0;
     show_flash = port_gun_flash_frames() > 0;
@@ -3877,6 +3911,11 @@ void port_prop_tick_pickup(void)
             port_player_add_armour(pr->pickup_amount);
         else
             port_gun_add_reserve(pr->pickup_amount);
+        /* KF7 death-drop: switch FP bind to pack Gak47Z. Not chrkalash. */
+        if (i == g_drop_prop && pr->model == PORT_PROP_CHRKALASH) {
+            if (load_ak47())
+                g_viewgun_id = PORT_GUN_AK47_ID;
+        }
     }
 }
 
