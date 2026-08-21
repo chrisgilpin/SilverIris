@@ -13,7 +13,9 @@
  * wppk_stats: AmmoType AMMO_9MM, MagSize 7.
  * Fire: weapon_ammo_in_magazine -= 1 (gunfire.c) on Z_TRIG (CONT_G 0x2000)
  * rising edge. Hitscan is eye + look vs closed door slabs, stan tile
- * exits, and guard cylinders. Fake z=-50 only if no stan is loaded.
+ * exits, and guard cylinders. A patrol or setup-guard hit kill+scores
+ * (one-shot; setup body is then skipped — no ragdoll). Fake z=-50 only
+ * if no stan is loaded.
  */
 #define PI_F 3.1415927f
 
@@ -88,8 +90,10 @@ static void fire_hitscan(void)
         if (src == 2) {
             port_chr_kill();
             port_score_add_kill();
-        } else if (src == 1)
+        } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();
+            port_score_add_kill();
+        }
     }
 }
 

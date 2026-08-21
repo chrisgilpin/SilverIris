@@ -125,6 +125,18 @@ int port_stan_guard_was_hit(int i)
 
 int port_stan_ray_hit_guard(void) { return g_ray_guard >= 0; }
 
+int port_stan_guard_dead_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_nguard; i++) {
+        float dx = world_x - g_guard[i].x;
+        float dz = world_z - g_guard[i].z;
+        if (dx * dx + dz * dz <= 1.0f)
+            return g_guard[i].hit;
+    }
+    return 0;
+}
+
 void port_stan_mark_ray_guard(void)
 {
     if (g_ray_guard >= 0 && g_ray_guard < g_nguard)
@@ -553,6 +565,8 @@ static int guard_ray_hit(float wx, float wz, float dx, float dz, float *t_out, i
 
     for (i = 0; i < g_nguard; i++) {
         float t;
+        if (g_guard[i].hit)
+            continue;
         if (!cyl_ray_hit(wx, wz, dx, dz, g_guard[i].x, g_guard[i].z, PORT_GUARD_RADIUS, &t))
             continue;
         if (t < best) {

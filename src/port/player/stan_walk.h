@@ -35,6 +35,8 @@ int port_stan_guard_count(void);
 int port_stan_guard_was_hit(int i);
 void port_stan_mark_ray_guard(void);
 int port_stan_ray_hit_guard(void);
+/* One-shot: a marked pad guard is dead (skip draw + later rays). */
+int port_stan_guard_dead_at(float world_x, float world_z);
 
 /* Rare doorTestForInteract: xz^2 < 40000 (200 units). Port use is Z_TRIG. */
 #define PORT_DOOR_USE_RANGE 200.0f

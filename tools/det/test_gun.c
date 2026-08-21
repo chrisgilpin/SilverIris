@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "det/checksum.h"
+#include "mp/score.h"
 #include "overrides/lv_clock.h"
 #include "player/gun.h"
 #include "player/move.h"
@@ -149,10 +150,11 @@ static int test_world_hitscan(void)
     }
     printf("hitscan_open_door x=%.1f (pass-through)\n", (double)hx);
 
-    /* Guard radius 30 at x=260. */
+    /* Guard A r=30 at x=260 on the +X ray; B off-axis at z=80. */
     port_stan_clear_doors();
     port_stan_clear_guards();
     port_stan_add_guard(260.0f, 0.0f);
+    port_stan_add_guard(260.0f, 40.0f);
     port_player_spawn();
     port_player_set_pose(80.0f, y, 0.0f, 90.0f);
     if (fire_once(130) != 0)
@@ -167,8 +169,44 @@ static int test_world_hitscan(void)
     }
     if (!port_stan_guard_was_hit(0))
         return fail("guard not marked");
-    printf("hitscan_guard x=%.1f marked=%d (pad=260 r=30)\n", (double)hx,
-           port_stan_guard_was_hit(0));
+    if (port_stan_guard_was_hit(1))
+        return fail("off-axis guard marked");
+    if (port_score_kills() != 1)
+        return fail("guard kill");
+    printf("hitscan_guard x=%.1f marked=%d kills=%d (pad=260 r=30)\n", (double)hx,
+           port_stan_guard_was_hit(0), port_score_kills());
+
+    /* Dead body no longer blocks: same ray hits the far tile. */
+    if (fire_once(132) != 0)
+        return 1;
+    if (port_gun_hits() != 2)
+        return fail("dead-guard second hits");
+    if (port_score_kills() != 1)
+        return fail("dead body is not a second kill");
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("dead-guard second pos");
+    if (fabsf(hx - 400.0f) > 1.0f) {
+        fprintf(stderr, "dead-guard second x=%g want ~400\n", (double)hx);
+        return 1;
+    }
+    printf("hitscan_guard_dead x2=%.1f kills=%d (far tile)\n", (double)hx,
+           port_score_kills());
+
+    /* Alive guard B still blocks a ray aimed at the pad. */
+    {
+        float th = atan2f(180.0f, -40.0f) * (180.0f / 3.1415927f);
+        if (th < 0.0f)
+            th += 360.0f;
+        port_player_set_pose(80.0f, y, 0.0f, th);
+    }
+    if (fire_once(134) != 0)
+        return 1;
+    if (!port_stan_guard_was_hit(1))
+        return fail("alive guard not hit");
+    if (port_score_kills() != 2)
+        return fail("second guard kill");
+    printf("hitscan_guard_alive B marked=%d kills=%d\n", port_stan_guard_was_hit(1),
+           port_score_kills());
 
     /* Door-only, no tiles, look away: miss (fake wall is off). */
     port_stan_unload();

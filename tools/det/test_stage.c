@@ -2820,6 +2820,125 @@ static void build_corridor_stan_stage(uint8_t *s, size_t n)
     wr_s16_st(s + 0xA0 + 4, 50);
 }
 
+/* Intro pad 0 + two PROPDEF_GUARD pads. A is on +X from spawn; B is off-axis. */
+static void build_intro_two_guards(uint8_t *st, float sx, float sy, float sz,
+                                   float slx, float slz, float ax, float ay,
+                                   float az, float bx, float by, float bz)
+{
+    uint32_t intro = 0x28;
+    uint32_t defs = intro + 16;
+    uint32_t gsz = (uint32_t)PDEF_GUARD_WORDS * 4u;
+    uint32_t g1 = defs + gsz;
+    uint32_t end = g1 + gsz;
+    uint32_t pads = end + 4;
+    memset(st, 0, PROP_SETUP_SIZE);
+    wr_be32(st + 8, intro);
+    wr_be32(st + 12, defs);
+    wr_be32(st + 24, pads);
+    wr_intro_spawn(st + intro, 0, 0);
+    wr_intro_end(st + intro + 12);
+    wr_guard_header(st + defs, 1, 0);
+    wr_guard_header(st + g1, 2, 0);
+    wr_be32(st + end, 0x00000030u);
+    wr_pad(st + pads, sx, sy, sz, slx, 0.f, slz);
+    wr_pad(st + pads + PORT_PAD_OFF, ax, ay, az, 0.f, 0.f, 1.f);
+    wr_pad(st + pads + 2 * PORT_PAD_OFF, bx, by, bz, 0.f, 0.f, 1.f);
+}
+
+static int test_guard_kill_hides(void)
+{
+    uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    C0File files[4];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y, hx;
+    int drawn0;
+
+    build_g1dl_bg(bg);
+    build_corridor_stan_stage(stan, sizeof stan);
+    build_intro_two_guards(setup, 80.f, 50.f, 0.f, 1.f, 0.f, 260.f, 50.f, 0.f,
+                           260.f, 50.f, 40.f);
+    build_magenta_g1dl_model(mdl);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    files[3].path = PROP_CHR_PATH;
+    files[3].bytes = mdl;
+    files[3].size = sizeof mdl;
+    if (c0pack_build(files, 4, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("guard-kill pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("guard-kill init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("guard-kill load");
+    if (port_stage_guard_count() != 2)
+        return fail("guard-kill count");
+    y = port_api_player_y();
+    port_player_set_pose(80.f, y, 0.f, 90.f);
+    port_api_draw();
+    drawn0 = port_stage_props_drawn();
+    if (drawn0 != 2)
+        return fail("guard-kill both drawn");
+
+    port_api_set_pad(0, 0, 0, 0);
+    if (port_api_sim_tick(2000) != 0)
+        return fail("guard-kill idle");
+    port_api_set_pad(0, 0, 0, 0x2000);
+    if (port_api_sim_tick(2001) != 0)
+        return fail("guard-kill fire");
+    if (port_api_gun_hits() != 1)
+        return fail("guard-kill hits");
+    if (port_api_kills() != 1)
+        return fail("guard-kill kills");
+    if (!port_stan_guard_was_hit(0))
+        return fail("guard-kill A not marked");
+    if (port_stan_guard_was_hit(1))
+        return fail("guard-kill B marked");
+    hx = port_api_gun_hit_x();
+    if (fabsf(hx - (260.0f - PORT_GUARD_RADIUS)) > 1.0f) {
+        fprintf(stderr, "guard-kill hit x=%g want ~230\n", (double)hx);
+        return 1;
+    }
+
+    port_player_set_pose(80.f, y, 0.f, 90.f);
+    port_api_draw();
+    if (port_stage_props_drawn() != 1)
+        return fail("guard-kill A still drawn");
+
+    port_api_set_pad(0, 0, 0, 0);
+    if (port_api_sim_tick(2002) != 0)
+        return fail("guard-kill second idle");
+    port_api_set_pad(0, 0, 0, 0x2000);
+    if (port_api_sim_tick(2003) != 0)
+        return fail("guard-kill second fire");
+    if (port_api_gun_hits() != 2)
+        return fail("guard-kill second hits");
+    if (port_api_kills() != 1)
+        return fail("guard-kill second kills");
+    hx = port_api_gun_hit_x();
+    if (fabsf(hx - 400.0f) > 1.0f) {
+        fprintf(stderr, "guard-kill second x=%g want ~400\n", (double)hx);
+        return 1;
+    }
+    port_api_draw();
+    if (port_stage_props_drawn() != 1)
+        return fail("guard-kill B vanished");
+
+    printf("hitscan_guard_kill hits=%d kills=%d drawn=%d->%d second_x=%.1f\n",
+           port_api_gun_hits(), port_api_kills(), drawn0, port_stage_props_drawn(),
+           (double)hx);
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
 static int test_stan_floor_walk(void)
 {
     uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE];
@@ -3387,6 +3506,8 @@ int main(int argc, char **argv)
     if (test_stan_floor_walk() != 0)
         return 1;
     if (test_door_open_pose() != 0)
+        return 1;
+    if (test_guard_kill_hides() != 0)
         return 1;
     return 0;
 }

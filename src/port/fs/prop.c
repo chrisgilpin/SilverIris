@@ -1056,6 +1056,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
             continue;
+        if (pr->type == PDEF_GUARD &&
+            port_stan_guard_dead_at(pr->pos[0], pr->pos[2]))
+            continue;
         if (pr->type == PDEF_DOOR && port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
             door_open_pose(pr, &add_yaw, &odx, &ody, &odz);
         k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
