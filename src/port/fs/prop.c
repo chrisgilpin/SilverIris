@@ -73,6 +73,8 @@ typedef struct {
     uint32_t sec_n;
     float ox, oy, oz;
     float rx, ry, rz;
+    uintptr_t vtx4; /* DLCOLLISION vertex bank for G_VTX 0x04 */
+    uint32_t nvtx;
 } PortPart;
 
 typedef struct {
@@ -111,6 +113,8 @@ static int g_nprop;
 static PortModel g_mdl[PORT_MAX_MODELS];
 static int g_nmdl;
 static int g_drawn;
+static PortModel g_retail_slab;
+static int g_retail_slab_ok;
 static int g_intro_pad = -1;
 static int g_have_intro;
 static float g_intro_pos[3];
@@ -356,7 +360,8 @@ static uint32_t gdl_count(const uint8_t *base, size_t n, uint32_t off)
     if (!base || off + 8 > n)
         return 0;
     for (i = 0; i < PORT_GDL_MAX && off + (i + 1u) * 8u <= n; i++) {
-        if (base[off + i * 8u] == (uint8_t)0xDF)
+        /* F3D G_ENDDL is 0xB8; F3DEX2 is 0xDF. Retail P*Z uses B8. */
+        if (base[off + i * 8u] == (uint8_t)0xDF || base[off + i * 8u] == (uint8_t)0xB8)
             return i + 1u;
     }
     return i;
@@ -398,6 +403,15 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
     pt->rx = rx;
     pt->ry = ry;
     pt->rz = rz;
+    if ((op == 24 || op == 4) && data + 12 <= n) {
+        uint32_t v = file_off(be32(base + data + 8), n);
+        if (v) {
+            pt->vtx4 = (uintptr_t)(base + v);
+            pt->nvtx = (uint32_t)be16(base + data + 12);
+            if (pt->nvtx > 256u)
+                pt->nvtx = 256u;
+        }
+    }
     m->npart++;
     return 1;
 }
@@ -815,6 +829,8 @@ void port_prop_unload(void)
     g_intro_pad = -1;
     g_have_idle = 0;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
+    g_retail_slab_ok = 0;
+    memset(&g_retail_slab, 0, sizeof g_retail_slab);
 }
 
 int port_prop_load(int level_id)
@@ -948,15 +964,18 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 
-/* Closed-door G1DL slab (XY quad, both windings). Retail P*Z door DLs
- * G_SETTEX (ids 685..) but G_VTX is 0x04xxxxxx — segment 4 is the node
- * vertex bank, not the model file (seg 5). Unbound G_VTX leaves room
- * verts; TRI4 clips. GROUP origin is also gas-plant world (~6k units).
- * Keep the fitted slab and SETTEX the door model's first tile. */
+/* Closed-door slab. Prefer retail Pgas_plant_met1_do1 (96-vert mesh,
+ * SETTEX 685-688,706). G_VTX is 0x04xxxxxx — bind the node vertex bank
+ * at file+0xC0 as seg 4. Do not bind seg 3 (G_MTX LOAD would replace
+ * the camera). Root GROUP origin is gas-plant world; zero it and use
+ * the fitted portal pose. Fallback: fitted G1DL quad, SETTEX 685. */
 static uint8_t g_slab_file[192];
 static PortModel g_slab_mdl;
 static int g_slab_ok;
 #define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 tile 0; imagelist "685" */
+#define SLAB_RETAIL_ID 158
+#define SLAB_RETAIL_HALF_W 350.f
+#define SLAB_RETAIL_BOTTOM -787.f
 
 static void wr32(uint8_t *p, uint32_t v)
 {
@@ -985,7 +1004,56 @@ static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16
     v[15] = 255;
 }
 
-static PortModel *slab_door(void)
+static int gdl_has_seg4_vtx(const uint8_t *pri, uint32_t n)
+{
+    uint32_t i;
+    if (!pri || n == 0)
+        return 0;
+    for (i = 0; i < n; i++) {
+        if (pri[i * 8u] == (uint8_t)G_VTX && pri[i * 8u + 4] == 4)
+            return 1;
+    }
+    return 0;
+}
+
+static int slab_is_retail(const PortModel *m)
+{
+    return m && m->npart > 0 && m->part[0].vtx4 != 0 &&
+           gdl_has_seg4_vtx(m->part[0].pri, m->part[0].pri_n);
+}
+
+static void slab_bounds(const PortModel *m, float *half_w, float *bottom)
+{
+    const uint8_t *v;
+    uint32_t i, n;
+    int16_t minx, maxx, miny;
+
+    *half_w = SLAB_RETAIL_HALF_W;
+    *bottom = SLAB_RETAIL_BOTTOM;
+    if (!m || !m->part[0].vtx4 || m->part[0].nvtx < 3)
+        return;
+    v = (const uint8_t *)m->part[0].vtx4;
+    n = m->part[0].nvtx;
+    minx = maxx = (int16_t)((v[0] << 8) | v[1]);
+    miny = (int16_t)((v[2] << 8) | v[3]);
+    for (i = 1; i < n; i++) {
+        const uint8_t *p = v + i * 16u;
+        int16_t x = (int16_t)((p[0] << 8) | p[1]);
+        int16_t y = (int16_t)((p[2] << 8) | p[3]);
+        if (x < minx)
+            minx = x;
+        if (x > maxx)
+            maxx = x;
+        if (y < miny)
+            miny = y;
+    }
+    *half_w = 0.5f * (float)(maxx - minx);
+    if (*half_w < 1.f)
+        *half_w = SLAB_RETAIL_HALF_W;
+    *bottom = (float)miny;
+}
+
+static PortModel *slab_quad(void)
 {
     /* Two proven 3-vert G_VTX+G_TRI4 packets (same encoding as the magenta
      * door test). A 4-vert packet left stale room verts on one triangle. */
@@ -1025,6 +1093,31 @@ static PortModel *slab_door(void)
     g_slab_mdl.npart = 1;
     g_slab_ok = 1;
     return &g_slab_mdl;
+}
+
+static PortModel *slab_door(void)
+{
+    PortModel *m;
+    int p;
+
+    if (g_retail_slab_ok)
+        return &g_retail_slab;
+    m = load_model(SLAB_RETAIL_ID);
+    if (m && be32(m->file) != PORT_BG_MAGIC_G1DL && slab_is_retail(m)) {
+        g_retail_slab = *m;
+        for (p = 0; p < g_retail_slab.npart; p++) {
+            /* Replace gas-plant GROUP origin with the fitted portal pose. */
+            g_retail_slab.part[p].ox = 0.f;
+            g_retail_slab.part[p].oy = 0.f;
+            g_retail_slab.part[p].oz = 0.f;
+            g_retail_slab.part[p].rx = 0.f;
+            g_retail_slab.part[p].ry = 0.f;
+            g_retail_slab.part[p].rz = 0.f;
+        }
+        g_retail_slab_ok = 1;
+        return &g_retail_slab;
+    }
+    return slab_quad();
 }
 
 static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const PortModel *mdl,
@@ -1069,6 +1162,7 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].yaw = pr->yaw + add_yaw;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
+        out[k].seg4 = pt->vtx4;
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
@@ -1160,12 +1254,16 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
      */
     {
         PortModel *slab = slab_door();
+        int retail = slab_is_retail(slab);
         int o, no = port_stage_opening_count();
+        float half_w = PORT_DOOR_HALF_W, bottom = 0.f;
         float pwx = room1[0] + port_player_x();
         float pwz = room1[2] + port_player_z();
         float floor_y = room1[1] + (port_player_y() - 175.f);
         float th = port_player_theta() * (PI_F / 180.f);
         float lookx = sinf(th), lookz = -cosf(th);
+        if (retail)
+            slab_bounds(slab, &half_w, &bottom);
         for (o = 0; o < no && k < cap; o++) {
             float pos[3], yaw = 0.f, width = 0.f;
             PortProp tmp, probe;
@@ -1224,10 +1322,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
             else
                 tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
-            tmp.scale = (width > 1.f) ? (width / (2.f * PORT_DOOR_HALF_W)) : 1.f;
+            tmp.scale = (width > 1.f) ? (width / (2.f * half_w)) : (PORT_DOOR_HALF_W / half_w);
             tmp.mdl = slab;
-            k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f,
-                           0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+            k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, -bottom * tmp.scale, 0.f,
+                           0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
         }
         /* Start alcoves are in-room GDL, not portals. One left-wall slab
          * when no door-sized portal already sits on that wall. */
@@ -1259,10 +1357,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                     tmp.yaw = 0.f;
                 else
                     tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
-                tmp.scale = 1.15f;
+                tmp.scale = 1.15f * (PORT_DOOR_HALF_W / half_w);
                 tmp.mdl = slab;
-                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f,
-                               0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, -bottom * tmp.scale,
+                               0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
             }
         }
     }

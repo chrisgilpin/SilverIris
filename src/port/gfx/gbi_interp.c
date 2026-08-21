@@ -603,7 +603,7 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         if (rooms[0].vtx)
             g1_set_segment(14, rooms[0].vtx);
         if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f &&
-            rooms[0].yaw == 0.f && rooms[0].seg5 == 0 &&
+            rooms[0].yaw == 0.f && rooms[0].seg5 == 0 && rooms[0].seg4 == 0 &&
             rooms[0].rx == 0.f && rooms[0].ry == 0.f && rooms[0].rz == 0.f &&
             (rooms[0].scale == 0.f || rooms[0].scale == 1.f))
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
@@ -625,6 +625,10 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             g_seg[14] = rooms[i].vtx;
         if (rooms[i].seg5)
             g_seg[5] = rooms[i].seg5;
+        /* Node vertex bank. Never bind seg 3: retail G_MTX is 0x03 and
+         * G_MTX_LOAD would replace the camera. Unbound G_MTX is a no-op. */
+        if (rooms[i].seg4)
+            g_seg[4] = rooms[i].seg4;
         g_cam_eye[0] = eye[0] - rooms[i].ox;
         g_cam_eye[1] = eye[1] - rooms[i].oy;
         g_cam_eye[2] = eye[2] - rooms[i].oz;

@@ -31,6 +31,7 @@ typedef struct {
     float scale;   /* 0 or 1 = identity */
     uintptr_t seg5; /* model file base (0x05) */
     float rx, ry, rz; /* radians; Rare XYZ Euler rest/joint, identity=0 */
+    uintptr_t seg4; /* node vertex bank (G_VTX 0x04); 0 = leave unbound */
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

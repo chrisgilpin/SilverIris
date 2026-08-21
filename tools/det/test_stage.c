@@ -2631,6 +2631,55 @@ static int test_prop_door_rare_nodes(void)
                          "prop_door_rare_nodes");
 }
 
+/* G_VTX 0x04 + G_MTX 0x03. Seg4 must bind the node vertex bank; seg3 must
+ * stay unbound so G_MTX_LOAD does not replace the camera. */
+static void build_seg4_node_model(uint8_t *m)
+{
+    Vtx vtx[3];
+    int i;
+    uint32_t node = 0, data = 0x18, gdl = 0x28, vtx_off = 0x48;
+    memset(m, 0, PROP_MODEL_SIZE);
+    wr_be16(m + node, 24);
+    wr_be32(m + node + 4, 0x05000000u | data);
+    wr_be32(m + data, 0x05000000u | gdl);
+    wr_be32(m + data + 8, 0x05000000u | vtx_off);
+    wr_be16(m + data + 12, 3);
+    /* G_MTX MODELVIEW LOAD from unbound seg 3 — must be a no-op. */
+    wr_be32(m + gdl, ((uint32_t)(uint8_t)G_MTX << 24) | (0x02u << 16));
+    wr_be32(m + gdl + 4, 0x03000000u);
+    wr_be32(m + gdl + 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16));
+    wr_be32(m + gdl + 12, 0x04000000u);
+    wr_be32(m + gdl + 16, 0xB1000002u);
+    wr_be32(m + gdl + 20, 0x00000010u);
+    wr_be32(m + gdl + 24, (uint32_t)(uint8_t)G_ENDDL << 24);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -80;
+    vtx[0].v.ob[1] = 0;
+    vtx[0].v.ob[2] = 0;
+    vtx[1].v.ob[0] = 80;
+    vtx[1].v.ob[1] = 0;
+    vtx[1].v.ob[2] = 0;
+    vtx[2].v.ob[0] = 0;
+    vtx[2].v.ob[1] = 180;
+    vtx[2].v.ob[2] = 0;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 220;
+        vtx[i].v.cn[1] = 20;
+        vtx[i].v.cn[2] = 220;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(m + vtx_off + (size_t)i * 16, &vtx[i]);
+    }
+}
+
+static int test_prop_door_seg4_vtx(void)
+{
+    uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
+    build_one_door_setup(st, 0.f, 40.f, -220.f);
+    build_seg4_node_model(mdl);
+    return run_prop_pack(st, sizeof st, mdl, sizeof mdl, NULL, 80, 200000, 1, 1,
+                         "prop_door_seg4_vtx");
+}
+
 static int test_prop_door_far_culled(void)
 {
     uint8_t st[PROP_SETUP_SIZE], mdl[PROP_MODEL_SIZE];
@@ -4559,6 +4608,8 @@ int main(int argc, char **argv)
     if (test_prop_door_pixels() != 0)
         return 1;
     if (test_prop_door_rare_nodes() != 0)
+        return 1;
+    if (test_prop_door_seg4_vtx() != 0)
         return 1;
     if (test_prop_door_far_culled() != 0)
         return 1;
