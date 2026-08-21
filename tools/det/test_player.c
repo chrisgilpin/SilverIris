@@ -414,6 +414,189 @@ static int test_door_use_does_not_fire(void)
 }
 
 
+
+/* Zero-area line tile (collinear xz) plus a good corridor. Walking onto
+ * the sliver must keep a finite Y — old (0,1,2)/ny wrote NaN. */
+static void build_degen_pair_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    /* Tile 0: good corridor x 0..200, z -50..50, y=50. */
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0x88 + 0, 0);
+    wr_s16(s + 0x88 + 2, 50);
+    wr_s16(s + 0x88 + 4, -50);
+    wr_s16(s + 0x90 + 0, 200);
+    wr_s16(s + 0x90 + 2, 50);
+    wr_s16(s + 0x90 + 4, -50);
+    wr_s16(s + 0x98 + 0, 200);
+    wr_s16(s + 0x98 + 2, 50);
+    wr_s16(s + 0x98 + 4, 50);
+    wr_s16(s + 0xA0 + 0, 0);
+    wr_s16(s + 0xA0 + 2, 50);
+    wr_s16(s + 0xA0 + 4, 50);
+    /* Tile 1 at 0x80+0x28=0xA8: zero-area line x=200, y=50, z -50..50.
+     * Three collinear points. Must not own the plane or NaN Y. */
+    s[0xA8 + 2] = 1;
+    s[0xA8 + 3] = 1;
+    wr_be16(s + 0xA8 + 6, (uint16_t)((3u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0xB0 + 0, 200);
+    wr_s16(s + 0xB0 + 2, 50);
+    wr_s16(s + 0xB0 + 4, -50);
+    wr_s16(s + 0xB8 + 0, 200);
+    wr_s16(s + 0xB8 + 2, 50);
+    wr_s16(s + 0xB8 + 4, 0);
+    wr_s16(s + 0xC0 + 0, 200);
+    wr_s16(s + 0xC0 + 2, 50);
+    wr_s16(s + 0xC0 + 4, 50);
+}
+
+/* Stair-like sloped quad: y=50 at x=0 -> y=150 at x=400, z -50..50.
+ * Plus a 6-pt tile whose first three points are a near-vertical riser
+ * (the Chris NaN case) sitting on the same footprint. */
+static void build_stair_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    /* Tile 0: clean ramp. */
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0x88 + 0, 0);
+    wr_s16(s + 0x88 + 2, 50);
+    wr_s16(s + 0x88 + 4, -50);
+    wr_s16(s + 0x90 + 0, 400);
+    wr_s16(s + 0x90 + 2, 150);
+    wr_s16(s + 0x90 + 4, -50);
+    wr_s16(s + 0x98 + 0, 400);
+    wr_s16(s + 0x98 + 2, 150);
+    wr_s16(s + 0x98 + 4, 50);
+    wr_s16(s + 0xA0 + 0, 0);
+    wr_s16(s + 0xA0 + 2, 50);
+    wr_s16(s + 0xA0 + 4, 50);
+    /* Tile 1 at 0xA8: same quad but first 3 pts are a riser (ny~0). */
+    s[0xA8 + 2] = 1;
+    s[0xA8 + 3] = 1;
+    wr_be16(s + 0xA8 + 6, (uint16_t)((6u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0xB0 + 0, 0);
+    wr_s16(s + 0xB0 + 2, 50);
+    wr_s16(s + 0xB0 + 4, -50);
+    wr_s16(s + 0xB8 + 0, 0);
+    wr_s16(s + 0xB8 + 2, 150);
+    wr_s16(s + 0xB8 + 4, -50);
+    wr_s16(s + 0xC0 + 0, 1);
+    wr_s16(s + 0xC0 + 2, 150);
+    wr_s16(s + 0xC0 + 4, -49);
+    wr_s16(s + 0xC8 + 0, 400);
+    wr_s16(s + 0xC8 + 2, 150);
+    wr_s16(s + 0xC8 + 4, -50);
+    wr_s16(s + 0xD0 + 0, 400);
+    wr_s16(s + 0xD0 + 2, 150);
+    wr_s16(s + 0xD0 + 4, 50);
+    wr_s16(s + 0xD8 + 0, 0);
+    wr_s16(s + 0xD8 + 2, 50);
+    wr_s16(s + 0xD8 + 4, 50);
+}
+
+static int y_finite(float y)
+{
+    return y == y && y < 1.0e20f && y > -1.0e20f;
+}
+
+static int test_stan_degen_y_finite(void)
+{
+    uint8_t stan[512];
+    float y0, y1;
+    uint32_t t;
+
+    port_stan_unload();
+    build_degen_pair_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("degen load");
+    if (port_stan_tile_count() < 1)
+        return fail("degen tiles");
+    /* Line tile must not own xz. Good corridor still does. */
+    if (!port_stan_on_tile(100.0f, 0.0f))
+        return fail("degen good tile");
+    if (port_stan_eye_y(100.0f, 0.0f, &y0) != 0 || !y_finite(y0))
+        return fail("degen good y");
+    port_player_spawn();
+    port_player_set_pose(100.0f, y0, 0.0f, 90.0f);
+    /* Walk +X onto the line x=200. Stay finite even if the sliver matches. */
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 0; t < 40; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("degen tick");
+        y1 = port_player_y();
+        if (!y_finite(y1))
+            return fail("degen y became NaN");
+    }
+    y1 = port_player_y();
+    if (!y_finite(y1))
+        return fail("degen final y");
+    printf("stan_degen_y_finite y0=%.1f y1=%.1f x=%.1f\n", (double)y0, (double)y1,
+           (double)port_player_x());
+    port_stan_unload();
+    return 0;
+}
+
+static int test_stan_slope_y_finite(void)
+{
+    uint8_t stan[512];
+    float y0, y1;
+    uint32_t t;
+
+    port_stan_unload();
+    build_stair_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("slope load");
+    if (port_stan_eye_y(40.0f, 0.0f, &y0) != 0 || !y_finite(y0))
+        return fail("slope y0");
+    /* Floor at x=0 is 50; at x=400 is 150. x=40 -> ~60+175. */
+    if (y0 < 220.0f || y0 > 250.0f) {
+        fprintf(stderr, "slope y0=%g want ~235\n", (double)y0);
+        return fail("slope y0 range");
+    }
+    {
+        float yr;
+        if (port_stan_eye_y(200.0f, 0.0f, &yr) != 0 || !y_finite(yr))
+            return fail("slope riser sample");
+        if (yr < 250.0f || yr > 310.0f) {
+            fprintf(stderr, "slope mid y=%g want ~275\n", (double)yr);
+            return fail("slope mid range");
+        }
+    }
+    port_player_spawn();
+    port_player_set_pose(40.0f, y0, 0.0f, 90.0f);
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 0; t < 80; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("slope tick");
+        if (!y_finite(port_player_y()))
+            return fail("slope y NaN");
+    }
+    y1 = port_player_y();
+    if (!y_finite(y1))
+        return fail("slope y1");
+    if (!(y1 > y0 + 15.0f)) {
+        fprintf(stderr, "slope y0=%g y1=%g x=%g — expected rise\n", (double)y0,
+                (double)y1, (double)port_player_x());
+        return fail("slope y did not rise");
+    }
+    if (y1 > 400.0f)
+        return fail("slope y exploded");
+    printf("stan_slope_y_finite y0=%.1f y1=%.1f x=%.1f\n", (double)y0, (double)y1,
+           (double)port_player_x());
+    port_stan_unload();
+    return 0;
+}
+
 static int test_look_pitch(void)
 {
     uint32_t t;
@@ -517,6 +700,10 @@ int main(void)
     if (test_door_use_does_not_fire() != 0)
         return 1;
     if (test_look_pitch() != 0)
+        return 1;
+    if (test_stan_degen_y_finite() != 0)
+        return 1;
+    if (test_stan_slope_y_finite() != 0)
         return 1;
     return 0;
 }

@@ -546,20 +546,32 @@ int port_stage_load(int level_id)
              * pad Y so G1 greyscale / intro magenta tests stay put. Retail
              * C0 with no parsed tiles still lifts the camera off the floor.
              * If room1 origin put xz off every tile, try origin 0 (tiles
-             * already room-local). */
-            if (port_stan_eye_y(x, z, &ey) == 0)
-                y = ey;
-            else {
-                port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
-                if (port_stan_eye_y(x, z, &ey) == 0)
+             * already room-local). A degenerate stair tile must not write
+             * NaN: keep pad Y + 175 when tiles exist but interpolate fails. */
+            {
+                float pad_y = y;
+                int got = 0;
+                if (port_stan_eye_y(x, z, &ey) == 0) {
                     y = ey;
-                else {
-                    if (g_bg_rooms >= 1)
-                        port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1],
-                                                   g_rm[1].pos[2]);
-                    if (g_gdl_c0)
-                        y += PORT_EYE_HEIGHT;
+                    got = 1;
+                } else {
+                    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+                    if (port_stan_eye_y(x, z, &ey) == 0) {
+                        y = ey;
+                        got = 1;
+                    } else {
+                        if (g_bg_rooms >= 1)
+                            port_stan_set_world_origin(g_rm[1].pos[0], g_rm[1].pos[1],
+                                                       g_rm[1].pos[2]);
+                        if (port_stan_tile_count() > 0)
+                            y = pad_y + PORT_EYE_HEIGHT;
+                        else if (g_gdl_c0)
+                            y = pad_y + PORT_EYE_HEIGHT;
+                    }
                 }
+                if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
+                    y = pad_y + PORT_EYE_HEIGHT;
+                (void)got;
             }
             port_player_set_pose(x, y, z, th);
         }
@@ -709,6 +721,16 @@ int port_stage_draw(void)
     g1_set_segment(0xF, (uintptr_t)g_bg);
     if (g_rm[1].vtx)
         g1_set_segment(14, (uintptr_t)g_rm[1].vtx);
+    {
+        float py = port_player_y();
+        float ey;
+        /* First frame after spawn, or a stair NaN, must not feed look-at. */
+        if (!(py == py) || py > 1.0e20f || py < -1.0e20f) {
+            if (port_stan_eye_y(port_player_x(), port_player_z(), &ey) != 0)
+                ey = PORT_EYE_HEIGHT;
+            port_player_set_y(ey);
+        }
+    }
     g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
     g1_set_pitch(port_player_phi());
 

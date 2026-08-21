@@ -344,10 +344,18 @@ float port_stan_max_xz(void)
     return m;
 }
 
+static float tile_xz_twice_area(const StanTile *t);
+static int finite_f(float v);
+
 static int point_in_tile(const StanTile *t, float x, float z)
 {
     int i, pos = 0, neg = 0;
     if (t->n < 3)
+        return 0;
+    /* Zero-area / collinear tiles match the whole xz plane (all cross
+     * products ~0). That made intro-pad and stair samples hit a riser
+     * whose (0,1,2) plane divided by zero and wrote NaN into player Y. */
+    if (tile_xz_twice_area(t) < 1.0f)
         return 0;
     for (i = 0; i < t->n; i++) {
         int j = (i + 1 == t->n) ? 0 : i + 1;
@@ -362,23 +370,100 @@ static int point_in_tile(const StanTile *t, float x, float z)
     return !(pos && neg);
 }
 
-static float tile_floor_y(const StanTile *t, float x, float z)
+/* NaN != NaN. Also drop Inf / exploded stair planes so look-at stays finite. */
+static int finite_f(float v)
 {
-    float ax, ay, az, bx, by, bz, nx, ny, nz;
+    return v == v && v < 1.0e20f && v > -1.0e20f;
+}
+
+static float tile_xz_twice_area(const StanTile *t)
+{
+    int i;
+    float a = 0.0f;
     if (t->n < 3)
-        return t->y[0];
-    ax = t->x[1] - t->x[0];
-    ay = t->y[1] - t->y[0];
-    az = t->z[1] - t->z[0];
-    bx = t->x[2] - t->x[0];
-    by = t->y[2] - t->y[0];
-    bz = t->z[2] - t->z[0];
+        return 0.0f;
+    for (i = 0; i < t->n; i++) {
+        int j = (i + 1 == t->n) ? 0 : i + 1;
+        a += t->x[i] * t->z[j] - t->x[j] * t->z[i];
+    }
+    if (a < 0.0f)
+        a = -a;
+    return a;
+}
+
+static float tile_avg_y(const StanTile *t)
+{
+    int i;
+    float s = 0.0f;
+    if (t->n <= 0)
+        return 0.0f;
+    for (i = 0; i < t->n; i++) {
+        if (!finite_f(t->y[i]))
+            return 0.0f;
+        s += t->y[i];
+    }
+    return s / (float)t->n;
+}
+
+/* Plane through i0,i1,i2. Returns |ny| if Y at (x,z) is usable, else 0. */
+static float tile_tri_y(const StanTile *t, int i0, int i1, int i2, float x, float z,
+                        float *y_out)
+{
+    float ax, ay, az, bx, by, bz, nx, ny, nz, y;
+    ax = t->x[i1] - t->x[i0];
+    ay = t->y[i1] - t->y[i0];
+    az = t->z[i1] - t->z[i0];
+    bx = t->x[i2] - t->x[i0];
+    by = t->y[i2] - t->y[i0];
+    bz = t->z[i2] - t->z[i0];
     nx = ay * bz - az * by;
     ny = az * bx - ax * bz;
     nz = ax * by - ay * bx;
-    if (ny > -1e-4f && ny < 1e-4f)
-        return t->y[0];
-    return t->y[0] - (nx * (x - t->x[0]) + nz * (z - t->z[0])) / ny;
+    /* Stairs often list a near-vertical riser first; |ny|<1e-3 is a
+     * divide-by-zero (NaN) or a huge plane that throws the camera. */
+    if (ny > -1.0e-3f && ny < 1.0e-3f)
+        return 0.0f;
+    y = t->y[i0] - (nx * (x - t->x[i0]) + nz * (z - t->z[i0])) / ny;
+    if (!finite_f(y))
+        return 0.0f;
+    if (y_out)
+        *y_out = y;
+    return (ny < 0.0f) ? -ny : ny;
+}
+
+static float tile_floor_y(const StanTile *t, float x, float z)
+{
+    float best_a = 0.0f, best_y, y, avg;
+    int i, i1, i2;
+
+    if (t->n < 3) {
+        y = t->y[0];
+        return finite_f(y) ? y : 0.0f;
+    }
+    best_y = t->y[0];
+    /* Consecutive triples, then a fan from v0. A stair tile whose first
+     * three points are a degenerate riser must still pick the tread. */
+    for (i = 0; i < t->n; i++) {
+        float a;
+        i1 = (i + 1 == t->n) ? 0 : i + 1;
+        i2 = (i + 2 >= t->n) ? (i + 2 - t->n) : i + 2;
+        a = tile_tri_y(t, i, i1, i2, x, z, &y);
+        if (a > best_a) {
+            best_a = a;
+            best_y = y;
+        }
+    }
+    for (i = 1; i + 1 < t->n; i++) {
+        float a = tile_tri_y(t, 0, i, i + 1, x, z, &y);
+        if (a > best_a) {
+            best_a = a;
+            best_y = y;
+        }
+    }
+    if (best_a > 0.0f && finite_f(best_y))
+        return best_y;
+    avg = tile_avg_y(t);
+    return finite_f(avg) ? avg : 0.0f;
 }
 
 static const StanTile *tile_at_world(float wx, float wz)
@@ -438,7 +523,7 @@ int port_stan_on_tile(float local_x, float local_z)
 
 int port_stan_eye_y(float local_x, float local_z, float *y_out)
 {
-    float wx, wz;
+    float wx, wz, y;
     const StanTile *t;
     if (!y_out || g_ntile <= 0)
         return -1;
@@ -446,7 +531,10 @@ int port_stan_eye_y(float local_x, float local_z, float *y_out)
     t = tile_at_world(wx, wz);
     if (!t)
         return -1;
-    *y_out = (tile_floor_y(t, wx, wz) + PORT_EYE_HEIGHT) - g_oy;
+    y = (tile_floor_y(t, wx, wz) + PORT_EYE_HEIGHT) - g_oy;
+    if (!finite_f(y))
+        return -1;
+    *y_out = y;
     return 0;
 }
 
@@ -484,7 +572,7 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
         *nx = cx;
         *nz = cz;
     }
-    if (ny && port_stan_eye_y(cx, cz, &ey) == 0)
+    if (ny && port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
         *ny = ey;
 }
 

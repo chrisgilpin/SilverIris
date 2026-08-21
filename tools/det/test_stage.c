@@ -3093,6 +3093,8 @@ static int test_stan_floor_walk(void)
     if (port_stan_tile_count() != 1)
         return fail("stan walk tiles");
     y = port_api_player_y();
+    if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
+        return fail("stan walk spawn y NaN");
     if (fabsf(y - want_y) > 0.05f) {
         fprintf(stderr, "stage eye y=%g want %g\n", (double)y, (double)want_y);
         return 1;
@@ -3100,6 +3102,14 @@ static int test_stan_floor_walk(void)
     if (fabsf(port_api_player_x() - 200.f) > INTRO_EPS_XZ ||
         fabsf(port_api_player_z() - 0.f) > INTRO_EPS_XZ)
         return fail("stan walk spawn xz");
+    /* First draw after intro spawn must show the room, not a NaN look-at. */
+    port_api_draw();
+    if (port_api_last_draw() != PORT_DRAW_STAGE)
+        return fail("stan walk first draw");
+    if (port_api_fb_nonzero() == 0)
+        return fail("stan walk first draw empty");
+    printf("intro_spawn_y_finite y=%.1f fb_nonzero=%u\n", (double)y,
+           port_api_fb_nonzero());
 
     x0 = port_api_player_x();
     port_api_set_pad(0, 0, -70, 0);
@@ -4004,6 +4014,54 @@ static int test_persp_floor_uv_stable(void)
     return 0;
 }
 
+
+static int test_stan_offtile_spawn_y(void)
+{
+    uint8_t bg[BG_SIZE], stan[256], setup[PROP_SETUP_SIZE];
+    C0File files[3];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    float y;
+    const float want_y = 50.0f + PORT_EYE_HEIGHT;
+
+    build_g1dl_bg(bg);
+    build_corridor_stan_stage(stan, sizeof stan);
+    /* Pad at x=-80, off the 0..400 corridor. Tiles exist; interpolate fails. */
+    build_intro_door_setup(setup, 0, -80.f, 50.f, 0.f, 0.f, -1.f, 2000.f, 50.f,
+                           0.f);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    files[2].path = PROP_SETUP_PATH;
+    files[2].bytes = setup;
+    files[2].size = sizeof setup;
+    if (c0pack_build(files, 3, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("offtile pack");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("offtile init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("offtile load");
+    y = port_api_player_y();
+    if (!(y == y) || y > 1.0e20f || y < -1.0e20f)
+        return fail("offtile y NaN");
+    if (fabsf(y - want_y) > 0.5f) {
+        fprintf(stderr, "offtile y=%g want %g\n", (double)y, (double)want_y);
+        return fail("offtile pad+175");
+    }
+    port_api_draw();
+    if (port_api_fb_nonzero() == 0)
+        return fail("offtile first draw empty");
+    printf("stan_offtile_spawn_y y=%.1f fb_nonzero=%u\n", (double)y,
+           port_api_fb_nonzero());
+    port_api_shutdown();
+    free(pack);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -4310,6 +4368,8 @@ int main(int argc, char **argv)
     if (test_intro_spawn_bound() != 0)
         return 1;
     if (test_stan_floor_walk() != 0)
+        return 1;
+    if (test_stan_offtile_spawn_y() != 0)
         return 1;
     if (test_stan_scale_chris_xz() != 0)
         return 1;

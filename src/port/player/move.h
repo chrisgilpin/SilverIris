@@ -17,6 +17,7 @@
 
 void port_player_spawn(void);
 void port_player_set_pose(float x, float y, float z, float theta);
+void port_player_set_y(float y);
 void port_player_set_pitch(float phi);
 void port_set_look_delta(int seat, float yaw_deg, float pitch_deg);
 void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons);

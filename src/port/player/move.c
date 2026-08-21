@@ -77,6 +77,24 @@ static float clampf(float v, float lo, float hi)
     return v;
 }
 
+/* Last finite eye Y. Spawn / stair NaN must not stick in the look-at. */
+static float g_safe_y = PORT_EYE_HEIGHT;
+
+static int y_ok(float v)
+{
+    return v == v && v < 1.0e20f && v > -1.0e20f;
+}
+
+static void store_y(PortPly *p, float y)
+{
+    if (y_ok(y)) {
+        p->y = y;
+        g_safe_y = y;
+    } else {
+        p->y = g_safe_y;
+    }
+}
+
 void port_set_player_count(int n)
 {
     if (n < 1)
@@ -243,6 +261,7 @@ void port_player_spawn(void)
         g_p[i].prev_buttons = 0;
         g_p[i].spawned = 1;
     }
+    g_safe_y = PORT_EYE_HEIGHT;
     port_gun_reset();
     port_chr_reset();
     port_score_reset();
@@ -257,7 +276,7 @@ void port_player_set_pose(float x, float y, float z, float theta)
         theta -= 360.0f;
     for (i = 0; i < PORT_MAX_PLAYERS; i++) {
         g_p[i].x = x + k_spawn_x[i];
-        g_p[i].y = y;
+        store_y(&g_p[i], y);
         g_p[i].z = z + k_spawn_z[i];
         g_p[i].theta = theta;
         g_p[i].phi = 0.0f;
@@ -265,6 +284,11 @@ void port_player_set_pose(float x, float y, float z, float theta)
         g_p[i].look_pitch = 0.0f;
         g_p[i].spawned = 1;
     }
+}
+
+void port_player_set_y(float y)
+{
+    store_y(&g_p[g_cur], y);
 }
 
 void port_player_set_pitch(float phi)
@@ -344,7 +368,7 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
             port_stan_clip_step(ox, oz, &nx, &nz, &ny);
             p->x = nx;
             p->z = nz;
-            p->y = ny;
+            store_y(p, ny);
         }
     }
     /* Rare bond_pressed_reload_activate -> propdoorInteract. HUD is Z/Space. */
