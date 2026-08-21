@@ -166,7 +166,7 @@ function drawHud(): void {
   const hp = game.health();
   ctx.fillStyle = hp <= 0 ? "#e07070" : "#e8e6e1";
   ctx.fillText(
-    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${hp <= 0 ? " DEAD" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
     28,
   );

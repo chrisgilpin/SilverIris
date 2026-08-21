@@ -678,6 +678,7 @@ int port_stage_load(int level_id)
     /* Tiles/origin are live. Sit the walk test mover on a ground-floor
      * tile around the spawn corner, then re-register stan cylinders. */
     port_prop_place_walker_near_spawn();
+    port_prop_choose_pickup();
     port_stan_clear_guards();
     {
         int i, ng = port_prop_guard_count();

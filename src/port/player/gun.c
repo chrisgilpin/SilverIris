@@ -156,6 +156,13 @@ int port_gun_flash_frames(void) { return G()->flash_frames; }
 int32_t *port_ammoheldarr(void) { return G()->ammo; }
 int port_gun_mag(void) { return G()->mag; }
 int port_gun_reserve(void) { return G()->ammo[PORT_AMMO_9MM]; }
+
+void port_gun_add_reserve(int n)
+{
+    if (n <= 0)
+        return;
+    G()->ammo[PORT_AMMO_9MM] += n;
+}
 int port_gun_hits(void) { return G()->hits; }
 
 int port_gun_last_hit(float *x, float *y, float *z)

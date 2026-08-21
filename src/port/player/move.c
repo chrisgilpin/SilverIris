@@ -45,6 +45,7 @@ typedef struct {
     uint16_t prev_buttons;
     int spawned;
     int32_t health;
+    int32_t armour;
 } PortPly;
 
 static PortPly g_p[PORT_MAX_PLAYERS];
@@ -262,6 +263,7 @@ void port_player_spawn(void)
         g_p[i].prev_buttons = 0;
         g_p[i].spawned = 1;
         g_p[i].health = PORT_PLAYER_HEALTH_MAX;
+        g_p[i].armour = 0;
     }
     g_safe_y = PORT_EYE_HEIGHT;
     port_stan_clear_current();
@@ -389,11 +391,33 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
 
 int port_player_health(void) { return g_p[g_cur].health; }
 
+int port_player_armour(void) { return g_p[g_cur].armour; }
+
+void port_player_add_armour(int amount)
+{
+    if (amount <= 0)
+        return;
+    g_p[g_cur].armour += amount;
+    if (g_p[g_cur].armour > PORT_PLAYER_ARMOUR_MAX)
+        g_p[g_cur].armour = PORT_PLAYER_ARMOUR_MAX;
+}
+
 void port_player_damage(int amount)
 {
     if (amount <= 0)
         return;
     if (g_p[g_cur].health <= 0)
+        return;
+    if (g_p[g_cur].armour > 0) {
+        if (amount >= g_p[g_cur].armour) {
+            amount -= g_p[g_cur].armour;
+            g_p[g_cur].armour = 0;
+        } else {
+            g_p[g_cur].armour -= amount;
+            return;
+        }
+    }
+    if (amount <= 0)
         return;
     if (amount >= g_p[g_cur].health)
         g_p[g_cur].health = 0;

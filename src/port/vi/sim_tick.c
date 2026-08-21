@@ -10,6 +10,7 @@ void port_prop_tick_walk(void) __attribute__((weak));
 int port_prop_tick_guard_fire(void) __attribute__((weak));
 int port_prop_walker_alerted(void) __attribute__((weak));
 void port_prop_tick_die(void) __attribute__((weak));
+void port_prop_tick_pickup(void) __attribute__((weak));
 
 #include "game/frametiming.h"
 
@@ -42,6 +43,8 @@ int port_sim_tick(uint32_t tick)
             port_set_cur_player(i);
             port_get_local_pad(&x, &y, &buttons);
             port_player_tick(x, y, buttons);
+            if (port_prop_tick_pickup)
+                port_prop_tick_pickup();
             port_gun_tick(buttons);
         }
         port_set_cur_player(saved);

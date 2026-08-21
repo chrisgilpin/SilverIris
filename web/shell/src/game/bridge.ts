@@ -190,6 +190,7 @@ export type GameBridge = {
   crcChrs(): number;
   kills(): number;
   health(): number;
+  armour(): number;
   stanTiles(): number;
   stanOnTile(): boolean;
   crcObjectives(): number;
@@ -521,6 +522,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     health(): number {
       return alive ? hudSlot(M, 4, () => (M._port_api_health ? M._port_api_health() : 8)) : 0;
+    },
+    armour(): number {
+      return alive && M._port_api_armour ? M._port_api_armour() | 0 : 0;
     },
     stanTiles(): number {
       return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;

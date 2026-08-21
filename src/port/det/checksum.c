@@ -84,7 +84,7 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         o += 4;
         wr_f32(buf + o, (float)port_player_health() / (float)PORT_PLAYER_HEALTH_MAX);
         o += 4;
-        wr_f32(buf + o, 0.0f); /* armour */
+        wr_f32(buf + o, (float)port_player_armour() / (float)PORT_PLAYER_ARMOUR_MAX);
         o += 4;
     }
     port_set_cur_player(saved);

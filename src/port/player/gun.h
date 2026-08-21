@@ -24,6 +24,7 @@ void port_gun_suppress_fire(void);
 int32_t *port_ammoheldarr(void);
 int port_gun_mag(void);
 int port_gun_reserve(void);
+void port_gun_add_reserve(int n);
 int port_gun_hits(void);
 int port_gun_last_hit(float *x, float *y, float *z);
 /* Remaining viewmodel SKEL_FLASH frames (0 = hidden). Visual only. */

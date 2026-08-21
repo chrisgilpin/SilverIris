@@ -66,6 +66,7 @@ static void dump_path_doors(void)
            port_stage_opening_count(), port_stan_door_count());
 }
 
+
 /* Face a documented path portal, Z-unlatch, prove collision AND parked pose. */
 static int path_unlatch_proof(void)
 {
@@ -1333,6 +1334,101 @@ static int stairs_climb_proof(float spawn_x, float spawn_z)
 
 
 static int shot_one(const char *out_dir, const char *tag);
+static void place(float x, float z, float th);
+
+/* Stand just outside the Rare pad radius, prove the item is drawn, step
+ * in, collect, prove it is gone and HUD ammo or armour changed. */
+static int pickup_proof(const char *out_dir)
+{
+    float r1[3], wx, wy, wz, lx, lz, sx, sz, th;
+    float dx, dz, dist, nx, nz, ny;
+    int dir, found = 0;
+    int drawn0, drawn1, hid0, hid1;
+    int res0, res1, arm0, arm1, kind;
+    int present, gone, hud_ok;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    if (port_prop_pickup_xyz(&wx, &wy, &wz) != 0) {
+        printf("pickup_proof NONE\n");
+        fprintf(stderr, "pickup_proof none (pack had no resolvable pad)\n");
+        return -1;
+    }
+    kind = port_prop_pickup_kind();
+    lx = wx - r1[0];
+    lz = wz - r1[2];
+    /* Walkable stand ~100u from the pad so we are outside the 80u radius. */
+    for (dir = 0; dir < 8 && !found; dir++) {
+        float ang = (float)dir * 0.78539816f;
+        sx = lx + 100.f * cosf(ang);
+        sz = lz + 100.f * sinf(ang);
+        if (port_stan_on_tile(sx, sz))
+            found = 1;
+    }
+    if (!found) {
+        if (port_stan_snap_walkable(&sx, &sz, 0.f, 1.f, PORT_STAN_NEAR_XZ, &ny) != 0) {
+            sx = lx;
+            sz = lz;
+        }
+    }
+    dx = lx - sx;
+    dz = lz - sz;
+    dist = sqrtf(dx * dx + dz * dz);
+    th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    place(sx, sz, th);
+    if (shot_one(out_dir, "pickup_before") != 0)
+        return -1;
+    drawn0 = port_prop_pickup_drawn();
+    hid0 = port_prop_pickup_hidden();
+    res0 = port_api_gun_reserve();
+    arm0 = port_api_armour();
+    /* One step into the radius: sit on the pad tile (or 40u closer). */
+    nx = lx;
+    nz = lz;
+    ny = port_api_player_y();
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = sx + dx * 0.7f;
+        nz = sz + dz * 0.7f;
+    }
+    port_stan_clip_step(sx, sz, &nx, &nz, &ny);
+    place(nx, nz, th);
+    port_prop_tick_pickup();
+    if (shot_one(out_dir, "pickup_after") != 0)
+        return -1;
+    drawn1 = port_prop_pickup_drawn();
+    hid1 = port_prop_pickup_hidden();
+    res1 = port_api_gun_reserve();
+    arm1 = port_api_armour();
+    present = (drawn0 && !hid0);
+    gone = (hid1 && !drawn1);
+    if (kind == PORT_PICKUP_ARMOUR)
+        hud_ok = (arm1 > arm0);
+    else
+        hud_ok = (res1 > res0);
+    printf("pickup_proof pad=%d type=%d model=%d kind=%d stand=%.1f,%.1f "
+           "step=%.1f,%.1f d0=%.1f drawn=%d->%d hidden=%d->%d res=%d->%d "
+           "arm=%d->%d %s %s %s\n",
+           port_prop_pickup_pad(), port_prop_pickup_type(),
+           port_prop_pickup_model(), kind, (double)sx, (double)sz,
+           (double)nx, (double)nz, (double)dist, drawn0, drawn1, hid0, hid1,
+           res0, res1, arm0, arm1, present ? "PRESENT" : "absent",
+           gone ? "GONE" : "still", hud_ok ? "HUD" : "hudsame");
+    if (!present) {
+        fprintf(stderr, "pickup_proof item not drawn before collect\n");
+        return -1;
+    }
+    if (!gone) {
+        fprintf(stderr, "pickup_proof item still present after collect\n");
+        return -1;
+    }
+    if (!hud_ok) {
+        fprintf(stderr, "pickup_proof HUD ammo/armour unchanged\n");
+        return -1;
+    }
+    return 0;
+}
 
 /* Hold the camera on a climbed upstairs tile and draw that room GDL.
  * place() would snap Y to the lowest stacked floor (~86.8). */
@@ -1584,18 +1680,18 @@ static int shot_one(const char *out_dir, const char *tag)
     hp = port_api_health();
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
-             "hp=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d viewgun=%d flash=%d",
+             "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
+             "guards=%d parts=%d drawn=%d viewgun=%d flash=%d pickup=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
-             hp, hp <= 0 ? " DEAD" : "", port_api_kills(), port_prop_guard_shots(),
+             hp, port_api_armour(), hp <= 0 ? " DEAD" : "", port_api_kills(), port_prop_guard_shots(),
              port_prop_guard_alerted(),
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
              port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts(),
-             port_gun_flash_frames());
+             port_gun_flash_frames(), port_prop_pickup_drawn());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
@@ -1748,6 +1844,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--doors") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--pickups") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
             usage();
             return 0;
@@ -1792,6 +1890,18 @@ int main(int argc, char **argv)
             if (strcmp(argv[aa], "--doors") == 0)
                 doors = 1;
         dump_path_doors();
+        {
+            int pickups = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--pickups") == 0)
+                    pickups = 1;
+            if (pickups) {
+                int prc = pickup_proof(out_dir);
+                port_api_shutdown();
+                free(pack);
+                return prc != 0 ? 3 : 0;
+            }
+        }
         if (doors) {
             float sx = port_api_player_x(), sz = port_api_player_z();
             int urc;
@@ -2066,6 +2176,12 @@ int main(int argc, char **argv)
     port_player_set_pitch(-35.f);
     if (shot_one(out_dir, "spawn_lookdown") != 0)
         goto done;
+    {
+        float save_x = spawn_x, save_z = spawn_z, save_th = spawn_th;
+        if (pickup_proof(out_dir) != 0)
+            goto done;
+        place(save_x, save_z, save_th);
+    }
     port_player_set_pitch(0.f);
     place(HALL_X, HALL_Z, HALL_TH);
     if (shot_one(out_dir, "hallway") != 0)
@@ -2832,7 +2948,7 @@ int main(int argc, char **argv)
                spawn_hp8, spawn_dead,
                (have_line && spawn_hp8 && !spawn_dead) ? "ALIVE" : "BADSPAWN");
 
-        port_player_damage(PORT_PLAYER_HEALTH_MAX);
+        port_player_damage(PORT_PLAYER_HEALTH_MAX + port_api_armour() + 8);
         dhp = port_api_health();
         if (shot_one(out_dir, "player_dead") != 0)
             goto done;

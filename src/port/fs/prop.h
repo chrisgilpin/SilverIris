@@ -127,4 +127,18 @@ int port_prop_guard_xyz(int i, float *x, float *y, float *z);
 int port_prop_fill_viewgun(G1RoomDl *out, int cap);
 int port_prop_viewgun_parts(void);
 
+/* One pack PROPDEF magazine / collectable / armour at its Rare pad. */
+#define PORT_PICKUP_AMMO 1
+#define PORT_PICKUP_ARMOUR 2
+#define PORT_PICKUP_RADIUS 80.0f
+int port_prop_pickup_pad(void);
+int port_prop_pickup_type(void);
+int port_prop_pickup_model(void);
+int port_prop_pickup_kind(void);
+int port_prop_pickup_hidden(void);
+int port_prop_pickup_drawn(void);
+int port_prop_pickup_xyz(float *x, float *y, float *z);
+void port_prop_tick_pickup(void);
+void port_prop_choose_pickup(void);
+
 #endif

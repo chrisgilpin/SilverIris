@@ -300,6 +300,8 @@ PORT_KEEP int port_api_kills(void) { return port_score_kills(); }
 
 PORT_KEEP int port_api_health(void) { return port_player_health(); }
 
+PORT_KEEP int port_api_armour(void) { return port_player_armour(); }
+
 PORT_KEEP int32_t *port_api_hud_i32(void)
 {
     g_hud_i32[0] = (int32_t)port_gun_mag();
