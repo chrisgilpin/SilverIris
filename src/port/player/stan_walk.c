@@ -935,27 +935,112 @@ static const StanTile *tile_for_walk(float wx, float wz)
 /* Follow Rare point.link from start along (ox,oz)->(dx,dz).
  * Dest still inside the current tile stays there (stacked bathroom / stair
  * foot keep the floor we are on). A linked neighbor is the stair step. */
+static void tile_centroid(const StanTile *t, float *cx, float *cz)
+{
+    float x = 0.f, z = 0.f;
+    int k;
+    *cx = *cz = 0.f;
+    if (!t || t->n < 1)
+        return;
+    for (k = 0; k < t->n; k++) {
+        x += t->x[k];
+        z += t->z[k];
+    }
+    *cx = x / (float)t->n;
+    *cz = z / (float)t->n;
+}
+
 static float tile_centroid_dist(const StanTile *a, const StanTile *b)
 {
-    float ax = 0.f, az = 0.f, bx = 0.f, bz = 0.f;
-    int k;
+    float ax, az, bx, bz, dx, dz;
     if (!a || !b || a->n < 1 || b->n < 1)
         return 0.f;
-    for (k = 0; k < a->n; k++) {
-        ax += a->x[k];
-        az += a->z[k];
+    tile_centroid(a, &ax, &az);
+    tile_centroid(b, &bx, &bz);
+    dx = ax - bx;
+    dz = az - bz;
+    return sqrtf(dx * dx + dz * dz);
+}
+
+/*
+ * Facility lab door r20->r19 (and r19->r18) is a same-floor Rare
+ * point.link whose polygons do not meet: unlinked north wall, ~50u
+ * gap, neighbor centroid ~300-500u away. clip_step used to die on
+ * that wall. Follow the link when the wanted step faces the neighbor.
+ * Setup PROPDEF_DOOR pads sit in the gas-plant cluster (~9ku) and are
+ * not this portal. Closed bound door slabs still block the landing.
+ * Bathroom stacked xz has ~0 centroid delta so it does not hop.
+ */
+static const StanTile *cross_room_portal(const StanTile *t, float ox, float oz,
+                                         float dx, float dz)
+{
+    const StanTile *best = NULL;
+    float best_s = 0.25f;
+    float vx = dx - ox, vz = dz - oz, vlen;
+    int k;
+    if (!t || !g_have_links)
+        return NULL;
+    vlen = sqrtf(vx * vx + vz * vz);
+    if (vlen < 1e-4f)
+        return NULL;
+    vx /= vlen;
+    vz /= vlen;
+    for (k = 0; k < t->n; k++) {
+        const StanTile *nb;
+        float ncx, ncz, tx, tz, tlen, s;
+        if (t->nb[k] < 0)
+            continue;
+        nb = &g_tile[t->nb[k]];
+        if (nb == t || nb->room == t->room)
+            continue;
+        tile_centroid(nb, &ncx, &ncz);
+        tx = ncx - ox;
+        tz = ncz - oz;
+        tlen = sqrtf(tx * tx + tz * tz);
+        /* Same floor only: r7->r6 is a stacked 405.9 island. */
+        if (tile_avg_y(nb) > tile_avg_y(t) + 40.0f ||
+            tile_avg_y(nb) < tile_avg_y(t) - 40.0f)
+            continue;
+        if (tlen < 200.0f)
+            continue;
+        s = (tx * vx + tz * vz) / tlen;
+        if (s > best_s) {
+            best_s = s;
+            best = nb;
+        }
     }
-    for (k = 0; k < b->n; k++) {
-        bx += b->x[k];
-        bz += b->z[k];
-    }
-    ax /= (float)a->n;
-    az /= (float)a->n;
-    bx /= (float)b->n;
-    bz /= (float)b->n;
-    ax -= bx;
-    az -= bz;
-    return sqrtf(ax * ax + az * az);
+    return best;
+}
+
+static int faces_centroid(const StanTile *nb, float ox, float oz, float dx, float dz)
+{
+    float ncx, ncz, vx, vz, tx, tz, vlen, tlen;
+    if (!nb)
+        return 0;
+    tile_centroid(nb, &ncx, &ncz);
+    vx = dx - ox;
+    vz = dz - oz;
+    vlen = sqrtf(vx * vx + vz * vz);
+    tx = ncx - ox;
+    tz = ncz - oz;
+    tlen = sqrtf(tx * tx + tz * tz);
+    if (vlen < 1e-4f || tlen < 1e-4f)
+        return 0;
+    return ((tx * vx + tz * vz) / (tlen * vlen)) > 0.25f;
+}
+
+/* Ignore a far rising portal unless the step faces it. Same-floor
+ * walk toward the r3/r18 foot must not telehop r18->r15. */
+static int take_link(const StanTile *from, const StanTile *nb, float ox, float oz,
+                     float dx, float dz)
+{
+    if (!from || !nb || nb == from)
+        return 0;
+    if (tile_avg_y(nb) > tile_avg_y(from) + 200.0f &&
+        tile_centroid_dist(from, nb) > 400.0f &&
+        !faces_centroid(nb, ox, oz, dx, dz))
+        return 0;
+    return 1;
 }
 
 static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
@@ -981,17 +1066,20 @@ static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
             nb = &g_tile[tile->nb[k]];
             if (nb != tile && nb != prev && point_in_tile(nb, dx, dz))
                 return nb;
-            if (nb != tile && nb != prev)
+            if (nb != tile && nb != prev && take_link(tile, nb, ox, oz, dx, dz))
                 next = nb;
         }
         if (point_in_tile(tile, dx, dz))
             return tile;
         /* Rising Rare link whose polygon is far from this tile and does
          * not contain dest: Facility r18/r3 ground portals onto r15.
-         * Spatial stair chains (unit A->B->C, r7->r6 stacked foot) stay
-         * on the graph. Do not hop the r6 island (no Rare rise to r13/15). */
+         * Only when the step faces that neighbor — a walk toward the
+         * r3/r18 foot must not telehop upstairs and loop. Spatial stair
+         * chains (unit A->B->C, r7->r6 stacked foot) stay on the graph.
+         * Do not hop the r6 island (no Rare rise to r13/15). */
         if (next && tile_avg_y(next) > tile_avg_y(tile) + 200.0f &&
-            tile_centroid_dist(tile, next) > 400.0f)
+            tile_centroid_dist(tile, next) > 400.0f &&
+            faces_centroid(next, ox, oz, dx, dz))
             return next;
         for (k = 0; k < tile->n && !next; k++) {
             int nn = (k + 1 == tile->n) ? 0 : k + 1;
@@ -1001,7 +1089,7 @@ static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
             if (tile->nb[k] < 0)
                 return NULL;
             nb = &g_tile[tile->nb[k]];
-            if (nb != tile && nb != prev)
+            if (nb != tile && nb != prev && take_link(tile, nb, ox, oz, dx, dz))
                 next = nb;
         }
         if (!next) {
@@ -1163,6 +1251,10 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
 
     local_to_world(ox, oz, &owx, &owz);
     start_door = hit_door_world(owx, owz);
+    /* Wanted dest (before axis slide) for a same-floor door hop. */
+    {
+        float want_wx, want_wz;
+        local_to_world(cx, cz, &want_wx, &want_wz);
 
     /* Off-tile or inside a closed door slab: do not stay stuck. */
     if (trapped_world(owx, owz)) {
@@ -1175,6 +1267,33 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
 
     local_to_world(cx, cz, &cwx, &cwz);
     if (!legal_step(owx, owz, cwx, cwz, start_door)) {
+        /* Prefer a same-floor Rare door portal over sliding along the
+         * unlinked gap wall (Facility r20 lab -> r19). Axis slide would
+         * burn the 400-step cap without getting closer. */
+        if (follow && g_have_links && !start_door) {
+            const StanTile *ot = tile_for_walk(owx, owz);
+            const StanTile *hop = cross_room_portal(ot, owx, owz, want_wx, want_wz);
+            if (hop && ot && hop->room != ot->room) {
+                float hx = want_wx, hz = want_wz;
+                hop = rising_landing(hop);
+                if (hop && hop->room != ot->room) {
+                    snap_onto_tile(hop, &hx, &hz);
+                    if (!(g_ndoor > 0 && hit_door_world(hx, hz))) {
+                        cx = hx - g_ox;
+                        cz = hz - g_oz;
+                        *nx = cx;
+                        *nz = cz;
+                        if (ny) {
+                            ey = (tile_floor_y(hop, hx, hz) + PORT_EYE_HEIGHT) - g_oy;
+                            if (finite_f(ey))
+                                *ny = ey;
+                        }
+                        cur_put(hx, hz, hop);
+                        return;
+                    }
+                }
+            }
+        }
         local_to_world(cx, oz, &cwx, &cwz);
         if (legal_step(owx, owz, cwx, cwz, start_door)) {
             cz = oz;
@@ -1227,6 +1346,7 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         }
         if (port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
             *ny = ey;
+    }
     }
 }
 

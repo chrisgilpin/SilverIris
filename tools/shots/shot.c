@@ -275,22 +275,27 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
 #define R18_STAIR_X 1165.6f
 #define R18_STAIR_Z (-731.2f)
 
-/* Walk clip_step from spawn toward the r3 foot. Closed spawn doors are
- * expected; document the first stall so the climb is still proved from
- * the stair foot. */
-static void spawn_to_stair_note(float sx, float sz, float tx, float tz)
+/* Walk clip_step from spawn to a ground stair foot. Facility r20 lab
+ * north wall is an unlinked gap; Rare point.link hops r20->r19->r18.
+ * Setup PROPDEF_DOOR pads sit in the gas-plant cluster (~9ku) and are
+ * not bound here. Must REACH the foot in 400 steps. */
+static int spawn_to_stair_note(float sx, float sz, float tx, float tz)
 {
     float x = sx, z = sz, ny = 0.f;
-    int k, room0, room1, blocked = 0;
+    int k, room0, room1, blocked = 0, last, hops = 0;
     room0 = port_stan_tile_room(sx, sz);
+    last = room0;
+    printf("spawn_to_stair begin start=%.1f,%.1f room=%d dest=%.1f,%.1f\n",
+           (double)sx, (double)sz, room0, (double)tx, (double)tz);
     for (k = 0; k < 400; k++) {
-        float dx = tx - x, dz = tz - z, dist, nx, nz;
+        float dx = tx - x, dz = tz - z, dist, nx, nz, jx, jz;
+        int room;
         dist = sqrtf(dx * dx + dz * dz);
         if (dist < 20.f) {
-            printf("spawn_to_stair REACH step=%d xz=%.1f,%.1f eye=%.1f room=%d\n",
+            printf("spawn_to_stair REACH step=%d xz=%.1f,%.1f eye=%.1f room=%d hops=%d\n",
                    k, (double)x, (double)z, (double)ny,
-                   port_stan_tile_room(x, z));
-            return;
+                   port_stan_tile_room(x, z), hops);
+            return 0;
         }
         if (dist > 12.f) {
             dx *= 12.f / dist;
@@ -298,20 +303,35 @@ static void spawn_to_stair_note(float sx, float sz, float tx, float tz)
         }
         nx = x + dx;
         nz = z + dz;
-        ny = ny;
         port_stan_clip_step(x, z, &nx, &nz, &ny);
         if (nx == x && nz == z) {
             blocked = 1;
             break;
         }
+        jx = nx - x;
+        jz = nz - z;
+        if (jx * jx + jz * jz > 80.f * 80.f) {
+            hops++;
+            printf("spawn_to_stair HOP step=%d from=%.1f,%.1f r%d to=%.1f,%.1f r%d\n",
+                   k, (double)x, (double)z, last, (double)nx, (double)nz,
+                   port_stan_tile_room(nx, nz));
+        }
         x = nx;
         z = nz;
+        room = port_stan_tile_room(x, z);
+        if (room != last) {
+            printf("spawn_to_stair room %d->%d step=%d xz=%.1f,%.1f eye=%.1f\n",
+                   last, room, k, (double)x, (double)z, (double)ny);
+            last = room;
+        }
     }
     room1 = port_stan_tile_room(x, z);
     printf("spawn_to_stair %s step=%d start=%.1f,%.1f room=%d end=%.1f,%.1f "
-           "eye=%.1f room=%d (spawn path unfinished; climb proved from stair foot)\n",
+           "eye=%.1f room=%d hops=%d\n",
            blocked ? "DOOR" : "SHORT", k, (double)sx, (double)sz, room0,
-           (double)x, (double)z, (double)ny, room1);
+           (double)x, (double)z, (double)ny, room1, hops);
+    fprintf(stderr, "spawn_to_stair failed (want r3/r18 foot)\n");
+    return -1;
 }
 
 /* clip_step along Rare rising links from a ground stair onto r15/r13. */
@@ -439,8 +459,10 @@ static int stairs_climb_proof(float spawn_x, float spawn_z)
     }
     /* r6 landing is a mid-height island (405.9) with no Rare link to r13/15.
      * Real ground stairs r3/r18 and the r12 ramp Rare-link onto r15. */
-    spawn_to_stair_note(spawn_x, spawn_z, R3_STAIR_X, R3_STAIR_Z);
-    spawn_to_stair_note(spawn_x, spawn_z, R18_STAIR_X, R18_STAIR_Z);
+    if (spawn_to_stair_note(spawn_x, spawn_z, R3_STAIR_X, R3_STAIR_Z) != 0)
+        return -1;
+    if (spawn_to_stair_note(spawn_x, spawn_z, R18_STAIR_X, R18_STAIR_Z) != 0)
+        return -1;
     if (upper_stair_proof("r3_T2565", R3_STAIR_X, R3_STAIR_Z) != 0)
         return -1;
     if (upper_stair_proof("r18_T2296", R18_STAIR_X, R18_STAIR_Z) != 0)
