@@ -1,6 +1,7 @@
 #include "stan_walk.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #define BG_SEG_BASE 0x0F000000u
@@ -26,6 +27,8 @@ typedef struct {
     float x[PORT_STAN_MAX_PTS];
     float y[PORT_STAN_MAX_PTS];
     float z[PORT_STAN_MAX_PTS];
+    uint16_t link[PORT_STAN_MAX_PTS];
+    uint8_t room;
 } StanTile;
 
 typedef struct {
@@ -49,6 +52,10 @@ static int g_ray_guard;
 static float g_scale = 1.0f;
 static float g_inv_scale = 1.0f;
 static float g_ox, g_oy, g_oz;
+/* Retail tiles store a neighbor in point.link; 0 means a wall edge.
+ * Synthetic unit tiles leave link=0 on every edge — only honor walls
+ * when the loaded mesh actually has at least one neighbor. */
+static int g_have_links;
 
 static void local_to_world(float lx, float lz, float *wx, float *wz);
 
@@ -79,6 +86,7 @@ void port_stan_unload(void)
     g_scale = 1.0f;
     g_inv_scale = 1.0f;
     g_ox = g_oy = g_oz = 0.0f;
+    g_have_links = 0;
 }
 
 void port_stan_set_scale(float scale)
@@ -312,7 +320,9 @@ static int parse_tiles(const uint8_t *s, size_t n, int pc_shift, uint32_t off_ov
                 dst->x[i] = (float)be_s16(pt + 0) * g_inv_scale;
                 dst->y[i] = (float)be_s16(pt + 2) * g_inv_scale;
                 dst->z[i] = (float)be_s16(pt + 4) * g_inv_scale;
+                dst->link[i] = (uint16_t)(((uint16_t)pt[6] << 8) | pt[7]);
             }
+            dst->room = t[3];
         }
         tiles++;
         p += (size_t)nbytes;
@@ -341,6 +351,18 @@ int port_stan_load(const uint8_t *bytes, size_t n)
         g_ntile = PORT_STAN_MAX_TILES;
     } else {
         g_ntile = a;
+    }
+    g_have_links = 0;
+    {
+        int i, k;
+        for (i = 0; i < g_ntile && !g_have_links; i++) {
+            for (k = 0; k < g_tile[i].n; k++) {
+                if (g_tile[i].link[k] >> 4) {
+                    g_have_links = 1;
+                    break;
+                }
+            }
+        }
     }
     return a > 0 ? PORT_STAN_OK : PORT_STAN_EMPTY;
 }
@@ -491,11 +513,25 @@ static float tile_floor_y(const StanTile *t, float x, float z)
 static const StanTile *tile_at_world(float wx, float wz)
 {
     int i;
+    const StanTile *best = NULL;
+    float best_y = 1.0e30f;
+
+    /* Overlapping floors: first-match picked a high walkway / wall
+     * plane and wrote eye y=406 in the Facility bathroom. Prefer the
+     * lowest finite floor at this xz. */
     for (i = 0; i < g_ntile; i++) {
-        if (point_in_tile(&g_tile[i], wx, wz))
-            return &g_tile[i];
+        float fy;
+        if (!point_in_tile(&g_tile[i], wx, wz))
+            continue;
+        fy = tile_floor_y(&g_tile[i], wx, wz);
+        if (!finite_f(fy))
+            continue;
+        if (!best || fy < best_y) {
+            best = &g_tile[i];
+            best_y = fy;
+        }
     }
-    return NULL;
+    return best;
 }
 
 static int hit_door_world(float wx, float wz)
@@ -746,6 +782,85 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
     return 0;
 }
 
+/* Closed segments (ox,oz)->(nx,nz) vs tile edge (ax,az)->(bx,bz). */
+static int seg_cross(float ax, float az, float bx, float bz, float cx, float cz,
+                     float dx, float dz)
+{
+    float ex = bx - ax, ez = bz - az;
+    float fx = dx - cx, fz = dz - cz;
+    float den = ex * fz - ez * fx;
+    float t, u;
+    if (den > -1.0e-8f && den < 1.0e-8f)
+        return 0;
+    t = ((cx - ax) * fz - (cz - az) * fx) / den;
+    u = ((cx - ax) * ez - (cz - az) * ex) / den;
+    return t > 0.02f && t < 0.98f && u > 0.02f && u < 0.98f;
+}
+
+/* Rare point.link >> 4 is a neighbor. Crossing an unlinked edge is a wall. */
+static int step_hits_wall(float owx, float owz, float cwx, float cwz)
+{
+    const StanTile *t;
+    int k;
+    if (!g_have_links)
+        return 0;
+    t = tile_at_world(owx, owz);
+    if (!t)
+        return 0;
+    for (k = 0; k < t->n; k++) {
+        int n = (k + 1 == t->n) ? 0 : k + 1;
+        if (t->link[k] >> 4)
+            continue;
+        if (seg_cross(t->x[k], t->z[k], t->x[n], t->z[n], owx, owz, cwx, cwz))
+            return 1;
+    }
+    return 0;
+}
+
+static int legal_step(float owx, float owz, float cwx, float cwz, int start_door)
+{
+    if (!legal_world(cwx, cwz, start_door))
+        return 0;
+    if (step_hits_wall(owx, owz, cwx, cwz))
+        return 0;
+    return 1;
+}
+
+static int trapped_world(float wx, float wz)
+{
+    if (g_ntile > 0 && !tile_at_world(wx, wz))
+        return 1;
+    if (g_ndoor > 0 && hit_door_world(wx, wz))
+        return 1;
+    return 0;
+}
+
+static int has_walkable_neighbor(float wx, float wz, int start_door)
+{
+    const float d = 4.0f;
+    if (legal_step(wx, wz, wx + d, wz, start_door))
+        return 1;
+    if (legal_step(wx, wz, wx - d, wz, start_door))
+        return 1;
+    if (legal_step(wx, wz, wx, wz + d, start_door))
+        return 1;
+    if (legal_step(wx, wz, wx, wz - d, start_door))
+        return 1;
+    return 0;
+}
+
+static int try_snap_local(float *lx, float *lz, float *ly)
+{
+    float x = *lx, z = *lz, y;
+    if (port_stan_snap_walkable(&x, &z, 0.0f, 0.0f, PORT_STAN_NEAR_XZ, &y) != 0)
+        return 0;
+    *lx = x;
+    *lz = z;
+    if (ly)
+        *ly = y;
+    return 1;
+}
+
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
 {
     float owx, owz, cwx, cwz;
@@ -763,14 +878,23 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
     local_to_world(ox, oz, &owx, &owz);
     start_door = hit_door_world(owx, owz);
 
+    /* Off-tile or inside a closed door slab: do not stay stuck. */
+    if (trapped_world(owx, owz)) {
+        if (try_snap_local(&cx, &cz, ny)) {
+            *nx = cx;
+            *nz = cz;
+            return;
+        }
+    }
+
     local_to_world(cx, cz, &cwx, &cwz);
-    if (!legal_world(cwx, cwz, start_door)) {
+    if (!legal_step(owx, owz, cwx, cwz, start_door)) {
         local_to_world(cx, oz, &cwx, &cwz);
-        if (legal_world(cwx, cwz, start_door)) {
+        if (legal_step(owx, owz, cwx, cwz, start_door)) {
             cz = oz;
         } else {
             local_to_world(ox, cz, &cwx, &cwz);
-            if (legal_world(cwx, cwz, start_door)) {
+            if (legal_step(owx, owz, cwx, cwz, start_door)) {
                 cx = ox;
             } else {
                 cx = ox;
@@ -780,9 +904,69 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
         *nx = cx;
         *nz = cz;
     }
+
+    local_to_world(cx, cz, &cwx, &cwz);
+    /* On a sliver / stall wall: every step died. Snap to open floor. */
+    if (cx == ox && cz == oz && trapped_world(cwx, cwz) == 0 &&
+        !has_walkable_neighbor(cwx, cwz, start_door)) {
+        if (try_snap_local(&cx, &cz, ny)) {
+            *nx = cx;
+            *nz = cz;
+            return;
+        }
+    }
+
     if (ny && port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
         *ny = ey;
 }
+
+void port_stan_debug_at(float local_x, float local_z)
+{
+    float wx, wz, ey, sx, sz, sy;
+    int i, n_hit = 0, n_near = 0;
+
+    local_to_world(local_x, local_z, &wx, &wz);
+    printf("stan_debug local=%.1f,%.1f world=%.1f,%.1f tiles=%d links=%d doors=%d on=%d\n",
+           (double)local_x, (double)local_z, (double)wx, (double)wz, g_ntile,
+           g_have_links, g_ndoor, tile_at_world(wx, wz) != NULL);
+    if (port_stan_eye_y(local_x, local_z, &ey) == 0)
+        printf("stan_debug eye_y=%.1f\n", (double)ey);
+    else
+        printf("stan_debug eye_y=off\n");
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float ox, oz, d2, fy, avg;
+        int k, nlink = 0;
+        if (t->n < 3)
+            continue;
+        d2 = closest_on_tile(t, wx, wz, &ox, &oz);
+        if (!point_in_tile(t, wx, wz) && d2 > 80.0f * 80.0f)
+            continue;
+        fy = tile_floor_y(t, wx, wz);
+        avg = tile_avg_y(t);
+        for (k = 0; k < t->n; k++) {
+            if (t->link[k] >> 4)
+                nlink++;
+        }
+        printf("stan_tile[%d] hit=%d d=%.1f n=%d room=%u area=%.1f avgY=%.1f floorY=%.1f eye=%.1f links=%d/%d\n",
+               i, point_in_tile(t, wx, wz), (double)sqrtf(d2), t->n,
+               (unsigned)t->room, (double)tile_xz_twice_area(t) * 0.5,
+               (double)avg, (double)fy, (double)((fy + PORT_EYE_HEIGHT) - g_oy),
+               nlink, t->n);
+        if (point_in_tile(t, wx, wz))
+            n_hit++;
+        else
+            n_near++;
+    }
+    sx = local_x;
+    sz = local_z;
+    if (port_stan_snap_walkable(&sx, &sz, 0.f, 0.f, PORT_STAN_NEAR_XZ, &sy) == 0)
+        printf("stan_debug snap xz=%.1f,%.1f y=%.1f hits=%d near=%d\n",
+               (double)sx, (double)sz, (double)sy, n_hit, n_near);
+    else
+        printf("stan_debug snap=fail hits=%d near=%d\n", n_hit, n_near);
+}
+
 
 static int ray_aabb_1d(float o, float d, float lo, float hi, float *t0, float *t1)
 {

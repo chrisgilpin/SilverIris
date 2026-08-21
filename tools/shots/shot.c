@@ -506,8 +506,50 @@ int main(int argc, char **argv)
     spawn_x = port_api_player_x();
     spawn_z = port_api_player_z();
     spawn_th = port_api_player_theta();
+    printf("spawn_first y=%.1f xz=%.1f,%.1f on=%d\n",
+           (double)port_api_player_y(), (double)spawn_x, (double)spawn_z,
+           port_stan_on_tile(spawn_x, spawn_z));
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
+    /* Chris Chrome: bathroom xz y=406, WASD dead, fire still works. */
+    {
+        const float stuck_x = -491.9f, stuck_z = -2238.5f;
+        float x1, z1, y1, ey = 0.f;
+        int on1, nb = 0;
+        printf("stuck_probe\n");
+        port_stan_debug_at(stuck_x, stuck_z);
+        port_player_set_pose(stuck_x, 405.9f, stuck_z, 181.f);
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(1) != 0) {
+            fprintf(stderr, "unstick tick failed\n");
+            goto done;
+        }
+        x1 = port_api_player_x();
+        z1 = port_api_player_z();
+        y1 = port_api_player_y();
+        on1 = port_stan_on_tile(x1, z1);
+        if (port_stan_on_tile(x1 + 4.f, z1)) nb++;
+        if (port_stan_on_tile(x1 - 4.f, z1)) nb++;
+        if (port_stan_on_tile(x1, z1 + 4.f)) nb++;
+        if (port_stan_on_tile(x1, z1 - 4.f)) nb++;
+        if (port_stan_eye_y(x1, z1, &ey) != 0)
+            ey = y1;
+        printf("unstick xz=%.1f,%.1f y=%.1f (was 405.9) on=%d nb=%d eye=%.1f\n",
+               (double)x1, (double)z1, (double)y1, on1, nb, (double)ey);
+        if (!on1 || nb < 1) {
+            fprintf(stderr, "unstick still trapped on=%d nb=%d\n", on1, nb);
+            goto done;
+        }
+        if (y1 > 200.f && ey > 200.f) {
+            fprintf(stderr, "unstick y=%.1f still high (bathroom not upper)\n",
+                    (double)y1);
+            goto done;
+        }
+        if (shot_one(out_dir, "unstick") != 0)
+            goto done;
+        place(spawn_x, spawn_z, spawn_th);
+        port_player_set_pitch(0.f);
+    }
     /* First-frame spawn HUD is gfire=0. A few fire ticks must stay hp=8. */
     {
         int tck, hp0, hp1, s0, s1, combat = 0;

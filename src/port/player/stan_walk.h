@@ -72,6 +72,9 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
 /* Clip a proposed room-local step. Writes a legal xz and eye y when ready. */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
 
+/* Dump overlapping / nearby tiles at xz (harness / diagnose). */
+void port_stan_debug_at(float local_x, float local_z);
+
 /*
  * First hit along a 3D look ray from room-local origin: closed door
  * slab, exterior stan-tile edge (leave walkable), or guard cylinder.

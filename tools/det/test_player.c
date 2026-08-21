@@ -315,6 +315,53 @@ static int test_snap_walkable_prefers_hall(void)
     return 0;
 }
 
+
+/* Off-tile (or inside a closed door) must snap onto the corridor, not stay stuck. */
+static int test_offtile_recover(void)
+{
+    uint8_t stan[256];
+    float y, x1, z1;
+    uint32_t t;
+
+    port_stan_unload();
+    build_corridor_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("recover load");
+    port_player_spawn();
+    /* Corridor is x 0..400, z -50..50. Sit 80u west, off-mesh, high Y. */
+    port_player_set_pose(-80.0f, 405.9f, 0.0f, 90.0f);
+    if (port_stan_on_tile(port_player_x(), port_player_z()))
+        return fail("recover start should be off-tile");
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(0) != 0)
+        return fail("recover tick");
+    x1 = port_player_x();
+    z1 = port_player_z();
+    y = port_player_y();
+    if (!port_stan_on_tile(x1, z1))
+        return fail("recover still off-tile");
+    if (y > 250.0f)
+        return fail("recover y still high");
+    if (fabsf(y - (50.0f + PORT_EYE_HEIGHT)) > 1.0f) {
+        fprintf(stderr, "recover y=%g want 225\n", (double)y);
+        return fail("recover eye y");
+    }
+    /* Must be able to walk after the snap. */
+    port_player_set_pose(x1, y, z1, 90.0f);
+    port_set_local_pad(0, 0, (int8_t)-70, 0);
+    for (t = 1; t < 8; t++) {
+        if (port_sim_tick(t) != 0)
+            return fail("recover walk tick");
+    }
+    if (!(port_player_x() > x1 + 8.0f))
+        return fail("recover cannot walk");
+    printf("offtile_recover xz=%.1f,%.1f y=%.1f -> x=%.1f\n", (double)x1, (double)z1,
+           (double)y, (double)port_player_x());
+    return 0;
+}
+
 static int test_stan_eye_and_clip(void)
 {
     uint8_t stan[256];
@@ -919,6 +966,8 @@ int main(void)
     if (test_snap_walkable_prefers_hall() != 0)
         return 1;
     if (test_stan_eye_and_clip() != 0)
+        return 1;
+    if (test_offtile_recover() != 0)
         return 1;
     if (test_door_use_open() != 0)
         return 1;
