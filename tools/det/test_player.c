@@ -316,7 +316,8 @@ static int test_door_use_does_not_fire(void)
     if (port_gun_mag() != mag0 - 1)
         return fail("nofire away did not fire");
 
-    /* No door in range, face -Z: wall at z=-50 still counts a hit.
+    /* No door in range, face -Z: corridor tile ends at z=-50, so the
+     * ray still records a hit (real tile edge, not the no_assets wall).
      * Spawn resets mag/hits so a glancing away-shot cannot pollute this. */
     port_stan_clear_doors();
     port_player_spawn();

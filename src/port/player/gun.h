@@ -10,6 +10,8 @@
 #define PORT_PP7_MAG 7
 #define PORT_PP7_RESERVE 21
 #define PORT_Z_TRIG 0x2000u
+/* Fake PORT wall. Hitscan uses this only when no stan tiles/doors
+ * are loaded (no_assets / empty synthetic). */
 #define PORT_WALL_Z (-50.0f)
 
 void port_gun_reset(void);

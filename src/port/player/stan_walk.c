@@ -8,8 +8,11 @@
 #define PORT_STAN_MAX_TILES 2048
 #define PORT_STAN_MAX_PTS 10
 #define PORT_STAN_MAX_DOORS 128
+#define PORT_STAN_MAX_GUARDS 128
 #define PORT_DOOR_HALF_W 90.0f
 #define PORT_DOOR_HALF_T 15.0f
+#define PORT_RAY_TMIN 0.05f
+#define PORT_RAY_TMAX 4000.0f
 
 /* list_of_tilesizes[] in stan.c — index is point count (N64 tail >> 12). */
 static const uint8_t k_tile_bytes[16] = {
@@ -30,10 +33,18 @@ typedef struct {
     int side;
 } StanDoor;
 
+typedef struct {
+    float x, z;
+    int hit;
+} StanGuard;
+
 static StanTile g_tile[PORT_STAN_MAX_TILES];
 static int g_ntile;
 static StanDoor g_door[PORT_STAN_MAX_DOORS];
 static int g_ndoor;
+static StanGuard g_guard[PORT_STAN_MAX_GUARDS];
+static int g_nguard;
+static int g_ray_guard;
 static float g_scale = 1.0f;
 static float g_inv_scale = 1.0f;
 static float g_ox, g_oy, g_oz;
@@ -62,6 +73,8 @@ void port_stan_unload(void)
 {
     g_ntile = 0;
     g_ndoor = 0;
+    g_nguard = 0;
+    g_ray_guard = -1;
     g_scale = 1.0f;
     g_inv_scale = 1.0f;
     g_ox = g_oy = g_oz = 0.0f;
@@ -83,6 +96,40 @@ void port_stan_set_world_origin(float x, float y, float z)
 }
 
 void port_stan_clear_doors(void) { g_ndoor = 0; }
+
+void port_stan_clear_guards(void)
+{
+    g_nguard = 0;
+    g_ray_guard = -1;
+}
+
+void port_stan_add_guard(float world_x, float world_z)
+{
+    StanGuard *g;
+    if (g_nguard >= PORT_STAN_MAX_GUARDS)
+        return;
+    g = &g_guard[g_nguard++];
+    g->x = world_x;
+    g->z = world_z;
+    g->hit = 0;
+}
+
+int port_stan_guard_count(void) { return g_nguard; }
+
+int port_stan_guard_was_hit(int i)
+{
+    if (i < 0 || i >= g_nguard)
+        return 0;
+    return g_guard[i].hit;
+}
+
+int port_stan_ray_hit_guard(void) { return g_ray_guard >= 0; }
+
+void port_stan_mark_ray_guard(void)
+{
+    if (g_ray_guard >= 0 && g_ray_guard < g_nguard)
+        g_guard[g_ray_guard].hit = 1;
+}
 
 void port_stan_add_door(float world_x, float world_z, float look_x, float look_z)
 {
@@ -393,4 +440,166 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny)
     }
     if (ny && port_stan_eye_y(cx, cz, &ey) == 0)
         *ny = ey;
+}
+
+static int ray_aabb_1d(float o, float d, float lo, float hi, float *t0, float *t1)
+{
+    if (d > -1e-8f && d < 1e-8f) {
+        if (o < lo || o > hi)
+            return 0;
+        return 1;
+    }
+    {
+        float ta = (lo - o) / d;
+        float tb = (hi - o) / d;
+        if (ta > tb) {
+            float tmp = ta;
+            ta = tb;
+            tb = tmp;
+        }
+        if (ta > *t0)
+            *t0 = ta;
+        if (tb < *t1)
+            *t1 = tb;
+        return *t0 <= *t1;
+    }
+}
+
+static int door_ray_hit(float wx, float wz, float dx, float dz, float *t_out)
+{
+    int i, hit = 0;
+    float best = PORT_RAY_TMAX + 1.0f;
+
+    for (i = 0; i < g_ndoor; i++) {
+        const StanDoor *d = &g_door[i];
+        float ox, oz, odx, odz, t0, t1;
+        if (d->open)
+            continue;
+        ox = (wx - d->x) * d->nx + (wz - d->z) * d->nz;
+        oz = (wx - d->x) * d->tx + (wz - d->z) * d->tz;
+        odx = dx * d->nx + dz * d->nz;
+        odz = dx * d->tx + dz * d->tz;
+        t0 = PORT_RAY_TMIN;
+        t1 = PORT_RAY_TMAX;
+        if (!ray_aabb_1d(ox, odx, -PORT_DOOR_HALF_T, PORT_DOOR_HALF_T, &t0, &t1))
+            continue;
+        if (!ray_aabb_1d(oz, odz, -PORT_DOOR_HALF_W, PORT_DOOR_HALF_W, &t0, &t1))
+            continue;
+        if (t0 < best) {
+            best = t0;
+            hit = 1;
+        }
+    }
+    if (hit && t_out)
+        *t_out = best;
+    return hit;
+}
+
+/* First time a ray that starts on a tile leaves walkable tiles. */
+static int tile_exit_hit(float wx, float wz, float dx, float dz, float *t_out)
+{
+    float lo, hi, mid;
+    int i;
+
+    if (g_ntile <= 0)
+        return 0;
+    if (!tile_at_world(wx + dx * PORT_RAY_TMIN, wz + dz * PORT_RAY_TMIN))
+        return 0;
+    if (tile_at_world(wx + dx * PORT_RAY_TMAX, wz + dz * PORT_RAY_TMAX))
+        return 0;
+    lo = PORT_RAY_TMIN;
+    hi = PORT_RAY_TMAX;
+    for (i = 0; i < 24; i++) {
+        mid = 0.5f * (lo + hi);
+        if (tile_at_world(wx + dx * mid, wz + dz * mid))
+            lo = mid;
+        else
+            hi = mid;
+    }
+    if (t_out)
+        *t_out = hi;
+    return 1;
+}
+
+static int cyl_ray_hit(float ox, float oz, float dx, float dz, float cx, float cz,
+                       float r, float *t_out)
+{
+    float fx, fz, a, b, c, disc, t;
+
+    fx = ox - cx;
+    fz = oz - cz;
+    a = dx * dx + dz * dz;
+    if (a < 1.0e-12f)
+        return 0;
+    b = 2.0f * (fx * dx + fz * dz);
+    c = fx * fx + fz * fz - r * r;
+    disc = b * b - 4.0f * a * c;
+    if (disc < 0.0f)
+        return 0;
+    t = (-b - sqrtf(disc)) / (2.0f * a);
+    if (t < PORT_RAY_TMIN)
+        t = (-b + sqrtf(disc)) / (2.0f * a);
+    if (t < PORT_RAY_TMIN || t > PORT_RAY_TMAX)
+        return 0;
+    if (t_out)
+        *t_out = t;
+    return 1;
+}
+
+static int guard_ray_hit(float wx, float wz, float dx, float dz, float *t_out, int *idx)
+{
+    int i, best_i = -1;
+    float best = PORT_RAY_TMAX + 1.0f;
+
+    for (i = 0; i < g_nguard; i++) {
+        float t;
+        if (!cyl_ray_hit(wx, wz, dx, dz, g_guard[i].x, g_guard[i].z, PORT_GUARD_RADIUS, &t))
+            continue;
+        if (t < best) {
+            best = t;
+            best_i = i;
+        }
+    }
+    if (best_i < 0)
+        return 0;
+    if (t_out)
+        *t_out = best;
+    if (idx)
+        *idx = best_i;
+    return 1;
+}
+
+int port_stan_ray_hit(float local_x, float local_z, float dx, float dz, float *t_out)
+{
+    float wx, wz, t, best;
+    int hit = 0;
+    int gi = -1;
+
+    g_ray_guard = -1;
+    local_to_world(local_x, local_z, &wx, &wz);
+    best = PORT_RAY_TMAX + 1.0f;
+    if (door_ray_hit(wx, wz, dx, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+        gi = -1;
+    }
+    if (tile_exit_hit(wx, wz, dx, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+        gi = -1;
+    }
+    {
+        int idx = -1;
+        if (guard_ray_hit(wx, wz, dx, dz, &t, &idx) && t < best) {
+            best = t;
+            hit = 1;
+            gi = idx;
+        }
+    }
+    if (!hit)
+        return 0;
+    g_ray_guard = gi;
+    if (t_out)
+        *t_out = best;
+    return 1;
 }

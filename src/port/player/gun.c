@@ -3,6 +3,7 @@
 #include "chr/patrol.h"
 #include "move.h"
 #include "mp/score.h"
+#include "stan_walk.h"
 
 #include <math.h>
 #include <string.h>
@@ -11,7 +12,8 @@
  * PP7 slice of gunfire.c until that file compiles.
  * wppk_stats: AmmoType AMMO_9MM, MagSize 7.
  * Fire: weapon_ammo_in_magazine -= 1 (gunfire.c) on Z_TRIG (CONT_G 0x2000)
- * rising edge. Hitscan is a PORT wall at z=-50, not stan mesh.
+ * rising edge. Hitscan is eye + look vs closed door slabs, stan tile
+ * exits, and guard cylinders. Fake z=-50 only if no stan is loaded.
  */
 #define PI_F 3.1415927f
 
@@ -54,37 +56,40 @@ static void fire_hitscan(void)
     /* Look-forward matches stick-up walk: theta=0 → dir (0,0,-1). */
     float dx = sinf(th);
     float dz = -cosf(th);
-    float t_wall = 1.0e9f;
-    float t_chr = 1.0e9f;
+    float t_best = 1.0e9f;
     float t;
+    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50 */
 
-    if (dz != 0.0f) {
+    if (port_stan_ray_hit(ox, oz, dx, dz, &t) && t < t_best) {
+        t_best = t;
+        src = 1;
+    }
+    if (port_chr_ray_hit(ox, oz, dx, dz, &t) && t < t_best) {
+        t_best = t;
+        src = 2;
+    }
+    /* Fake PORT wall only for no_assets / empty synthetic (no tiles/doors). */
+    if (!port_stan_ready() && dz != 0.0f) {
         t = (PORT_WALL_Z - oz) / dz;
-        if (t >= 0.05f && t <= 4000.0f)
-            t_wall = t;
+        if (t >= 0.05f && t <= 4000.0f && t < t_best) {
+            t_best = t;
+            src = 3;
+        }
     }
-    if (port_chr_ray_hit(ox, oz, dx, dz, &t))
-        t_chr = t;
-    if (t_chr < t_wall && t_chr < 1.0e8f) {
-        PortGun *g = G();
-        g->hit_x = ox + dx * t_chr;
-        g->hit_y = oy;
-        g->hit_z = oz + dz * t_chr;
-        g->have_hit = 1;
-        g->hits += 1;
-        port_chr_kill();
-        port_score_add_kill();
-        return;
-    }
-    if (t_wall > 4000.0f)
+    if (src == 0 || t_best > 4000.0f)
         return;
     {
         PortGun *g = G();
-        g->hit_x = ox + dx * t_wall;
+        g->hit_x = ox + dx * t_best;
         g->hit_y = oy;
-        g->hit_z = oz + dz * t_wall;
+        g->hit_z = oz + dz * t_best;
         g->have_hit = 1;
         g->hits += 1;
+        if (src == 2) {
+            port_chr_kill();
+            port_score_add_kill();
+        } else if (src == 1)
+            port_stan_mark_ray_guard();
     }
 }
 

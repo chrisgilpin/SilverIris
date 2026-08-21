@@ -18,7 +18,7 @@ make -C native port-api           # glue init(pack,hash) + G1 hash
 make -C native audio-test         # silence + placeholder PCM hashes; no game RNG
 make -C native stage-test         # 1172 rooms + SETTEX + setup door GDL at pad
 make -C native player-test        # 10 s analog walk tape; |z| shows dt=3
-make -C native gun-test           # PP7 mag spend, wall hit, CRC32C ammo
+make -C native gun-test           # PP7 mag, stan/door/guard hit, no_assets z=-50
 make -C native chr-test           # one guard on a looping pad path; crc_chrs
 make -C native score-test         # you-vs-nothing kill_count + crc_objectives
 make -C native split-test         # 2-4P seats, ENVIRONMENTDATA viewports

@@ -505,12 +505,21 @@ int port_stage_load(int level_id)
     port_player_spawn();
     port_prop_load(level_id);
     port_stan_clear_doors();
+    port_stan_clear_guards();
     {
         int i, nd = port_prop_door_count();
         for (i = 0; i < nd; i++) {
             float dx, dz, lx, lz;
             if (port_prop_door_xz(i, &dx, &dz, &lx, &lz) == 0)
                 port_stan_add_door(dx, dz, lx, lz);
+        }
+    }
+    {
+        int i, ng = port_prop_guard_count();
+        for (i = 0; i < ng; i++) {
+            float gx, gz;
+            if (port_prop_guard_xz(i, &gx, &gz) == 0)
+                port_stan_add_guard(gx, gz);
         }
     }
     {

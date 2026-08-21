@@ -883,6 +883,24 @@ int port_prop_guard_count(void)
     return n;
 }
 
+int port_prop_guard_xz(int want, float *x, float *z)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (n == want) {
+            if (x)
+                *x = g_prop[i].pos[0];
+            if (z)
+                *z = g_prop[i].pos[2];
+            return 0;
+        }
+        n++;
+    }
+    return -1;
+}
+
 static int near_room(const PortProp *pr, const float room1[3], const float *room_xyz,
                      int nrooms, const uint8_t *room_ids)
 {

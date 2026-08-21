@@ -31,5 +31,6 @@ int port_prop_intro(float pos[3], float look[3], int *pad_out);
 int port_prop_intro_pad(void);
 int port_prop_door_count(void);
 int port_prop_door_xz(int i, float *x, float *z, float *lx, float *lz);
+int port_prop_guard_xz(int i, float *x, float *z);
 
 #endif
