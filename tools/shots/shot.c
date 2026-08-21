@@ -338,7 +338,7 @@ static int shot_one(const char *out_dir, const char *tag)
     char png[512], hud[512], extra[256];
     const uint8_t *fb;
     FILE *hf;
-    int mag, reserve, tiles, on;
+    int mag, reserve, tiles, on, hp;
     unsigned nz;
 
     port_api_draw();
@@ -351,14 +351,15 @@ static int shot_one(const char *out_dir, const char *tag)
     reserve = port_api_gun_reserve();
     tiles = port_api_stan_tiles();
     on = port_api_stan_on_tile();
+    hp = port_api_health();
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
-             "hp=%d kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
+             "hp=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
              "guards=%d parts=%d drawn=%d viewgun=%d flash=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
-             port_api_health(), port_api_kills(), port_prop_guard_shots(),
+             hp, hp <= 0 ? " DEAD" : "", port_api_kills(), port_prop_guard_shots(),
              port_prop_guard_alerted(),
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
@@ -1127,6 +1128,52 @@ int main(int argc, char **argv)
                 }
             }
         }
+    }
+    /* After living-player cameras: drain hp, show DEAD, prove no fire.
+     * Do not respawn; later ticks stay frozen. */
+    {
+        char path[512], line[512];
+        FILE *sf;
+        int spawn_hp8 = 0, spawn_dead = 0, mag0, mag1, dhp;
+        int have_line = 0;
+
+        snprintf(path, sizeof path, "%s/spawn.hud", out_dir);
+        sf = fopen(path, "r");
+        if (sf) {
+            if (fgets(line, sizeof line, sf)) {
+                have_line = 1;
+                spawn_hp8 = strstr(line, "hp=8") != NULL;
+                spawn_dead = strstr(line, "DEAD") != NULL;
+            }
+            fclose(sf);
+        }
+        printf("spawn_alive line=%d hp8=%d dead_token=%d %s\n", have_line,
+               spawn_hp8, spawn_dead,
+               (have_line && spawn_hp8 && !spawn_dead) ? "ALIVE" : "BADSPAWN");
+
+        port_player_damage(PORT_PLAYER_HEALTH_MAX);
+        dhp = port_api_health();
+        if (shot_one(out_dir, "player_dead") != 0)
+            goto done;
+        mag0 = port_api_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        port_gun_tick(0);
+        mag1 = port_api_gun_mag();
+        snprintf(path, sizeof path, "%s/player_dead.hud", out_dir);
+        have_line = 0;
+        spawn_dead = 0;
+        sf = fopen(path, "r");
+        if (sf) {
+            if (fgets(line, sizeof line, sf)) {
+                have_line = 1;
+                spawn_dead = strstr(line, "DEAD") != NULL;
+            }
+            fclose(sf);
+        }
+        printf("player_dead hp=%d mag=%d->%d hud=%d dead_token=%d %s %s\n", dhp,
+               mag0, mag1, have_line, spawn_dead, dhp <= 0 ? "DEAD" : "alive",
+               (dhp <= 0 && mag1 == mag0 && spawn_dead) ? "NOFIRE" : "STILLFIRE");
     }
     rc = 0;
 

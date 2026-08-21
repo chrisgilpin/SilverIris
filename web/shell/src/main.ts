@@ -163,11 +163,14 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
   ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`, 8, 14);
+  const hp = game.health();
+  ctx.fillStyle = hp <= 0 ? "#e07070" : "#e8e6e1";
   ctx.fillText(
-    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${game.health()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${hp <= 0 ? " DEAD" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
     28,
   );
+  ctx.fillStyle = "#e8e6e1";
   if (game.chrCount() > 0) {
     ctx.fillText(
       `kills ${game.kills()}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`,
@@ -180,6 +183,21 @@ function drawHud(): void {
     8,
     56,
   );
+}
+
+function drawDeathCue(): void {
+  if (!game?.ready()) return;
+  if (game.health() > 0) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "rgba(10, 6, 6, 0.48)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#e07070";
+  ctx.font = "bold 48px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText("DEAD", 16, Math.max(96, canvas.height * 0.42));
+  ctx.fillStyle = "#e8e6e1";
+  ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText("hp 0", 18, Math.max(120, canvas.height * 0.42 + 26));
 }
 
 function flashPew(): void {
@@ -360,6 +378,7 @@ function paint(now: number): void {
     }
   }
   drawHud();
+  drawDeathCue();
   if (netLock?.overlay) {
     const ctx2 = canvas.getContext("2d");
     if (ctx2) {
