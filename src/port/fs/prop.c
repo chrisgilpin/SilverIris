@@ -948,12 +948,15 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 
-/* Closed-door G1DL slab (XY quad, both windings). Retail P*Z door DLs bind
- * SETTEX but do not raster visible tris at the spawn clip/euler, so openings
- * that have no pad door use this instead of the first-loaded cubicle model. */
-static uint8_t g_slab_file[160];
+/* Closed-door G1DL slab (XY quad, both windings). Retail P*Z door DLs
+ * G_SETTEX (ids 685..) but G_VTX is 0x04xxxxxx — segment 4 is the node
+ * vertex bank, not the model file (seg 5). Unbound G_VTX leaves room
+ * verts; TRI4 clips. GROUP origin is also gas-plant world (~6k units).
+ * Keep the fitted slab and SETTEX the door model's first tile. */
+static uint8_t g_slab_file[192];
 static PortModel g_slab_mdl;
 static int g_slab_ok;
+#define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 tile 0; imagelist "685" */
 
 static void wr32(uint8_t *p, uint32_t v)
 {
@@ -969,11 +972,13 @@ static void wr16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)v;
 }
 
-static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z)
+static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16_t t)
 {
     wr16(v + 0, (uint16_t)x);
     wr16(v + 2, (uint16_t)y);
     wr16(v + 4, (uint16_t)z);
+    wr16(v + 8, (uint16_t)s);
+    wr16(v + 10, (uint16_t)t);
     v[12] = 118;
     v[13] = 112;
     v[14] = 98;
@@ -986,32 +991,37 @@ static PortModel *slab_door(void)
      * door test). A 4-vert packet left stale room verts on one triangle. */
     uint32_t vtx = ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16);
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
-    const uint32_t v1 = 44, v2 = 44 + 48;
+    const uint32_t v1 = 4 + 7 * 8, v2 = 4 + 7 * 8 + 48;
+    const int16_t us = 32 * 32, vt = 33 * 32; /* tile 0 is 32x33 */
 
     if (g_slab_ok)
         return &g_slab_mdl;
     memset(g_slab_file, 0, sizeof g_slab_file);
     wr32(g_slab_file, PORT_BG_MAGIC_G1DL);
-    wr32(g_slab_file + 4, vtx);
-    wr32(g_slab_file + 8, 0x05000000u | v1);
-    wr32(g_slab_file + 12, 0xB1000002u);
-    wr32(g_slab_file + 16, 0x00000010u);
+    wr32(g_slab_file + 4, 0xBB002801u); /* G_TEXTURE scale 1,1 */
+    wr32(g_slab_file + 8, 0xFFFFFFFFu);
+    wr32(g_slab_file + 12, 0xC0000003u); /* G_SETTEX TILE */
+    wr32(g_slab_file + 16, SLAB_DOOR_TEX);
     wr32(g_slab_file + 20, vtx);
-    wr32(g_slab_file + 24, 0x05000000u | v2);
+    wr32(g_slab_file + 24, 0x05000000u | v1);
     wr32(g_slab_file + 28, 0xB1000002u);
     wr32(g_slab_file + 32, 0x00000010u);
-    wr32(g_slab_file + 36, end);
-    wr_vtx(g_slab_file + v1 + 0, -90, 0, 0);
-    wr_vtx(g_slab_file + v1 + 16, 90, 0, 0);
-    wr_vtx(g_slab_file + v1 + 32, 90, 260, 0);
-    wr_vtx(g_slab_file + v2 + 0, -90, 0, 0);
-    wr_vtx(g_slab_file + v2 + 16, 90, 260, 0);
-    wr_vtx(g_slab_file + v2 + 32, -90, 260, 0);
+    wr32(g_slab_file + 36, vtx);
+    wr32(g_slab_file + 40, 0x05000000u | v2);
+    wr32(g_slab_file + 44, 0xB1000002u);
+    wr32(g_slab_file + 48, 0x00000010u);
+    wr32(g_slab_file + 52, end);
+    wr_vtx(g_slab_file + v1 + 0, -90, 0, 0, 0, vt);
+    wr_vtx(g_slab_file + v1 + 16, 90, 0, 0, us, vt);
+    wr_vtx(g_slab_file + v1 + 32, 90, 260, 0, us, 0);
+    wr_vtx(g_slab_file + v2 + 0, -90, 0, 0, 0, vt);
+    wr_vtx(g_slab_file + v2 + 16, 90, 260, 0, us, 0);
+    wr_vtx(g_slab_file + v2 + 32, -90, 260, 0, 0, 0);
     memset(&g_slab_mdl, 0, sizeof g_slab_mdl);
     g_slab_mdl.file = g_slab_file;
     g_slab_mdl.file_len = v2 + 48;
     g_slab_mdl.part[0].pri = g_slab_file + 4;
-    g_slab_mdl.part[0].pri_n = 5;
+    g_slab_mdl.part[0].pri_n = 7;
     g_slab_mdl.npart = 1;
     g_slab_ok = 1;
     return &g_slab_mdl;
