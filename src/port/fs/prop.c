@@ -154,6 +154,9 @@ typedef struct {
     int hidden;
     int pickup_kind;
     int pickup_amount;
+    int chrnum;
+    int held_model;
+    int dropped;
     PortModel *mdl;
     PortModel *head;
     float head_off[3];
@@ -229,6 +232,11 @@ static PortPickupCand g_pcand[PORT_PICKUP_MAX_CAND];
 static int g_npcand;
 static int g_pickup_prop = -1;
 static int g_pickup_drawn;
+#define PORT_CHR_GUN_MAX 256
+static int g_chr_gun[PORT_CHR_GUN_MAX];
+static int g_drop_prop = -1;
+static int g_drop_drawn;
+static void maybe_spawn_death_drops(void);
 static char g_aim_info[96];
 static char g_die_info[96];
 static char g_pose_info[400];
@@ -2206,6 +2214,7 @@ static void start_die_if_needed(void)
         return;
     if (!any_guard_dead())
         return;
+    maybe_spawn_death_drops();
     g_die_started = 1;
     if (set_die_frame(0) != 0) {
         int last = (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
@@ -2221,6 +2230,7 @@ void port_prop_tick_die(void)
     int last;
     int next;
 
+    maybe_spawn_death_drops();
     if (!g_have_die || !g_die_tick_ok)
         return;
     start_die_if_needed();
@@ -2237,6 +2247,7 @@ void port_prop_tick_die(void)
 
 void port_prop_set_die_frame(int frame)
 {
+    maybe_spawn_death_drops();
     if (!g_have_die)
         return;
     g_die_started = 1;
@@ -2580,6 +2591,148 @@ static void choose_pickup(void)
     }
 }
 
+static int on_spawn_look_slab(float lx, float lz)
+{
+    float sx, sz, dx, dz, fwd, dist;
+
+    if (g_have_spawn_xz) {
+        sx = g_walk_spawn_x;
+        sz = g_walk_spawn_z;
+    } else {
+        sx = port_player_x();
+        sz = port_player_z();
+    }
+    dx = lx - sx;
+    dz = lz - sz;
+    dist = sqrtf(dx * dx + dz * dz);
+    if (dist < PORT_PICKUP_SLAB)
+        return 1;
+    /* Same cone as walker_offslab / spawn look 270 (-X). */
+    fwd = -dx;
+    if (dx <= 40.f) {
+        if (fwd < 80.f && dist < 180.f)
+            return 1;
+        if (fwd > 0.f && fwd < 700.f &&
+            dz * dz < (0.65f * fwd) * (0.65f * fwd))
+            return 1;
+    }
+    return 0;
+}
+
+/* Floor collectable at world xz. Does not touch g_pickup_prop (vest 215). */
+static int spawn_floor_collectable(int model, int kind, float world_x, float world_z)
+{
+    PortProp *pr;
+    PortModel *mdl;
+    const PortPropCat *cat;
+    float r1[3], ey = 0.f, lx, lz;
+
+    if (g_nprop >= PORT_MAX_PROPS || kind == 0)
+        return -1;
+    cat = cat_by_id(model);
+    mdl = load_model(model);
+    if (!mdl)
+        return -1;
+    pr = &g_prop[g_nprop];
+    memset(pr, 0, sizeof *pr);
+    pr->type = PDEF_COLLECTABLE;
+    pr->model = model;
+    pr->pad = -1;
+    pr->chrnum = -1;
+    pr->pos[0] = world_x;
+    pr->pos[2] = world_z;
+    pr->look[2] = -1.f;
+    pr->scale = cat ? cat->scale : 0.1f;
+    pr->yaw = yaw_from_look(pr->look[0], pr->look[2]);
+    pr->mdl = mdl;
+    pr->pickup_kind = kind;
+    pr->pickup_amount = pickup_amount_of(kind, 0);
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = pr->pos[0] - r1[0];
+    lz = pr->pos[2] - r1[2];
+    if (port_stan_eye_y(lx, lz, &ey) == 0 ||
+        port_stan_nearest_eye_y(lx, lz, PORT_STAN_NEAR_XZ, &ey) == 0)
+        pr->pos[1] = r1[1] + (ey - PORT_EYE_HEIGHT);
+    return g_nprop++;
+}
+
+static int spawn_death_drop_at(PortProp *guard)
+{
+    float r1[3], lx, lz;
+    int pi;
+
+    if (!guard || guard->held_model <= 0 || guard->dropped)
+        return -1;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = guard->pos[0] - r1[0];
+    lz = guard->pos[2] - r1[2];
+    if (on_spawn_look_slab(lx, lz)) {
+        printf("drop_skip chr=%d model=%d slab local=%.1f,%.1f\n",
+               guard->chrnum, guard->held_model, (double)lx, (double)lz);
+        guard->dropped = 1;
+        return -1;
+    }
+    if (!port_stan_on_tile(lx, lz)) {
+        float ny = 0.f;
+        if (port_stan_snap_walkable(&lx, &lz, 0.f, 1.f, PORT_STAN_NEAR_XZ, &ny) != 0) {
+            printf("drop_skip chr=%d model=%d off_tile\n",
+                   guard->chrnum, guard->held_model);
+            guard->dropped = 1;
+            return -1;
+        }
+    }
+    pi = spawn_floor_collectable(guard->held_model,
+                                 pickup_kind_of(PDEF_COLLECTABLE, guard->held_model),
+                                 r1[0] + lx, r1[2] + lz);
+    guard->dropped = 1;
+    if (pi < 0) {
+        printf("drop_skip chr=%d model=%d bind\n",
+               guard->chrnum, guard->held_model);
+        return -1;
+    }
+    g_drop_prop = pi;
+    {
+        PortProp *pr = &g_prop[pi];
+        printf("drop_spawn chr=%d model=%d world=%.1f,%.1f,%.1f local=%.1f,%.1f\n",
+               guard->chrnum, pr->model,
+               (double)pr->pos[0], (double)pr->pos[1], (double)pr->pos[2],
+               (double)(pr->pos[0] - r1[0]), (double)(pr->pos[2] - r1[2]));
+    }
+    return 0;
+}
+
+static void maybe_spawn_death_drops(void)
+{
+    int i;
+    for (i = 0; i < g_nprop; i++) {
+        if (g_prop[i].type != PDEF_GUARD || !g_prop[i].mdl)
+            continue;
+        if (g_prop[i].dropped || g_prop[i].held_model <= 0)
+            continue;
+        if (!port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            continue;
+        (void)spawn_death_drop_at(&g_prop[i]);
+    }
+}
+
+static void bind_assigned_guns(void)
+{
+    int i, nheld = 0;
+    for (i = 0; i < g_nprop; i++) {
+        int cn;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        cn = g_prop[i].chrnum;
+        if (cn >= 0 && cn < PORT_CHR_GUN_MAX && g_chr_gun[cn] > 0)
+            g_prop[i].held_model = g_chr_gun[cn];
+        if (g_prop[i].held_model > 0)
+            nheld++;
+    }
+    printf("held_gun n=%d models=%d\n", nheld, g_nmdl);
+}
+
 static void fill_pad_prop(PortProp *pr, int type, int model, int pad, const uint8_t *pd,
                           float scale)
 {
@@ -2587,6 +2740,7 @@ static void fill_pad_prop(PortProp *pr, int type, int model, int pad, const uint
     pr->type = type;
     pr->model = model;
     pr->pad = pad;
+    pr->chrnum = -1;
     pr->pos[0] = be_f32(pd);
     pr->pos[1] = be_f32(pd + 4);
     pr->pos[2] = be_f32(pd + 8);
@@ -2609,7 +2763,10 @@ static int parse_setup(const uint8_t *st, size_t n)
     g_npcand = 0;
     g_pickup_prop = -1;
     g_pickup_drawn = 0;
+    g_drop_prop = -1;
+    g_drop_drawn = 0;
     memset(g_pcand, 0, sizeof g_pcand);
+    memset(g_chr_gun, 0, sizeof g_chr_gun);
     if (n < PORT_SETUP_PTRS * 4)
         return -1;
     poff = be32(st + 12);
@@ -2656,6 +2813,10 @@ static int parse_setup(const uint8_t *st, size_t n)
             int amount_raw = 0;
             if (bytes >= 132)
                 amount_raw = (int)be32(p + 128);
+            /* ASSIGNEDTOCHR: pad field is chrnum, not a floor pad. */
+            if ((flags & 0x00004000u) && orig_pad >= 0 && orig_pad < PORT_CHR_GUN_MAX &&
+                pickup_kind_of(type, model) == PORT_PICKUP_AMMO)
+                g_chr_gun[orig_pad] = model;
             if (pad < 0 && last_scenery_pd)
                 pad = (int16_t)last_scenery_pad, pd = last_scenery_pd;
             else if (pad >= 0 && pad < npad)
@@ -2686,6 +2847,7 @@ static int parse_setup(const uint8_t *st, size_t n)
             }
         } else if (type == PDEF_GUARD && bytes >= 28 && g_nprop < PORT_MAX_PROPS) {
             /* GuardRecord: chrnum@4 pad@6 BodyID@8 HeadID@16 (s16). */
+            int16_t chrnum = (int16_t)be16(p + 4);
             int16_t pad = (int16_t)be16(p + 6);
             int16_t body = (int16_t)be16(p + 8);
             int16_t head = (int16_t)be16(p + 0x16);
@@ -2708,12 +2870,14 @@ static int parse_setup(const uint8_t *st, size_t n)
                 }
                 if (head >= PORT_CHR_HEAD_START)
                     pr->head = load_chr(head);
+                pr->chrnum = chrnum;
                 g_nprop++;
             }
         }
         p += bytes;
         }
     }
+    bind_assigned_guns();
     return 0;
 }
 
@@ -2731,7 +2895,10 @@ void port_prop_unload(void)
     g_npcand = 0;
     g_pickup_prop = -1;
     g_pickup_drawn = 0;
+    g_drop_prop = -1;
+    g_drop_drawn = 0;
     memset(g_pcand, 0, sizeof g_pcand);
+    memset(g_chr_gun, 0, sizeof g_chr_gun);
     g_nmdl = 0;
     g_drawn = 0;
     g_have_intro = 0;
@@ -3361,6 +3528,7 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
     hrz = pr->head_rz;
     if (dead) {
         PortModel *dm;
+        maybe_spawn_death_drops();
         /* No pack death rest: keep skip-draw. No fake ragdoll. */
         if (!g_have_die)
             return k;
@@ -3392,6 +3560,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     int i, k = 0;
     g_drawn = 0;
     g_pickup_drawn = 0;
+    g_drop_drawn = 0;
+    maybe_spawn_death_drops();
     if (!out || cap < 1 || !room1)
         return 0;
     /* Pad doors first so Facility openings are not eaten by guard parts. */
@@ -3604,6 +3774,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             else {
                 if (pr->pickup_kind)
                     g_pickup_drawn = 1;
+                if (idx[i] == g_drop_prop)
+                    g_drop_drawn = 1;
                 k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f, 0.f);
                 if (pr->head && pr->head->npart)
@@ -3676,30 +3848,67 @@ void port_prop_choose_pickup(void)
 
 void port_prop_tick_pickup(void)
 {
-    PortProp *pr;
-    float r1[3], lx, lz, dx, dz, dist;
-    if (g_pickup_prop < 0 || g_pickup_prop >= g_nprop)
-        return;
-    pr = &g_prop[g_pickup_prop];
-    if (pr->hidden || !pr->pickup_kind)
-        return;
+    float r1[3];
+    int i;
+
+    maybe_spawn_death_drops();
     if (port_player_health() <= 0)
         return;
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
-    lx = pr->pos[0] - r1[0];
-    lz = pr->pos[2] - r1[2];
-    dx = port_player_x() - lx;
-    dz = port_player_z() - lz;
-    dist = sqrtf(dx * dx + dz * dz);
-    if (dist > PORT_PICKUP_RADIUS)
-        return;
-    pr->hidden = 1;
-    g_pickup_drawn = 0;
-    if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
-        port_player_add_armour(pr->pickup_amount);
-    else
-        port_gun_add_reserve(pr->pickup_amount);
+    for (i = 0; i < g_nprop; i++) {
+        PortProp *pr = &g_prop[i];
+        float lx, lz, dx, dz, dist;
+        if (pr->hidden || !pr->pickup_kind)
+            continue;
+        lx = pr->pos[0] - r1[0];
+        lz = pr->pos[2] - r1[2];
+        dx = port_player_x() - lx;
+        dz = port_player_z() - lz;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist > PORT_PICKUP_RADIUS)
+            continue;
+        pr->hidden = 1;
+        if (i == g_pickup_prop)
+            g_pickup_drawn = 0;
+        if (i == g_drop_prop)
+            g_drop_drawn = 0;
+        if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
+            port_player_add_armour(pr->pickup_amount);
+        else
+            port_gun_add_reserve(pr->pickup_amount);
+    }
+}
+
+int port_prop_drop_model(void)
+{
+    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+        return -1;
+    return g_prop[g_drop_prop].model;
+}
+
+int port_prop_drop_hidden(void)
+{
+    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+        return 1;
+    return g_prop[g_drop_prop].hidden;
+}
+
+int port_prop_drop_drawn(void) { return g_drop_drawn; }
+
+int port_prop_drop_xyz(float *x, float *y, float *z)
+{
+    PortProp *pr;
+    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+        return -1;
+    pr = &g_prop[g_drop_prop];
+    if (x)
+        *x = pr->pos[0];
+    if (y)
+        *y = pr->pos[1];
+    if (z)
+        *z = pr->pos[2];
+    return 0;
 }
 
 int port_prop_door_count(void)

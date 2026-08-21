@@ -1430,6 +1430,102 @@ static int pickup_proof(const char *out_dir)
     return 0;
 }
 
+static int drop_proof(const char *out_dir, float death_wx, float death_wz)
+{
+    float r1[3], wx, wy, wz, lx, lz, sx, sz, th;
+    float dx, dz, dist, nx, nz, ny, ddx, ddz, ddist;
+    int dir, found = 0;
+    int drawn0, drawn1, hid0, hid1;
+    int res0, res1;
+    int present, gone, hud_ok, at_death;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    if (port_prop_drop_xyz(&wx, &wy, &wz) != 0) {
+        printf("drop_proof NONE\n");
+        fprintf(stderr, "drop_proof none (no assigned weapon at death xz)\n");
+        return -1;
+    }
+    ddx = wx - death_wx;
+    ddz = wz - death_wz;
+    ddist = sqrtf(ddx * ddx + ddz * ddz);
+    at_death = (ddist <= PORT_PICKUP_RADIUS);
+    lx = wx - r1[0];
+    lz = wz - r1[2];
+    for (dir = 0; dir < 8 && !found; dir++) {
+        float ang = (float)dir * 0.78539816f;
+        sx = lx + 100.f * cosf(ang);
+        sz = lz + 100.f * sinf(ang);
+        if (port_stan_on_tile(sx, sz))
+            found = 1;
+    }
+    if (!found) {
+        if (port_stan_snap_walkable(&sx, &sz, 0.f, 1.f, PORT_STAN_NEAR_XZ, &ny) != 0) {
+            sx = lx;
+            sz = lz;
+        }
+    }
+    dx = lx - sx;
+    dz = lz - sz;
+    dist = sqrtf(dx * dx + dz * dz);
+    th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    place(sx, sz, th);
+    if (shot_one(out_dir, "drop_before") != 0)
+        return -1;
+    drawn0 = port_prop_drop_drawn();
+    hid0 = port_prop_drop_hidden();
+    res0 = port_api_gun_reserve();
+    nx = lx;
+    nz = lz;
+    ny = port_api_player_y();
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = sx + dx * 0.7f;
+        nz = sz + dz * 0.7f;
+    }
+    port_stan_clip_step(sx, sz, &nx, &nz, &ny);
+    place(nx, nz, th);
+    port_prop_tick_pickup();
+    if (shot_one(out_dir, "drop_after") != 0)
+        return -1;
+    drawn1 = port_prop_drop_drawn();
+    hid1 = port_prop_drop_hidden();
+    res1 = port_api_gun_reserve();
+    present = (drawn0 && !hid0);
+    gone = (hid1 && !drawn1);
+    hud_ok = (res1 > res0);
+    printf("drop_proof model=%d death=%.1f,%.1f drop=%.1f,%.1f ddeath=%.1f "
+           "stand=%.1f,%.1f step=%.1f,%.1f drawn=%d->%d hidden=%d->%d "
+           "res=%d->%d %s %s %s %s\n",
+           port_prop_drop_model(),
+           (double)(death_wx - r1[0]), (double)(death_wz - r1[2]),
+           (double)lx, (double)lz, (double)ddist,
+           (double)sx, (double)sz, (double)nx, (double)nz,
+           drawn0, drawn1, hid0, hid1, res0, res1,
+           at_death ? "ATDEATH" : "away",
+           present ? "PRESENT" : "absent",
+           gone ? "GONE" : "still",
+           hud_ok ? "RESERVE" : "ressame");
+    if (!at_death) {
+        fprintf(stderr, "drop_proof drop not at death xz\n");
+        return -1;
+    }
+    if (!present) {
+        fprintf(stderr, "drop_proof item not drawn before collect\n");
+        return -1;
+    }
+    if (!gone) {
+        fprintf(stderr, "drop_proof item still present after collect\n");
+        return -1;
+    }
+    if (!hud_ok) {
+        fprintf(stderr, "drop_proof HUD reserve unchanged\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* Hold the camera on a climbed upstairs tile and draw that room GDL.
  * place() would snap Y to the lowest stacked floor (~86.8). */
 static void place_at_eye(float x, float y, float z, float th)
@@ -2943,6 +3039,10 @@ int main(int argc, char **argv)
                                (double)(bx - r10[0]), (double)(bz - r10[2]),
                                port_api_health(),
                                (k2 == k1 + 1 && dead_body) ? "BODYKILL" : "bodymiss");
+                        if (k2 == k1 + 1 && dead_body) {
+                            if (drop_proof(out_dir, bx, bz) != 0)
+                                goto done;
+                        }
                     }
                 }
             }
