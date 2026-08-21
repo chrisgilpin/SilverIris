@@ -214,7 +214,7 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  * 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
  *
  * Draw walks the current room plus portal neighbors (depth 3, cap 24;
- * depth 5 when current is r13/r15 so neighbor-GDL rooms stay in frame;
+ * depth 5 when current is r13/r14/r15 so neighbor-GDL rooms stay in frame;
  * depth 5 ground-only when current is r71/r7/r8 so r19/r18 walk before
  * Chris enters them, without spending extra hops on the r12 catwalk).
  * Current room follows the camera eye on stacked xz so an upstairs
@@ -741,9 +741,10 @@ void port_stage_dump_portals(void)
 int port_stage_path_opening(int ra, int rb)
 {
     /* Door-sized Rare quads only. Dump first; do not invent slabs.
-     * Added catwalk r13-r15 (doorlike w=128 tall=129 thin=0 yaw=0).
-     * Skip stacked same-xz r8-r6 (over r8-r7, y=-128), r8-r9, r6-r71.
-     * Unbound: r6 island, gas-plant, alcove. Do not bind r14-r13 / r14-r15 here. */
+     * Added catwalk r14-r13 / r14-r15 (doorlike w=128 tall=129 thin=0).
+     * Skip r15-r12 (tall=0, not doorlike). Skip stacked same-xz r8-r6
+     * (over r8-r7, y=-128), r8-r9, r6-r71.
+     * Unbound: r6 island, gas-plant, alcove. */
     return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
            (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
@@ -755,7 +756,9 @@ int port_stage_path_opening(int ra, int rb)
            (ra == 11 && rb == 71) || (ra == 71 && rb == 11) ||
            (ra == 8 && rb == 5) || (ra == 5 && rb == 8) ||
            (ra == 8 && rb == 10) || (ra == 10 && rb == 8) ||
-           (ra == 13 && rb == 15) || (ra == 15 && rb == 13);
+           (ra == 13 && rb == 15) || (ra == 15 && rb == 13) ||
+           (ra == 14 && rb == 13) || (ra == 13 && rb == 14) ||
+           (ra == 14 && rb == 15) || (ra == 15 && rb == 14);
 }
 
 static void bind_path_openings(void)
@@ -911,7 +914,7 @@ static int pick_current_room(void)
     int rm;
     if (g_bg_rooms < 1)
         return 0;
-    /* Eye-matched tile: stacked catwalk xz must draw r13/r15, not the
+    /* Eye-matched tile: stacked catwalk xz must draw r13/r14/r15, not the
      * ground hall under the same xz. Hear/fire keep room_at_local
      * (lowest floor) so bathroom hall cannot snap to 12/14. */
     rm = port_stan_tile_room_at_eye(port_player_x(), port_player_z(),
@@ -943,13 +946,13 @@ static int select_rooms(uint8_t *out, int cap)
         int d = depth[qh];
         qh++;
         out[n++] = (uint8_t)r;
-        /* r13/r15 need extra depth so a neighbor GDL (r12/r14) and its
+        /* r13/r14/r15 need extra depth so a neighbor GDL (r12/r14) and its
          * rooms stay in frame. Spawn r71 / r7 / r8 need extra ground
          * depth so r19 (d4) and r18 (d5) walk; r12 stays off the extra
          * hops so the stall frame does not pick up the catwalk. */
         maxd = PORT_WALK_DEPTH;
         ground_extra = 0;
-        if (cur == 13 || cur == 15)
+        if (cur == 13 || cur == 14 || cur == 15)
             maxd = 5;
         else if (cur == 71 || cur == 7 || cur == 8) {
             maxd = 5;

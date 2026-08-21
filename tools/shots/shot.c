@@ -40,7 +40,7 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 
-/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15.
+/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15.
  * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
 {
@@ -78,11 +78,13 @@ static int path_unlatch_proof(void)
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     no = port_stage_opening_count();
-    /* Prefer the new catwalk r13-r15 Rare quad (new facing use). */
+    /* Prefer the new catwalk r14-r15 Rare quad (new facing use).
+     * r14-r13 is bound, but its yaw-0 slab sits west of the r13 stan
+     * mesh; r14-r15 yaw-90 is face-on from the r13 tile at x~-626. */
     for (i = 0; i < no; i++) {
         if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
             continue;
-        if ((ra == 13 && rb == 15) || (ra == 15 && rb == 13)) {
+        if ((ra == 14 && rb == 15) || (ra == 15 && rb == 14)) {
             found = 1;
             break;
         }
@@ -120,6 +122,11 @@ static int path_unlatch_proof(void)
     }
     if (port_stan_eye_y(px, pz, &y) != 0)
         y = 86.8f;
+    {
+        int rm = port_stan_tile_room_at_eye(px, pz, 737.4f);
+        if (rm == 13 || rm == 14 || rm == 15)
+            y = 737.4f;
+    }
     th = atan2f(lx, -lz) * (180.f / 3.14159265f);
     if (th < 0.f)
         th += 360.f;
@@ -1244,6 +1251,31 @@ int main(int argc, char **argv)
             float sx = port_api_player_x(), sz = port_api_player_z();
             int urc;
             port_stage_dump_portals();
+            printf("r14_probe\n");
+            port_stan_dump_cross(14, 13);
+            port_stan_dump_cross(14, 15);
+            port_stan_dump_cross(14, 0);
+            port_stan_dump_cross(13, 0);
+            port_stan_dump_cross(15, 0);
+            {
+                static const float ks[][2] = {
+                    {-746.f, -2820.f}, {-626.f, -2820.f}, {-866.f, -2820.f},
+                    {-810.f, -2884.f}, {-810.f, -2764.f}, {-810.f, -3004.f},
+                    {-650.f, -3050.f}, {-650.f, -2884.f}, {-746.f, -2700.f},
+                    {-700.f, -2820.f}, {-600.f, -2820.f}, {-500.f, -2820.f},
+                };
+                int i;
+                for (i = 0; i < (int)(sizeof ks / sizeof ks[0]); i++) {
+                    float x = ks[i][0], z = ks[i][1], y = 0.f;
+                    int on = port_stan_on_tile(x, z);
+                    int low = port_stan_tile_room(x, z);
+                    int e737 = port_stan_tile_room_at_eye(x, z, 737.4f);
+                    int ey = port_stan_eye_y(x, z, &y);
+                    printf("r14_stand xz=%.1f,%.1f on=%d low=%d e737=%d ey_rc=%d eye=%.1f\n",
+                           (double)x, (double)z, on, low, e737, ey, (double)y);
+                    port_stan_debug_at(x, z);
+                }
+            }
             urc = path_unlatch_proof();
             if (urc == 0)
                 urc = wide_door_side_proof();
