@@ -266,6 +266,102 @@ static void wr_unit_quad(uint8_t *s, size_t hdr, int x0, int x1, int y, int z0, 
     wr_s16(s + hdr + 8 + 28, z1);
 }
 
+static void wr_quad_link(uint8_t *s, size_t hdr, int i, uint16_t link)
+{
+    s[hdr + 8 + (size_t)i * 8 + 6] = (uint8_t)(link >> 8);
+    s[hdr + 8 + (size_t)i * 8 + 7] = (uint8_t)link;
+}
+
+/* Overlapping floors: lowest tile's room wins (Facility hall 71 over 14). */
+static int test_tile_room_lowest_floor(void)
+{
+    uint8_t stan[512];
+    float y;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 0, 100, 225, 0, 100);
+    stan[0x80 + 3] = 14;
+    wr_unit_quad(stan, 0xA8, 0, 100, -88, 0, 100);
+    stan[0xA8 + 3] = 71;
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("tile_room load");
+    if (port_stan_tile_count() != 2)
+        return fail("tile_room count");
+    if (port_stan_tile_room(50.0f, 50.0f) != 71)
+        return fail("tile_room lowest not 71");
+    if (port_stan_eye_y(50.0f, 50.0f, &y) != 0)
+        return fail("tile_room eye");
+    if (fabsf(y - (-88.0f + PORT_EYE_HEIGHT)) > 1.0f)
+        return fail("tile_room eye not low floor");
+    printf("tile_room lowest room=%d eye=%.1f (high decoy 14/225 ignored)\n",
+           port_stan_tile_room(50.0f, 50.0f), (double)y);
+    port_stan_unload();
+    return 0;
+}
+
+/* Adjacent tiles, shared edge unlinked: clip_step must not cross (chase
+ * through a Facility stall G1). At least one other link enables walls. */
+static int test_clip_unlinked_wall(void)
+{
+    uint8_t stan[512];
+    float nx, nz, ny, lx, lz;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    /* Tile 0: x 0..100. East edge (i=1) unlinked = wall. West linked. */
+    wr_unit_quad(stan, 0x80, 0, 100, -88, 0, 100);
+    wr_quad_link(stan, 0x80, 3, 0x10);
+    /* Tile 1: x 100..200. West edge unlinked. */
+    wr_unit_quad(stan, 0xA8, 100, 200, -88, 0, 100);
+    wr_quad_link(stan, 0xA8, 1, 0x10);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("wall link load");
+    if (port_stan_tile_count() != 2)
+        return fail("wall link tiles");
+    nx = 150.0f;
+    nz = 50.0f;
+    ny = 0.0f;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (nx > 100.5f) {
+        fprintf(stderr, "unlinked wall leaked nx=%g\n", (double)nx);
+        return fail("unlinked wall cross");
+    }
+    if (nx < 40.0f)
+        return fail("unlinked wall snapped away");
+    /* Linked path: mark the shared edge as a neighbor and recross. */
+    wr_quad_link(stan, 0x80, 1, 0x10);
+    wr_quad_link(stan, 0xA8, 3, 0x10);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("linked reload");
+    nx = 150.0f;
+    nz = 50.0f;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (nx < 140.0f) {
+        fprintf(stderr, "linked edge blocked nx=%g\n", (double)nx);
+        return fail("linked edge should pass");
+    }
+    /* Off-tile / inside the wall: snap onto a walkable tile. */
+    lx = 100.0f;
+    lz = 200.0f;
+    if (port_stan_on_tile(lx, lz))
+        return fail("snap start should be off-tile");
+    if (port_stan_snap_walkable(&lx, &lz, 0.f, 0.f, PORT_STAN_NEAR_XZ, &ny) != 0)
+        return fail("wall snap miss");
+    if (!port_stan_on_tile(lx, lz))
+        return fail("wall snap still off");
+    printf("clip_unlinked wall nx=blocked linked=%.1f snap=%.1f,%.1f\n",
+           (double)nx, (double)lx, (double)lz);
+    port_stan_unload();
+    return 0;
+}
+
 static int test_snap_walkable_prefers_hall(void)
 {
     uint8_t stan[512];
@@ -964,6 +1060,10 @@ int main(void)
     if (test_intro_spawn_y_hallway_unit() != 0)
         return 1;
     if (test_snap_walkable_prefers_hall() != 0)
+        return 1;
+    if (test_tile_room_lowest_floor() != 0)
+        return 1;
+    if (test_clip_unlinked_wall() != 0)
         return 1;
     if (test_stan_eye_and_clip() != 0)
         return 1;

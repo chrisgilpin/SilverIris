@@ -1559,7 +1559,11 @@ void port_prop_tick_walk(void)
         step = dist;
     nx = lx + dx / dist * step;
     nz = lz + dz / dist * step;
-    if (!sit_walker_local(nx, nz)) {
+    {
+        float ny = 0.f;
+        port_stan_clip_step(lx, lz, &nx, &nz, &ny);
+    }
+    if ((nx == lx && nz == lz) || !sit_walker_local(nx, nz)) {
         /* Reverse once. If the other end is also illegal, stop — do not
          * clip through a G1 wall or write a NaN Y. */
         g_walk_going_b = !g_walk_going_b;
@@ -1691,9 +1695,29 @@ static int in_spawn_fire_box(float lx, float lz)
     return 1;
 }
 
+/* Clip a proposed chase dest with the same rules as the player
+ * (Rare point.link walls, lowest overlapping floor, closed doors).
+ * Refuse the spawn stall fire box (Z-floor). */
+static int try_chase_sit(int pi, float ox, float oz, float nx, float nz,
+                         const float r1[3])
+{
+    float cx = nx, cz = nz, ny = 0.f;
+    port_stan_clip_step(ox, oz, &cx, &cz, &ny);
+    if (in_spawn_fire_box(cx, cz))
+        return 0;
+    if (cx == ox && cz == oz)
+        return 0;
+    if (!sit_guard_tile(pi, cx, cz, r1))
+        return 0;
+    face_heading_prop(pi, cx - ox, cz - oz);
+    return 1;
+}
+
 /* One 3.0u step toward (px,pz) on ground-floor tiles. Face the step.
+ * Honor Rare point.link walls (Facility stall G1 sits between tiles).
  * Refuse the spawn stall fire box (Z-floor). Slide on X then Z if the
- * diagonal is off-tile so a G1 wall does not freeze them. */
+ * diagonal is a wall so a G1 edge does not freeze them. Already inside
+ * a wall: clip_step snaps onto the nearest walkable floor tile. */
 static int chase_step(int pi, float lx, float lz, float px, float pz, const float r1[3])
 {
     float dx, dz, dist, step, nx, nz;
@@ -1709,30 +1733,12 @@ static int chase_step(int pi, float lx, float lz, float px, float pz, const floa
         step = dist;
     nx = lx + dx / dist * step;
     nz = lz + dz / dist * step;
-    if (in_spawn_fire_box(nx, nz)) {
-        /* Approach the corner: take the axis that stays outside the box. */
-        if (!in_spawn_fire_box(nx, lz) && sit_guard_tile(pi, nx, lz, r1)) {
-            face_heading_prop(pi, dx, 0.f);
-            return 1;
-        }
-        if (!in_spawn_fire_box(lx, nz) && sit_guard_tile(pi, lx, nz, r1)) {
-            face_heading_prop(pi, 0.f, dz);
-            return 1;
-        }
-        return 0;
-    }
-    if (sit_guard_tile(pi, nx, nz, r1)) {
-        face_heading_prop(pi, dx, dz);
+    if (try_chase_sit(pi, lx, lz, nx, nz, r1))
         return 1;
-    }
-    if (sit_guard_tile(pi, nx, lz, r1)) {
-        face_heading_prop(pi, dx, 0.f);
+    if (try_chase_sit(pi, lx, lz, nx, lz, r1))
         return 1;
-    }
-    if (sit_guard_tile(pi, lx, nz, r1)) {
-        face_heading_prop(pi, 0.f, dz);
+    if (try_chase_sit(pi, lx, lz, lx, nz, r1))
         return 1;
-    }
     return 0;
 }
 

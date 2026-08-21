@@ -802,8 +802,15 @@ int port_stage_rooms_adjacent(int a, int b)
 
 static int pick_current_room(void)
 {
+    int tile_rm;
     if (g_bg_rooms < 1)
         return 0;
+    /* Lowest-floor stan tile owns the GDL origin. Nearest bg-room
+     * centre snaps the spawn/bathroom hall onto rooms 12/14 (dark
+     * GDL, exploded props). Fall back to nearest when off-mesh. */
+    tile_rm = port_stan_tile_room(port_player_x(), port_player_z());
+    if (tile_rm >= 1 && tile_rm <= g_bg_rooms)
+        return tile_rm;
     return room_nearest_world(port_player_x() + g_rm[1].pos[0],
                               port_player_y() + g_rm[1].pos[1],
                               port_player_z() + g_rm[1].pos[2]);

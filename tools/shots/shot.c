@@ -511,6 +511,14 @@ int main(int argc, char **argv)
            port_stan_on_tile(spawn_x, spawn_z));
     if (shot_one(out_dir, "spawn") != 0)
         goto done;
+    {
+        int cur = port_api_current_room();
+        int tile = port_stan_tile_room(spawn_x, spawn_z);
+        int dark = (cur == 12 || cur == 14);
+        printf("spawn_room cur=%d tile=%d drawn=%d (stall must stay tiled, "
+               "not 12/14) %s\n",
+               cur, tile, port_prop_drawn(), dark ? "DARK14" : "STALL");
+    }
     /* Chris Chrome: bathroom xz y=406, WASD dead, fire still works. */
     {
         const float stuck_x = -491.9f, stuck_z = -2238.5f;
@@ -572,6 +580,28 @@ int main(int argc, char **argv)
     place(HALL_X, HALL_Z, HALL_TH);
     if (shot_one(out_dir, "hallway") != 0)
         goto done;
+    {
+        int cur = port_api_current_room();
+        int tile = port_stan_tile_room(HALL_X, HALL_Z);
+        int dark = (cur == 12 || cur == 14);
+        printf("hall_room xz=%.1f,%.1f cur=%d tile=%d (must not snap 12/14) %s\n",
+               (double)HALL_X, (double)HALL_Z, cur, tile,
+               dark ? "DARK14" : "PINNED");
+    }
+    /* Chris Chrome clip: x -454.6 z -2694.9 y 86.8 snapped cur=14. */
+    {
+        const float bx = -454.6f, bz = -2694.9f;
+        int cur, tile, dark;
+        place(bx, bz, HALL_TH);
+        if (shot_one(out_dir, "bathhall") != 0)
+            goto done;
+        cur = port_api_current_room();
+        tile = port_stan_tile_room(bx, bz);
+        dark = (cur == 12 || cur == 14);
+        printf("bathhall_room xz=%.1f,%.1f y=%.1f cur=%d tile=%d %s\n",
+               (double)bx, (double)bz, (double)port_api_player_y(), cur, tile,
+               dark ? "DARK14" : "PINNED");
+    }
     place(STAIR_X, STAIR_Z, STAIR_TH);
     if (shot_one(out_dir, "stairs") != 0)
         goto done;
@@ -766,6 +796,79 @@ int main(int argc, char **argv)
                    combat, hp0, hp1, s0, s1, port_prop_guard_alerted(),
                    port_prop_guard_los(), hear_n, turn_n, box_n,
                    (hp1 == 8 && s1 == s0 && !combat) ? "SAFE" : "HIT");
+            /* Walk clip_step toward spawn without moving bodies. Same
+             * rules as chase_step: Rare walls + spawn fire box. Must
+             * not enter xz near (-27,-2740). */
+            {
+                int ci, crossed = 0;
+                for (ci = 0; ci < chase_n; ci++) {
+                    float lx = chase_x0[ci], lz = chase_z0[ci];
+                    float ny = 0.f;
+                    int k;
+                    for (k = 0; k < 200; k++) {
+                        float dx = sx - lx, dz = sz - lz;
+                        float dist = sqrtf(dx * dx + dz * dz);
+                        float nx, nz, ax, az;
+                        int moved = 0;
+                        if (dist < 40.f)
+                            break;
+                        nx = lx + dx / dist * 3.f;
+                        nz = lz + dz / dist * 3.f;
+                        port_stan_clip_step(lx, lz, &nx, &nz, &ny);
+                        /* Fire box: |d spawn|<=400 and |dz|<=200. */
+                        if ((nx - sx) * (nx - sx) + (nz - sz) * (nz - sz) <= 400.f * 400.f &&
+                            fabsf(nz - sz) <= 200.f) {
+                            ax = nx;
+                            az = lz;
+                            port_stan_clip_step(lx, lz, &ax, &az, &ny);
+                            if (!((ax - sx) * (ax - sx) + (az - sz) * (az - sz) <= 400.f * 400.f &&
+                                  fabsf(az - sz) <= 200.f) &&
+                                (ax != lx || az != lz)) {
+                                nx = ax;
+                                nz = az;
+                            } else {
+                                ax = lx;
+                                az = nz;
+                                port_stan_clip_step(lx, lz, &ax, &az, &ny);
+                                if (!((ax - sx) * (ax - sx) + (az - sz) * (az - sz) <= 400.f * 400.f &&
+                                      fabsf(az - sz) <= 200.f) &&
+                                    (ax != lx || az != lz)) {
+                                    nx = ax;
+                                    nz = az;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        if (nx == lx && nz == lz)
+                            break;
+                        lx = nx;
+                        lz = nz;
+                        moved = 1;
+                        (void)moved;
+                    }
+                    {
+                        float ddx = lx - sx, ddz = lz - sz;
+                        float near = sqrtf(ddx * ddx + ddz * ddz);
+                        int inbox = (near >= 40.f && near <= 400.f &&
+                                     fabsf(lz - sz) <= 200.f);
+                        int stall = (near < 80.f);
+                        if (stall || inbox)
+                            crossed = 1;
+                        printf("chase_clip[%d] start=%.1f,%.1f end=%.1f,%.1f "
+                               "near_spawn=%.1f dz=%.1f %s\n",
+                               chase_i[ci], (double)chase_x0[ci],
+                               (double)chase_z0[ci], (double)lx, (double)lz,
+                               (double)near, (double)(lz - sz),
+                               stall ? "STALL" : inbox ? "INBOX" : "HELD");
+                    }
+                }
+                if (chase_n < 1)
+                    printf("chase_clip none\n");
+                else
+                    printf("chase_clip cands=%d %s\n", chase_n,
+                           crossed ? "CROSSED" : "HELD");
+            }
         }
     }
     if (shot_one(out_dir, "flash") != 0)

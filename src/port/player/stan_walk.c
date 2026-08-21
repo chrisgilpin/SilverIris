@@ -579,6 +579,19 @@ int port_stan_on_tile(float local_x, float local_z)
     return tile_at_world(wx, wz) != NULL;
 }
 
+int port_stan_tile_room(float local_x, float local_z)
+{
+    float wx, wz;
+    const StanTile *t;
+    if (g_ntile <= 0)
+        return 0;
+    local_to_world(local_x, local_z, &wx, &wz);
+    t = tile_at_world(wx, wz);
+    if (!t || t->room < 1)
+        return 0;
+    return (int)t->room;
+}
+
 int port_stan_eye_y(float local_x, float local_z, float *y_out)
 {
     float wx, wz, y;
