@@ -493,6 +493,16 @@ int main(int argc, char **argv)
             lx = wx - r1[0];
             lz = wz - r1[2];
             wy = wy - r1[1];
+            {
+                float pax, paz, pbx, pbz;
+                if (port_prop_walk_path(&pax, &paz, &pbx, &pbz) == 0) {
+                    lx = 0.5f * (pax + pbx);
+                    lz = 0.5f * (paz + pbz);
+                    printf("walk_path local %.1f,%.1f -> %.1f,%.1f mid=%.1f,%.1f speed=%.1f\n",
+                           (double)pax, (double)paz, (double)pbx, (double)pbz,
+                           (double)lx, (double)lz, (double)port_prop_walk_speed());
+                }
+            }
             /* Prefer ~240u, open floor, f=8 vs f=20 FBDIFF. Skip spawn
              * corridor and 90-140u stall clips. */
             {
@@ -626,30 +636,50 @@ int main(int argc, char **argv)
                     h20 = best_h20;
                 }
             }
-            port_prop_set_walk_frame(8);
-            place(cx, cz, th);
-            port_player_set_pitch(walk_pitch);
-            if (shot_one(out_dir, "walk") != 0)
-                goto done;
-            h8 = g_last_fb_adler;
-            port_prop_set_walk_frame(20);
-            place(cx, cz, th);
-            port_player_set_pitch(walk_pitch);
-            if (shot_one(out_dir, "walk20") != 0)
-                goto done;
-            h20 = g_last_fb_adler;
-            port_prop_set_walk_frame(8);
-            r8 = port_prop_walk_rest_crc();
-            f8 = 8;
-            port_prop_set_walk_frame(20);
-            r20 = port_prop_walk_rest_crc();
-            f20 = 20;
-            printf("walk_cycle f=%d crc=%08x rest=%08x f=%d crc=%08x rest=%08x %s walker=%.1f,%.1f,%.1f cam=%.1f,%.1f th=%.1f ph=%.1f ir=%u spawn=%.1f,%.1f\n",
-                   f8, h8, r8, f20, h20, r20, (h8 != h20) ? "FBDIFF" : "fbsame",
-                   (double)lx, (double)wy, (double)lz, (double)cx, (double)cz, (double)th,
-                   (double)walk_pitch,
-                   g1_last_ir() ? g1_last_ir()->ncmds : 0u,
-                   (double)spawn_x, (double)spawn_z);
+            /* Two harness frames at different walk ticks. Same camera.
+             * 40 ticks * 3u = 120u (~1.5 tiles) so xz must move and the
+             * figure stays in the ~185u room-71 lens. */
+            {
+                float x0, y0, z0, x1, y1, z1, r10[3];
+                int t, nt = 40;
+                r10[0] = r10[1] = r10[2] = 0.f;
+                (void)port_stage_room1(r10);
+                port_prop_set_walk_frame(8);
+                if (port_prop_walk_xyz(&x0, &y0, &z0) != 0)
+                    x0 = y0 = z0 = 0.f;
+                place(cx, cz, th);
+                port_player_set_pitch(walk_pitch);
+                if (shot_one(out_dir, "walk") != 0)
+                    goto done;
+                h8 = g_last_fb_adler;
+                r8 = port_prop_walk_rest_crc();
+                f8 = port_prop_walk_frame();
+                for (t = 0; t < nt; t++)
+                    port_prop_tick_walk();
+                if (port_prop_walk_xyz(&x1, &y1, &z1) != 0)
+                    x1 = y1 = z1 = 0.f;
+                place(cx, cz, th);
+                port_player_set_pitch(walk_pitch);
+                if (shot_one(out_dir, "walk20") != 0)
+                    goto done;
+                h20 = g_last_fb_adler;
+                r20 = port_prop_walk_rest_crc();
+                f20 = port_prop_walk_frame();
+                printf("walk_move t0 local=%.1f,%.1f,%.1f t%d=%.1f,%.1f,%.1f dxz=%.1f speed=%.1f f=%d/%d %s\n",
+                       (double)(x0 - r10[0]), (double)(y0 - r10[1]), (double)(z0 - r10[2]),
+                       nt,
+                       (double)(x1 - r10[0]), (double)(y1 - r10[1]), (double)(z1 - r10[2]),
+                       (double)sqrtf((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0)),
+                       (double)port_prop_walk_speed(), f8, f20,
+                       (fabsf(x1 - x0) + fabsf(z1 - z0) > 8.f) ? "XZMOVE" : "xzstuck");
+                printf("walk_cycle f=%d crc=%08x rest=%08x f=%d crc=%08x rest=%08x %s walker=%.1f,%.1f,%.1f cam=%.1f,%.1f th=%.1f ph=%.1f ir=%u spawn=%.1f,%.1f\n",
+                       f8, h8, r8, f20, h20, r20, (h8 != h20) ? "FBDIFF" : "fbsame",
+                       (double)(x1 - r10[0]), (double)(y1 - r10[1]), (double)(z1 - r10[2]),
+                       (double)cx, (double)cz, (double)th,
+                       (double)walk_pitch,
+                       g1_last_ir() ? g1_last_ir()->ncmds : 0u,
+                       (double)spawn_x, (double)spawn_z);
+            }
         }
     }
     rc = 0;

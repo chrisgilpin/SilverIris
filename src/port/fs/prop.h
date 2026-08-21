@@ -29,8 +29,12 @@ const char *port_prop_idle_info(void);
 int port_prop_walk_xz(float *x, float *z);
 /* Test-mover pad xyz. -1 if none. */
 int port_prop_walk_xyz(float *x, float *y, float *z);
-/* Loop ANIM_walking one frame on the test mover. No-op if none. */
+/* Loop ANIM_walking one frame and step the test mover along its strip. */
 void port_prop_tick_walk(void);
+/* Local-xz ping-pong endpoints of the test-mover strip. -1 if none. */
+int port_prop_walk_path(float *ax, float *az, float *bx, float *bz);
+/* NTSC units/tick (PORT_CHR_WALK * 3). 0 if the mover has no path. */
+float port_prop_walk_speed(void);
 /* Snap the test mover to a walk frame (loops). */
 void port_prop_set_walk_frame(int frame);
 /* Current walk frame, or -1. */

@@ -33,6 +33,12 @@
 #define PORT_ANIM_WALK_OFF 0x4018u /* PTR_ANIM_walking */
 #define PORT_ANIM_WALK_FRAME 8
 #define PORT_WALK_ID_BASE 3000
+/* NTSC: PORT_CHR_WALK (1) * g_GlobalTimerDelta (3). Not clock-coupled so
+ * the shot harness can step without a sim tick. */
+#define PORT_MOVER_WALK_STEP 3.0f
+#define PORT_MOVER_TILE 80.0f
+#define PORT_MOVER_ARRIVE 24.0f
+#define PORT_MOVER_MAX_TILES 3
 #define PORT_RST_MAGIC 0x52535431u
 #define PORT_ANIM_ENTRIES_ROM_U 1198784u
 #define PORT_ANIM_DATA_PATH "assets/animationtable_data.bin"
@@ -149,6 +155,12 @@ static int g_walk_frame;
 static uint32_t g_walk_nframes;
 static float g_walk_fit_scale;
 static float g_walk_fit_ymin;
+static int g_walk_path_ok;
+static int g_walk_going_b;
+static int g_walk_blocked;
+static float g_walk_path_ax, g_walk_path_az;
+static float g_walk_path_bx, g_walk_path_bz;
+static float g_walk_spawn_x, g_walk_spawn_z;
 static char g_idle_info[96];
 static char g_walk_info[96];
 static char g_pose_info[192];
@@ -376,6 +388,9 @@ static void load_idle_rest(void)
     g_walk_nframes = 0;
     g_walk_fit_scale = 0.f;
     g_walk_fit_ymin = 0.f;
+    g_walk_path_ok = 0;
+    g_walk_going_b = 1;
+    g_walk_blocked = 0;
     g_viewgun_parts = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
@@ -856,6 +871,100 @@ static int floor_open(float lx, float lz)
            port_stan_on_tile(lx, lz + 40.f) && port_stan_on_tile(lx, lz - 40.f);
 }
 
+static int walk_tile_ok(float lx, float lz, float sx, float sz)
+{
+    float ey = 0.f;
+    if (!port_stan_on_tile(lx, lz))
+        return 0;
+    if (!floor_open(lx, lz))
+        return 0;
+    if (port_stan_eye_y(lx, lz, &ey) != 0)
+        return 0;
+    if (!(ey == ey) || ey < 50.f || ey > 160.f)
+        return 0;
+    if (spawn_look_slab(lx, lz, sx, sz))
+        return 0;
+    return 1;
+}
+
+static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3]);
+
+/* Sit using the already-captured spawn cone. 0 if NaN / off-tile / cone. */
+static int sit_walker_local(float lx, float lz)
+{
+    float r1[3];
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    return try_sit_walker(lx, lz, g_walk_spawn_x, g_walk_spawn_z, r1);
+}
+
+static void face_heading(float dx, float dz)
+{
+    float yaw;
+    if (dx * dx + dz * dz < 1e-8f)
+        return;
+    /* Model +Z onto look; yaw 0 faces +Z. */
+    yaw = atan2f(dx, dz) * (180.f / PI_F);
+    g_prop[g_walk_prop].yaw = yaw;
+}
+
+/* 2-4 tile ping-pong on open ground-floor neighbors. Prefer X (room 71
+ * is wide). Stay out of the spawn 270 cone. No doors, no chase. */
+static void setup_walk_path(float lx, float lz, float sx, float sz)
+{
+    float ax = lx, az = lz, bx = lx, bz = lz;
+    float xlen, zlen;
+    int i;
+
+    g_walk_path_ok = 0;
+    g_walk_blocked = 0;
+    g_walk_going_b = 1;
+    g_walk_spawn_x = sx;
+    g_walk_spawn_z = sz;
+    for (i = 1; i <= PORT_MOVER_MAX_TILES; i++) {
+        float nx = lx - PORT_MOVER_TILE * (float)i;
+        if (!walk_tile_ok(nx, lz, sx, sz))
+            break;
+        ax = nx;
+        az = lz;
+    }
+    for (i = 1; i <= PORT_MOVER_MAX_TILES; i++) {
+        float nx = lx + PORT_MOVER_TILE * (float)i;
+        if (!walk_tile_ok(nx, lz, sx, sz))
+            break;
+        bx = nx;
+        bz = lz;
+    }
+    xlen = fabsf(bx - ax);
+    if (xlen < PORT_MOVER_TILE * 1.5f) {
+        ax = bx = lx;
+        az = bz = lz;
+        for (i = 1; i <= PORT_MOVER_MAX_TILES; i++) {
+            float nz = lz - PORT_MOVER_TILE * (float)i;
+            if (!walk_tile_ok(lx, nz, sx, sz))
+                break;
+            ax = lx;
+            az = nz;
+        }
+        for (i = 1; i <= PORT_MOVER_MAX_TILES; i++) {
+            float nz = lz + PORT_MOVER_TILE * (float)i;
+            if (!walk_tile_ok(lx, nz, sx, sz))
+                break;
+            bx = lx;
+            bz = nz;
+        }
+        zlen = fabsf(bz - az);
+        if (zlen < PORT_MOVER_TILE * 1.5f)
+            return;
+    }
+    g_walk_path_ax = ax;
+    g_walk_path_az = az;
+    g_walk_path_bx = bx;
+    g_walk_path_bz = bz;
+    g_walk_path_ok = 1;
+    face_heading(bx - ax, bz - az);
+}
+
 static int try_sit_walker(float lx, float lz, float sx, float sz, const float r1[3])
 {
     float ey = 0.f, floor_y, wy;
@@ -914,8 +1023,10 @@ int port_prop_place_walker_near_spawn(void)
         for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
             if (pass == 0 && !floor_open(pref[i][0], pref[i][1]))
                 continue;
-            if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1))
+            if (try_sit_walker(pref[i][0], pref[i][1], sx, sz, r1)) {
+                setup_walk_path(pref[i][0], pref[i][1], sx, sz);
                 return 1;
+            }
         }
     }
     return 0;
@@ -992,9 +1103,71 @@ static int set_walk_frame(int frame)
 
 void port_prop_tick_walk(void)
 {
+    float r1[3], lx, lz, tx, tz, dx, dz, dist, step, nx, nz;
+
     if (!g_have_walk || g_walkers < 1 || g_walk_nframes < 1)
         return;
     set_walk_frame(g_walk_frame + 1);
+    if (!g_walk_path_ok || g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = g_prop[g_walk_prop].pos[0] - r1[0];
+    lz = g_prop[g_walk_prop].pos[2] - r1[2];
+    tx = g_walk_going_b ? g_walk_path_bx : g_walk_path_ax;
+    tz = g_walk_going_b ? g_walk_path_bz : g_walk_path_az;
+    dx = tx - lx;
+    dz = tz - lz;
+    dist = sqrtf(dx * dx + dz * dz);
+    if (dist <= PORT_MOVER_ARRIVE) {
+        g_walk_going_b = !g_walk_going_b;
+        tx = g_walk_going_b ? g_walk_path_bx : g_walk_path_ax;
+        tz = g_walk_going_b ? g_walk_path_bz : g_walk_path_az;
+        dx = tx - lx;
+        dz = tz - lz;
+        dist = sqrtf(dx * dx + dz * dz);
+    }
+    if (dist < 0.001f)
+        return;
+    step = PORT_MOVER_WALK_STEP;
+    if (step > dist)
+        step = dist;
+    nx = lx + dx / dist * step;
+    nz = lz + dz / dist * step;
+    if (!sit_walker_local(nx, nz)) {
+        /* Reverse once. If the other end is also illegal, stop — do not
+         * clip through a G1 wall or write a NaN Y. */
+        g_walk_going_b = !g_walk_going_b;
+        g_walk_blocked = 1;
+        fprintf(stderr,
+                "walk_step blocked local=%.1f,%.1f -> %.1f,%.1f (path %.1f,%.1f-%.1f,%.1f)\n",
+                (double)lx, (double)lz, (double)nx, (double)nz,
+                (double)g_walk_path_ax, (double)g_walk_path_az,
+                (double)g_walk_path_bx, (double)g_walk_path_bz);
+        return;
+    }
+    g_walk_blocked = 0;
+    face_heading(dx, dz);
+}
+
+int port_prop_walk_path(float *ax, float *az, float *bx, float *bz)
+{
+    if (!g_walk_path_ok)
+        return -1;
+    if (ax)
+        *ax = g_walk_path_ax;
+    if (az)
+        *az = g_walk_path_az;
+    if (bx)
+        *bx = g_walk_path_bx;
+    if (bz)
+        *bz = g_walk_path_bz;
+    return 0;
+}
+
+float port_prop_walk_speed(void)
+{
+    return g_walk_path_ok ? PORT_MOVER_WALK_STEP : 0.f;
 }
 
 void port_prop_set_walk_frame(int frame)
@@ -1258,6 +1431,9 @@ void port_prop_unload(void)
     g_walk_nframes = 0;
     g_walk_fit_scale = 0.f;
     g_walk_fit_ymin = 0.f;
+    g_walk_path_ok = 0;
+    g_walk_going_b = 1;
+    g_walk_blocked = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);
