@@ -127,7 +127,7 @@ int port_prop_guard_xyz(int i, float *x, float *y, float *z);
 int port_prop_fill_viewgun(G1RoomDl *out, int cap);
 int port_prop_viewgun_parts(void);
 
-/* One pack PROPDEF magazine / collectable / armour at its Rare pad. */
+/* One on-mesh ground PROPDEF (Facility: armour pad 215). Embedded/assigned skipped. */
 #define PORT_PICKUP_AMMO 1
 #define PORT_PICKUP_ARMOUR 2
 #define PORT_PICKUP_RADIUS 80.0f

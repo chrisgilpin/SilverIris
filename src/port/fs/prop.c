@@ -72,6 +72,7 @@
 #define PDEF_MAGAZINE 7
 #define PDEF_COLLECTABLE 8
 #define PDEF_GUARD 9
+#define PDEF_AMMO 20
 #define PDEF_ARMOUR 21
 #define PDEF_RACK 12
 #define PDEF_GAS 36
@@ -217,6 +218,8 @@ typedef struct {
     int type;
     int model;
     int pad;
+    int orig_pad;
+    unsigned flags;
     float pos[3];
     float look[3];
     int amount_raw;
@@ -2358,7 +2361,8 @@ static int pickup_amount_of(int kind, int amount_raw)
     return PORT_PICKUP_AMMO_ADD;
 }
 
-static void record_pickup_cand(int type, int model, int pad, const uint8_t *pd, int amount_raw)
+static void record_pickup_cand(int type, int model, int pad, const uint8_t *pd, int amount_raw,
+                               int orig_pad, unsigned flags)
 {
     PortPickupCand *c;
     if (g_npcand >= PORT_PICKUP_MAX_CAND || !pd || pad < 0)
@@ -2372,6 +2376,8 @@ static void record_pickup_cand(int type, int model, int pad, const uint8_t *pd, 
     c->type = type;
     c->model = model;
     c->pad = pad;
+    c->orig_pad = orig_pad;
+    c->flags = flags;
     c->pos[0] = be_f32(pd);
     c->pos[1] = be_f32(pd + 4);
     c->pos[2] = be_f32(pd + 8);
@@ -2477,20 +2483,28 @@ static void choose_pickup(void)
         ground = near && fabsf(ey - PORT_PICKUP_GROUND_EYE) <= PORT_PICKUP_GROUND_SLACK;
         kind = pickup_kind_of(c->type, c->model);
         skip = 0;
-        if (dist < PORT_PICKUP_SLAB) {
+        /* 0x8000 INSIDEANOTHEROBJ / orig pad -1: magazines and desk KF7s.
+         * 0x4000 ASSIGNEDTOCHR: guard-held KF7 / MP5K / swipe cards. */
+        if (c->orig_pad < 0 || (c->flags & 0x00008000u)) {
+            skip = 1;
+            why = "embedded";
+        } else if (c->flags & 0x00004000u) {
+            skip = 1;
+            why = "assigned";
+        } else if (dist < PORT_PICKUP_SLAB) {
             skip = 1;
             why = "slab";
         } else if (dist <= PORT_GUARD_FIRE_RANGE && fabsf(dz) <= PORT_GUARD_FIRE_ALONG) {
             skip = 1;
             why = "firebox";
         }
-        if (c->type == PDEF_ARMOUR || c->type == PDEF_MAGAZINE)
-            printf("pickup_cand[%d] type=%d model=%d pad=%d world=%.1f,%.1f,%.1f "
-                   "local=%.1f,%.1f,%.1f dist=%.1f on=%d eye=%.1f ground=%d kind=%d "
-                   "%s\n",
-                   i, c->type, c->model, c->pad, (double)c->pos[0], (double)c->pos[1],
-                   (double)c->pos[2], (double)lx, (double)ly, (double)lz, (double)dist,
-                   on, (double)ey, ground, kind, why);
+        printf("pickup_cand[%d] type=%d model=%d pad=%d orig=%d flags=0x%08x "
+               "world=%.1f,%.1f,%.1f local=%.1f,%.1f,%.1f dist=%.1f on=%d "
+               "eye=%.1f ground=%d kind=%d %s\n",
+               i, c->type, c->model, c->pad, c->orig_pad, c->flags,
+               (double)c->pos[0], (double)c->pos[1], (double)c->pos[2],
+               (double)lx, (double)ly, (double)lz, (double)dist, on,
+               (double)ey, ground, kind, why);
         if (skip || !kind)
             continue;
         rank = cand_rank(c, ground, on, near);
@@ -2504,13 +2518,17 @@ static void choose_pickup(void)
         printf("pickup_pick NONE\n");
         return;
     }
+    if (1) { printf("pickup_skip_load pad=%d (exp)\n", g_pcand[best].pad); return; }
     if (load_one_pickup(&g_pcand[best]) != 0) {
         int saved = best;
         best = -1;
         for (i = 0; i < g_npcand; i++) {
+            const PortPickupCand *c = &g_pcand[i];
             if (i == saved)
                 continue;
-            if (load_one_pickup(&g_pcand[i]) == 0) {
+            if (c->orig_pad < 0 || (c->flags & 0x0000c000u))
+                continue;
+            if (load_one_pickup(c) == 0) {
                 best = i;
                 break;
             }
@@ -2598,19 +2616,24 @@ static int parse_setup(const uint8_t *st, size_t n)
         if (p + bytes > st + n)
             break;
         if ((type == PDEF_MAGAZINE || type == PDEF_COLLECTABLE ||
-             type == PDEF_ARMOUR) && bytes >= 8) {
+             type == PDEF_ARMOUR || type == PDEF_KEY || type == PDEF_AMMO) &&
+            bytes >= 8) {
             int16_t model = (int16_t)be16(p + 4);
             int16_t pad = (int16_t)be16(p + 6);
+            int16_t orig_pad = pad;
+            unsigned flags = bytes >= 12 ? be32(p + 8) : 0u;
             const uint8_t *pd = NULL;
             int amount_raw = 0;
+            if (bytes >= 132)
+                amount_raw = (int)be32(p + 128);
+            printf("pickup_raw type=%d model=%d pad=%d flags=0x%08x amount=%d\n",
+                   type, (int)model, (int)orig_pad, flags, amount_raw);
             if (pad < 0 && last_scenery_pd)
                 pad = (int16_t)last_scenery_pad, pd = last_scenery_pd;
             else if (pad >= 0 && pad < npad)
                 pd = st + pad_off + (size_t)pad * PORT_PAD_BYTES;
-            if (bytes >= 132)
-                amount_raw = (int)be32(p + 128);
             if (pd && model >= 0)
-                record_pickup_cand(type, model, pad, pd, amount_raw);
+                record_pickup_cand(type, model, pad, pd, amount_raw, orig_pad, flags);
         }
         if (scenery_type(type) && bytes >= 8 && g_nprop < PORT_MAX_PROPS) {
             int16_t model = (int16_t)be16(p + 4);
