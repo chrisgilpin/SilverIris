@@ -35,7 +35,7 @@ int port_stage_portal_count(void);
 /* Door-sized portal openings (world center xz, floor y, look-yaw, width). */
 int port_stage_opening_count(void);
 int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
-/* 1 if this door-sized portal sits on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r8-r5 / r8-r10 / r1-r3. */
+/* 1 if this door-sized portal sits on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10. */
 int port_stage_path_opening(int ra, int rb);
 int port_stage_current_room(void);
 /* Lowest-floor tile, else nearby ground tile, else nearest bg centre. */

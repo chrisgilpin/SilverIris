@@ -716,9 +716,8 @@ int port_stage_portal_count(void) { return g_nportals; }
 int port_stage_path_opening(int ra, int rb)
 {
     /* Door-sized Rare quads only. Dump first; do not invent slabs.
-     * Ground r8 branches r8-r5 / r8-r10 and far r1-r3 are real quads.
-     * Skip stacked same-xz r8-r6 (over r8-r7, y=-128), r8-r9, r6-r71.
-     * Unbound: catwalk r13-r15, r6 island, gas-plant, spawn-side r11-r71. */
+     * Added ground r8-r5 / r8-r10. Skip stacked same-xz r8-r6 (over r8-r7, y=-128), r8-r9, r6-r71.
+     * Unbound: catwalk r13-r15, r6 island, gas-plant, alcove. */
     return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
            (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
@@ -726,9 +725,10 @@ int port_stage_path_opening(int ra, int rb)
            (ra == 19 && rb == 18) || (ra == 18 && rb == 19) ||
            (ra == 3 && rb == 18) || (ra == 18 && rb == 3) ||
            (ra == 19 && rb == 21) || (ra == 21 && rb == 19) ||
+           (ra == 1 && rb == 3) || (ra == 3 && rb == 1) ||
+           (ra == 11 && rb == 71) || (ra == 71 && rb == 11) ||
            (ra == 8 && rb == 5) || (ra == 5 && rb == 8) ||
-           (ra == 8 && rb == 10) || (ra == 10 && rb == 8) ||
-           (ra == 1 && rb == 3) || (ra == 3 && rb == 1);
+           (ra == 8 && rb == 10) || (ra == 10 && rb == 8);
 }
 
 static void bind_path_openings(void)

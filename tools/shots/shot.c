@@ -40,7 +40,7 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 
-/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r8-r5 / r8-r10 / r1-r3.
+/* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10.
  * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
 {
