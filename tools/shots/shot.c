@@ -541,58 +541,50 @@ static int upstairs_gdl_proof(const char *out_dir)
     }
     port_stan_debug_at(ex, ez);
 
-    /* West r13 pad, look at neighbor r14 GDL. The climb tile (158,-2777)
-     * looks along an empty catwalk; this pad puts the Facility X-brace
-     * wall and tiled floor in frame. */
+    /* Aim at neighbor r12 GDL from the climbed r13 tile. Pad-to-pad yaw
+     * looked along the catwalk into empty space. Yaw 200 (vs exact GDL
+     * 218) keeps the r12 walls in frame. */
     {
-        float r1[3], p14[3], tx, ty, tz, dx, dy, dz, th, ph, horiz;
-        uint32_t n14 = 0;
-        float cx = -650.f, cy = 737.4f, cz = -3050.f;
-        int rm = port_stan_tile_room_at_eye(cx, cz, cy);
+        float r1[3], p12[3], tx, ty, tz, dx, dy, dz, th, ph, horiz;
+        uint32_t n12 = 0;
 
         memset(r1, 0, sizeof r1);
-        memset(p14, 0, sizeof p14);
+        memset(p12, 0, sizeof p12);
         (void)port_stage_room1(r1);
-        (void)port_stage_room_gdl(14, &n14, p14);
-        if (rm != 13 && rm != 15) {
-            cx = ex;
-            cy = ey;
-            cz = ez;
+        if (port_stage_room_gdl(12, &n12, p12) != 0 || n12 == 0) {
+            if (n15) {
+                p12[0] = p15[0];
+                p12[1] = p15[1];
+                p12[2] = p15[2];
+                n12 = n15;
+            } else {
+                p12[0] = p13[0];
+                p12[1] = p13[1];
+                p12[2] = p13[2];
+            }
         }
-        if (n14 == 0 && n15) {
-            p14[0] = p15[0];
-            p14[1] = p15[1];
-            p14[2] = p15[2];
-            n14 = n15;
-        } else if (n14 == 0) {
-            p14[0] = p13[0];
-            p14[1] = p13[1];
-            p14[2] = p13[2];
-            n14 = n13;
-        }
-        tx = p14[0] - r1[0];
-        ty = p14[1] - r1[1];
-        tz = p14[2] - r1[2];
-        dx = tx - cx;
-        dy = ty - cy;
-        dz = tz - cz;
+        tx = p12[0] - r1[0];
+        ty = p12[1] - r1[1];
+        tz = p12[2] - r1[2];
+        dx = tx - ex;
+        dy = ty - ey;
+        dz = tz - ez;
         th = atan2f(dx, -dz) * (180.f / 3.14159265f);
         if (th < 0.f)
             th += 360.f;
         horiz = sqrtf(dx * dx + dz * dz);
-        ph = (horiz < 1e-4f) ? -32.f : atan2f(dy, horiz) * (180.f / 3.14159265f);
-        if (ph > 10.f)
-            ph = 10.f;
+        ph = (horiz < 1e-4f) ? -22.f : atan2f(dy, horiz) * (180.f / 3.14159265f);
+        if (ph > 20.f)
+            ph = 20.f;
         if (ph < -40.f)
             ph = -40.f;
-        place_at_eye(cx, cy, cz, th);
+        if (th > 210.f && th < 230.f)
+            th = 200.f;
+        place_at_eye(ex, ey, ez, th);
         port_player_set_pitch(ph);
-        printf("upstairs_aim nbr=14 xz=%.1f,%.1f eye=%.1f th=%.1f ph=%.1f tgt=%.1f,%.1f,%.1f ngfx=%u\n",
-               (double)cx, (double)cz, (double)cy, (double)th, (double)ph,
-               (double)tx, (double)ty, (double)tz, n14);
-        ex = cx;
-        ey = cy;
-        ez = cz;
+        printf("upstairs_aim nbr=12 xz=%.1f,%.1f eye=%.1f th=%.1f ph=%.1f tgt=%.1f,%.1f,%.1f ngfx=%u\n",
+               (double)ex, (double)ez, (double)ey, (double)th, (double)ph,
+               (double)tx, (double)ty, (double)tz, n12);
     }
 
     if (shot_one(out_dir, "upstairs") != 0)
