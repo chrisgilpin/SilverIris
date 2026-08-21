@@ -86,6 +86,7 @@ static PortPortal g_portals[PORT_MAX_PORTALS];
 static int g_nportals;
 static int g_cur_room;
 static int g_rooms_walked;
+static uint8_t g_walked[PORT_WALK_MAX];
 static void *g_first_room;
 static char g_stage_err[160];
 
@@ -172,6 +173,7 @@ static void clear_rooms(void)
     g_nportals = 0;
     g_cur_room = 0;
     g_rooms_walked = 0;
+    memset(g_walked, 0, sizeof g_walked);
     port_prop_unload();
 }
 
@@ -209,7 +211,9 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  * 1172-compressed C0/4Tri GDL — we inflate those and walk G1.
  *
  * Draw walks the current room plus portal neighbors (depth 3, cap 24;
- * depth 5 when current is r13/r15 so neighbor-GDL rooms stay in frame).
+ * depth 5 when current is r13/r15 so neighbor-GDL rooms stay in frame;
+ * depth 5 ground-only when current is r71/r7/r8 so r19/r18 walk before
+ * Chris enters them, without spending extra hops on the r12 catwalk).
  * Current room follows the camera eye on stacked xz so an upstairs
  * pose (r13/r15 eye ~737) is not pinned to the ground tile underfoot.
  * A ground-room BFS at the old cap never reached the catwalk. Room 1
@@ -749,6 +753,25 @@ int port_stage_current_room(void) { return g_cur_room; }
 
 int port_stage_rooms_walked(void) { return g_rooms_walked; }
 
+int port_stage_walked_room(int i)
+{
+    if (i < 0 || i >= g_rooms_walked)
+        return 0;
+    return (int)g_walked[i];
+}
+
+int port_stage_walked_has(int room)
+{
+    int i;
+    if (room < 1)
+        return 0;
+    for (i = 0; i < g_rooms_walked; i++) {
+        if ((int)g_walked[i] == room)
+            return 1;
+    }
+    return 0;
+}
+
 int port_stage_prop_count(void) { return port_prop_count(); }
 
 int port_stage_prop_models(void) { return port_prop_models(); }
@@ -835,7 +858,7 @@ static int select_rooms(uint8_t *out, int cap)
     uint8_t seen[PORT_MAX_BG_ROOMS];
     uint8_t q[PORT_MAX_BG_ROOMS];
     uint8_t depth[PORT_MAX_BG_ROOMS];
-    int qh = 0, qt = 0, n = 0, i, pass, maxd;
+    int qh = 0, qt = 0, n = 0, i, pass, maxd, ground_extra;
     int cur = pick_current_room();
 
     g_cur_room = cur;
@@ -852,10 +875,17 @@ static int select_rooms(uint8_t *out, int cap)
         qh++;
         out[n++] = (uint8_t)r;
         /* r13/r15 need extra depth so a neighbor GDL (r12/r14) and its
-         * rooms stay in frame. Spawn r71 stays depth 3. */
+         * rooms stay in frame. Spawn r71 / r7 / r8 need extra ground
+         * depth so r19 (d4) and r18 (d5) walk; r12 stays off the extra
+         * hops so the stall frame does not pick up the catwalk. */
         maxd = PORT_WALK_DEPTH;
+        ground_extra = 0;
         if (cur == 13 || cur == 15)
             maxd = 5;
+        else if (cur == 71 || cur == 7 || cur == 8) {
+            maxd = 5;
+            ground_extra = 1;
+        }
         if (d >= maxd)
             continue;
         /* Same-floor portals first so a 24-room cap cannot fill with
@@ -880,6 +910,11 @@ static int select_rooms(uint8_t *out, int cap)
                 if (pass == 0 && !same)
                     continue;
                 if (pass == 1 && same)
+                    continue;
+                /* Extra hops from spawn/r7/r8 stay on the lab floor
+                 * (pos.y < 0). r9/r6 already walked at depth 3; do not
+                 * spend d4/d5 on r12/r15. */
+                if (ground_extra && d >= PORT_WALK_DEPTH && g_rm[o].pos[1] >= 0.f)
                     continue;
                 seen[o] = 1;
                 if (qt >= PORT_MAX_BG_ROOMS)
@@ -938,6 +973,7 @@ int port_stage_draw(void)
     float ox, oy, oz;
 
     g_rooms_walked = 0;
+    memset(g_walked, 0, sizeof g_walked);
     g_cur_room = 0;
     if (!g_bg || g_bg_rooms < 1)
         return 1;
@@ -977,6 +1013,8 @@ int port_stage_draw(void)
         passes[k].ox = rm->pos[0] - ox;
         passes[k].oy = rm->pos[1] - oy;
         passes[k].oz = rm->pos[2] - oz;
+        if (k < PORT_WALK_MAX)
+            g_walked[k] = ids[i];
         k++;
     }
     g_rooms_walked = k;

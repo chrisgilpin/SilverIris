@@ -1077,6 +1077,21 @@ int main(int argc, char **argv)
         printf("spawn_room cur=%d tile=%d drawn=%d (stall must stay tiled, "
                "not 12/14) %s\n",
                cur, tile, port_prop_drawn(), dark ? "DARK14" : "STALL");
+        {
+            int wi, wr;
+            int has19 = port_stage_walked_has(19);
+            int has18 = port_stage_walked_has(18);
+            printf("spawn_walked n=%d", port_stage_rooms_walked());
+            for (wi = 0; wi < port_stage_rooms_walked(); wi++) {
+                wr = port_stage_walked_room(wi);
+                printf(" %d", wr);
+            }
+            printf(" r19=%d r18=%d\n", has19, has18);
+            if (!has19) {
+                fprintf(stderr, "spawn walked set missing r19\n");
+                goto done;
+            }
+        }
     }
     if (probe_eye_band("spawn", spawn_x, spawn_z, 70.f, 110.f) != 0)
         goto done;

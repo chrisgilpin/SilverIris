@@ -43,6 +43,10 @@ int port_stage_room_gdl(int room, uint32_t *ngfx, float pos[3]);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
 int port_stage_rooms_walked(void);
+/* Walked primary-GDL room at index i after the last draw. 0 if oob. */
+int port_stage_walked_room(int i);
+/* 1 if room was in the last walked primary set. */
+int port_stage_walked_has(int room);
 int port_stage_prop_count(void);
 int port_stage_prop_models(void);
 int port_stage_props_drawn(void);
