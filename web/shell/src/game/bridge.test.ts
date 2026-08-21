@@ -91,16 +91,18 @@ describe("stage debug line", () => {
 
 describe("HUD i32 heap view", () => {
   it("reads mag/reserve/hits/kills as little-endian i32, not HEAPF32 bits", () => {
-    const buf = new Uint8Array(16);
+    const buf = new Uint8Array(20);
     const dv = new DataView(buf.buffer);
     dv.setInt32(0, 7, true);
     dv.setInt32(4, 21, true);
     dv.setInt32(8, 0, true);
     dv.setInt32(12, 0, true);
+    dv.setInt32(16, 8, true);
     expect(readHeapI32(buf, 0)).toBe(7);
     expect(readHeapI32(buf, 4)).toBe(21);
     expect(readHeapI32(buf, 8)).toBe(0);
     expect(readHeapI32(buf, 12)).toBe(0);
+    expect(readHeapI32(buf, 16)).toBe(8);
     dv.setFloat32(0, 1.0, true);
     expect(readHeapI32(buf, 0)).toBe(1065353216);
   });

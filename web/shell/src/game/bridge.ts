@@ -103,6 +103,7 @@ export type GameModule = {
   _port_api_crc_chrs: () => number;
   _port_api_kills: () => number;
   _port_api_hud_i32?: () => number;
+  _port_api_health?: () => number;
   _port_api_stan_tiles?: () => number;
   _port_api_stan_on_tile?: () => number;
   _port_api_crc_objectives: () => number;
@@ -188,6 +189,7 @@ export type GameBridge = {
   chrAction(): number;
   crcChrs(): number;
   kills(): number;
+  health(): number;
   stanTiles(): number;
   stanOnTile(): boolean;
   crcObjectives(): number;
@@ -213,7 +215,7 @@ export function readHeapI32(heap: Uint8Array, ptr: number): number {
   return new DataView(heap.buffer, heap.byteOffset + ptr, 4).getInt32(0, true);
 }
 
-function hudSlot(mod: GameModule, slot: 0 | 1 | 2 | 3, fallback: () => number): number {
+function hudSlot(mod: GameModule, slot: 0 | 1 | 2 | 3 | 4, fallback: () => number): number {
   const p = mod._port_api_hud_i32?.();
   if (p) return readHeapI32(mod.HEAPU8, p + slot * 4);
   return fallback() | 0;
@@ -516,6 +518,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     kills(): number {
       return alive ? hudSlot(M, 3, () => M._port_api_kills()) : 0;
+    },
+    health(): number {
+      return alive ? hudSlot(M, 4, () => (M._port_api_health ? M._port_api_health() : 8)) : 0;
     },
     stanTiles(): number {
       return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;

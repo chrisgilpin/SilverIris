@@ -294,9 +294,11 @@ PORT_KEEP uint32_t port_api_crc_chrs(void)
     return cs.crc_chrs;
 }
 
-static int32_t g_hud_i32[4];
+static int32_t g_hud_i32[5];
 
 PORT_KEEP int port_api_kills(void) { return port_score_kills(); }
+
+PORT_KEEP int port_api_health(void) { return port_player_health(); }
 
 PORT_KEEP int32_t *port_api_hud_i32(void)
 {
@@ -304,6 +306,7 @@ PORT_KEEP int32_t *port_api_hud_i32(void)
     g_hud_i32[1] = (int32_t)port_gun_reserve();
     g_hud_i32[2] = (int32_t)port_gun_hits();
     g_hud_i32[3] = (int32_t)port_score_kills();
+    g_hud_i32[4] = (int32_t)port_player_health();
     return g_hud_i32;
 }
 

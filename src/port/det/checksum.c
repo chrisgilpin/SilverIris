@@ -80,9 +80,9 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         }
         wr_i32(buf + o, (int32_t)port_gun_mag());
         o += 4;
-        wr_i32(buf + o, 0); /* bonddead */
+        wr_i32(buf + o, port_player_health() <= 0 ? 1 : 0); /* bonddead */
         o += 4;
-        wr_f32(buf + o, 1.0f); /* health */
+        wr_f32(buf + o, (float)port_player_health() / (float)PORT_PLAYER_HEALTH_MAX);
         o += 4;
         wr_f32(buf + o, 0.0f); /* armour */
         o += 4;

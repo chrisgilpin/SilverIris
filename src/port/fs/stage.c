@@ -755,19 +755,13 @@ int port_stage_intro_pad(void) { return port_prop_intro_pad(); }
 
 int port_stage_guard_count(void) { return port_prop_guard_count(); }
 
-static int pick_current_room(void)
+static int room_nearest_world(float px, float py, float pz)
 {
-    float ox, oy, oz, px, py, pz, best, d;
+    float best, d;
     int i, cur;
 
     if (g_bg_rooms < 1)
         return 0;
-    ox = g_rm[1].pos[0];
-    oy = g_rm[1].pos[1];
-    oz = g_rm[1].pos[2];
-    px = port_player_x() + ox;
-    py = port_player_y() + oy;
-    pz = port_player_z() + oz;
     cur = 1;
     best = (g_rm[1].pos[0] - px) * (g_rm[1].pos[0] - px) +
            (g_rm[1].pos[1] - py) * (g_rm[1].pos[1] - py) +
@@ -783,6 +777,23 @@ static int pick_current_room(void)
         }
     }
     return cur;
+}
+
+int port_stage_room_at_local(float lx, float ly, float lz)
+{
+    if (g_bg_rooms < 1)
+        return 0;
+    return room_nearest_world(lx + g_rm[1].pos[0], ly + g_rm[1].pos[1],
+                              lz + g_rm[1].pos[2]);
+}
+
+static int pick_current_room(void)
+{
+    if (g_bg_rooms < 1)
+        return 0;
+    return room_nearest_world(port_player_x() + g_rm[1].pos[0],
+                              port_player_y() + g_rm[1].pos[1],
+                              port_player_z() + g_rm[1].pos[2]);
 }
 
 static int select_rooms(uint8_t *out, int cap)

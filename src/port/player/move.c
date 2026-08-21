@@ -44,6 +44,7 @@ typedef struct {
     uint16_t pad_buttons;
     uint16_t prev_buttons;
     int spawned;
+    int32_t health;
 } PortPly;
 
 static PortPly g_p[PORT_MAX_PLAYERS];
@@ -260,6 +261,7 @@ void port_player_spawn(void)
         g_p[i].pad_buttons = 0;
         g_p[i].prev_buttons = 0;
         g_p[i].spawned = 1;
+        g_p[i].health = PORT_PLAYER_HEALTH_MAX;
     }
     g_safe_y = PORT_EYE_HEIGHT;
     port_gun_reset();
@@ -379,6 +381,53 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
             port_gun_suppress_fire();
     }
     p->prev_buttons = buttons;
+}
+
+int port_player_health(void) { return g_p[g_cur].health; }
+
+void port_player_damage(int amount)
+{
+    if (amount <= 0)
+        return;
+    if (g_p[g_cur].health <= 0)
+        return;
+    if (amount >= g_p[g_cur].health)
+        g_p[g_cur].health = 0;
+    else
+        g_p[g_cur].health -= amount;
+}
+
+int port_player_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
+                        float *t_out)
+{
+    float cx = g_p[g_cur].x;
+    float cz = g_p[g_cur].z;
+    float y0 = g_p[g_cur].y - PORT_EYE_HEIGHT;
+    float y1 = g_p[g_cur].y + 10.0f;
+    float fx, fz, a, b, c, disc, t, hy, r;
+
+    r = PORT_PLAYER_RADIUS;
+    fx = ox - cx;
+    fz = oz - cz;
+    a = dx * dx + dz * dz;
+    if (a < 1.0e-12f)
+        return 0;
+    b = 2.0f * (fx * dx + fz * dz);
+    c = fx * fx + fz * fz - r * r;
+    disc = b * b - 4.0f * a * c;
+    if (disc < 0.0f)
+        return 0;
+    t = (-b - sqrtf(disc)) / (2.0f * a);
+    if (t < 0.05f)
+        t = (-b + sqrtf(disc)) / (2.0f * a);
+    if (t < 0.05f || t > 4000.0f)
+        return 0;
+    hy = oy + dy * t;
+    if (hy < y0 || hy > y1)
+        return 0;
+    if (t_out)
+        *t_out = t;
+    return 1;
 }
 
 int port_player_spawned(void) { return g_p[g_cur].spawned; }

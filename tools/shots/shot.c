@@ -309,11 +309,12 @@ static int shot_one(const char *out_dir, const char *tag)
     on = port_api_stan_on_tile();
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
-             "settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s guards=%d parts=%d "
-             "drawn=%d viewgun=%d flash=%d",
+             "hp=%d gfire=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
+             "guards=%d parts=%d drawn=%d viewgun=%d flash=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
+             port_api_health(), port_prop_guard_shots(),
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
@@ -679,6 +680,31 @@ int main(int argc, char **argv)
                        (double)walk_pitch,
                        g1_last_ir() ? g1_last_ir()->ncmds : 0u,
                        (double)spawn_x, (double)spawn_z);
+                {
+                    float wx, wy, wz, ddx, ddz, dist;
+                    int hp0, hp1, shots0, combat, pr, wr;
+                    hp0 = port_api_health();
+                    shots0 = port_prop_guard_shots();
+                    place(cx, cz, th);
+                    port_player_set_pitch(walk_pitch);
+                    if (port_prop_walk_xyz(&wx, &wy, &wz) == 0) {
+                        ddx = cx - (wx - r10[0]);
+                        ddz = cz - (wz - r10[2]);
+                        dist = sqrtf(ddx * ddx + ddz * ddz);
+                        pr = port_stage_room_at_local(cx, port_api_player_y(), cz);
+                        wr = port_stage_room_at_local(wx - r10[0], wy - r10[1], wz - r10[2]);
+                    } else {
+                        dist = -1.f;
+                        pr = wr = 0;
+                    }
+                    combat = port_prop_tick_guard_fire();
+                    hp1 = port_api_health();
+                    printf("return_fire combat=%d hp=%d->%d shots=%d->%d dist=%.1f room_p=%d room_w=%d\n",
+                           combat, hp0, hp1, shots0, port_prop_guard_shots(),
+                           (double)dist, pr, wr);
+                    if (shot_one(out_dir, "return") != 0)
+                        goto done;
+                }
             }
         }
     }

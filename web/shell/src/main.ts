@@ -164,7 +164,7 @@ function drawHud(): void {
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
   ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`, 8, 14);
   ctx.fillText(
-    `PP7 ${game.gunMag()}/${game.gunReserve()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${game.health()}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
     28,
   );

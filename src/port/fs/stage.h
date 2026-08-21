@@ -36,6 +36,7 @@ int port_stage_portal_count(void);
 int port_stage_opening_count(void);
 int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
 int port_stage_current_room(void);
+int port_stage_room_at_local(float lx, float ly, float lz);
 int port_stage_rooms_walked(void);
 int port_stage_prop_count(void);
 int port_stage_prop_models(void);

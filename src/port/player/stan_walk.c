@@ -919,6 +919,29 @@ static int guard_ray_hit(float wx, float wy, float wz, float dx, float dy, float
     return 1;
 }
 
+int port_stan_ray_block(float local_x, float local_y, float local_z,
+                        float dx, float dy, float dz, float *t_out)
+{
+    float wx, wz, t, best;
+    int hit = 0;
+
+    local_to_world(local_x, local_z, &wx, &wz);
+    best = PORT_RAY_TMAX + 1.0f;
+    if (door_ray_hit(wx, local_y, wz, dx, dy, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+    }
+    if (tile_exit_hit(wx, wz, dx, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+    }
+    if (!hit)
+        return 0;
+    if (t_out)
+        *t_out = best;
+    return 1;
+}
+
 int port_stan_ray_hit(float local_x, float local_y, float local_z,
                       float dx, float dy, float dz, float *t_out)
 {

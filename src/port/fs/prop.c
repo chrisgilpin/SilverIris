@@ -39,6 +39,13 @@
 #define PORT_MOVER_TILE 80.0f
 #define PORT_MOVER_ARRIVE 24.0f
 #define PORT_MOVER_MAX_TILES 3
+/* Same room + xz range. Walk cam is ~190u; spawn corridor is |dz|>200. */
+#define PORT_GUARD_FIRE_RANGE 400.0f
+#define PORT_GUARD_FIRE_ALONG 200.0f
+#define PORT_GUARD_FIRE_COOLDOWN 20
+#define PORT_GUARD_FIRE_DAMAGE 1
+#define PORT_GUARD_AIM_Y 160.0f
+#define PORT_GUARD_AIM_OFFSET 35.0f
 #define PORT_RST_MAGIC 0x52535431u
 #define PORT_ANIM_ENTRIES_ROM_U 1198784u
 #define PORT_ANIM_DATA_PATH "assets/animationtable_data.bin"
@@ -158,6 +165,8 @@ static float g_walk_fit_ymin;
 static int g_walk_path_ok;
 static int g_walk_going_b;
 static int g_walk_blocked;
+static int g_fire_cd;
+static int g_guard_shots;
 static float g_walk_path_ax, g_walk_path_az;
 static float g_walk_path_bx, g_walk_path_bz;
 static float g_walk_spawn_x, g_walk_spawn_z;
@@ -391,6 +400,8 @@ static void load_idle_rest(void)
     g_walk_path_ok = 0;
     g_walk_going_b = 1;
     g_walk_blocked = 0;
+    g_fire_cd = 0;
+    g_guard_shots = 0;
     g_viewgun_parts = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
@@ -918,6 +929,8 @@ static void setup_walk_path(float lx, float lz, float sx, float sz)
 
     g_walk_path_ok = 0;
     g_walk_blocked = 0;
+    g_fire_cd = 0;
+    g_guard_shots = 0;
     g_walk_going_b = 1;
     g_walk_spawn_x = sx;
     g_walk_spawn_z = sz;
@@ -1149,6 +1162,106 @@ void port_prop_tick_walk(void)
     g_walk_blocked = 0;
     face_heading(dx, dz);
 }
+
+static int guard_in_los(float *dx_out, float *dz_out, float *dist_out)
+{
+    float r1[3], lx, ly, lz, px, py, pz, dx, dz, dist;
+    int pr, wr;
+
+    if (!g_have_walk || g_walkers < 1 || g_walk_prop < 0 || g_walk_prop >= g_nprop)
+        return 0;
+    if (port_stan_guard_dead_at(g_prop[g_walk_prop].pos[0], g_prop[g_walk_prop].pos[2]))
+        return 0;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    lx = g_prop[g_walk_prop].pos[0] - r1[0];
+    ly = g_prop[g_walk_prop].pos[1] - r1[1];
+    lz = g_prop[g_walk_prop].pos[2] - r1[2];
+    px = port_player_x();
+    py = port_player_y();
+    pz = port_player_z();
+    dx = px - lx;
+    dz = pz - lz;
+    dist = sqrtf(dx * dx + dz * dz);
+    if (dist < 40.f || dist > PORT_GUARD_FIRE_RANGE)
+        return 0;
+    if (fabsf(pz - lz) > PORT_GUARD_FIRE_ALONG)
+        return 0;
+    pr = port_stage_room_at_local(px, py, pz);
+    wr = port_stage_room_at_local(lx, ly, lz);
+    if (pr < 1 || wr < 1 || pr != wr)
+        return 0;
+    {
+        float inv, ox, oy, oz, ddx, ddy, ddz, tblk, len;
+        inv = 1.f / dist;
+        ddx = dx * inv;
+        ddz = dz * inv;
+        ddy = (py - (ly + PORT_GUARD_AIM_Y)) / dist;
+        ox = lx + ddx * PORT_GUARD_AIM_OFFSET;
+        oy = ly + PORT_GUARD_AIM_Y;
+        oz = lz + ddz * PORT_GUARD_AIM_OFFSET;
+        len = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+        if (len < 1e-6f)
+            return 0;
+        ddx /= len;
+        ddy /= len;
+        ddz /= len;
+        if (port_stan_ray_block(ox, oy, oz, ddx, ddy, ddz, &tblk) &&
+            tblk < dist - PORT_GUARD_AIM_OFFSET)
+            return 0;
+    }
+    if (dx_out)
+        *dx_out = dx;
+    if (dz_out)
+        *dz_out = dz;
+    if (dist_out)
+        *dist_out = dist;
+    return 1;
+}
+
+int port_prop_tick_guard_fire(void)
+{
+    float dx, dz, dist;
+
+    if (g_fire_cd > 0)
+        g_fire_cd--;
+    if (!guard_in_los(&dx, &dz, &dist))
+        return 0;
+    face_heading(dx, dz);
+    if (g_fire_cd > 0)
+        return 1;
+    {
+        float r1[3], lx, ly, lz, px, py, pz, ox, oy, oz, ddx, ddy, ddz, inv, len, t;
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        lx = g_prop[g_walk_prop].pos[0] - r1[0];
+        ly = g_prop[g_walk_prop].pos[1] - r1[1];
+        lz = g_prop[g_walk_prop].pos[2] - r1[2];
+        px = port_player_x();
+        py = port_player_y();
+        pz = port_player_z();
+        inv = 1.f / dist;
+        ddx = (px - lx) * inv;
+        ddz = (pz - lz) * inv;
+        ddy = (py - (ly + PORT_GUARD_AIM_Y)) / dist;
+        ox = lx + ddx * PORT_GUARD_AIM_OFFSET;
+        oy = ly + PORT_GUARD_AIM_Y;
+        oz = lz + ddz * PORT_GUARD_AIM_OFFSET;
+        len = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
+        if (len < 1e-6f)
+            return 1;
+        ddx /= len;
+        ddy /= len;
+        ddz /= len;
+        if (port_player_ray_hit(ox, oy, oz, ddx, ddy, ddz, &t))
+            port_player_damage(PORT_GUARD_FIRE_DAMAGE);
+        g_fire_cd = PORT_GUARD_FIRE_COOLDOWN;
+        g_guard_shots += 1;
+    }
+    return 1;
+}
+
+int port_prop_guard_shots(void) { return g_guard_shots; }
 
 int port_prop_walk_path(float *ax, float *az, float *bx, float *bz)
 {
@@ -1434,6 +1547,8 @@ void port_prop_unload(void)
     g_walk_path_ok = 0;
     g_walk_going_b = 1;
     g_walk_blocked = 0;
+    g_fire_cd = 0;
+    g_guard_shots = 0;
     g_pose_rest = NULL;
     memset(g_idle_rest, 0, sizeof g_idle_rest);
     memset(g_walk_rest, 0, sizeof g_walk_rest);

@@ -31,6 +31,9 @@ int port_prop_walk_xz(float *x, float *z);
 int port_prop_walk_xyz(float *x, float *y, float *z);
 /* Loop ANIM_walking one frame and step the test mover along its strip. */
 void port_prop_tick_walk(void);
+/* If the player is in LOS of the one test mover: turn, fire, return 1 (stop). */
+int port_prop_tick_guard_fire(void);
+int port_prop_guard_shots(void);
 /* Local-xz ping-pong endpoints of the test-mover strip. -1 if none. */
 int port_prop_walk_path(float *ax, float *az, float *bx, float *bz);
 /* NTSC units/tick (PORT_CHR_WALK * 3). 0 if the mover has no path. */

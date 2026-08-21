@@ -833,6 +833,39 @@ static int test_look_pitch(void)
     return 0;
 }
 
+
+static int test_player_health(void)
+{
+    float t;
+    port_set_player_count(1);
+    port_player_spawn();
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
+        return fail("spawn health");
+    port_player_damage(1);
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX - 1)
+        return fail("damage 1");
+    port_player_damage(100);
+    if (port_player_health() != 0)
+        return fail("clamp 0");
+    port_player_damage(1);
+    if (port_player_health() != 0)
+        return fail("dead stay 0");
+    port_player_spawn();
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
+        return fail("respawn health");
+    port_player_set_pose(0.f, PORT_EYE_HEIGHT, 0.f, 0.f);
+    if (!port_player_ray_hit(-100.f, PORT_EYE_HEIGHT, 0.f, 1.f, 0.f, 0.f, &t))
+        return fail("player ray");
+    if (t < 60.f || t > 80.f) {
+        fprintf(stderr, "player ray t=%g want ~70\n", (double)t);
+        return fail("player ray t");
+    }
+    if (port_player_ray_hit(-100.f, PORT_EYE_HEIGHT + 200.f, 0.f, 1.f, 0.f, 0.f, &t))
+        return fail("player ray high miss");
+    printf("player health ok hp=%d ray_t=%.1f\n", port_player_health(), (double)t);
+    return 0;
+}
+
 int main(void)
 {
     uint32_t t;
@@ -889,6 +922,8 @@ int main(void)
     if (test_stan_degen_y_finite() != 0)
         return 1;
     if (test_stan_slope_y_finite() != 0)
+        return 1;
+    if (test_player_health() != 0)
         return 1;
     return 0;
 }

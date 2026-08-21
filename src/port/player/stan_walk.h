@@ -79,5 +79,8 @@ void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
  */
 int port_stan_ray_hit(float local_x, float local_y, float local_z,
                       float dx, float dy, float dz, float *t_out);
+/* Doors + tile-exit walls only. Does not test guards or set g_ray_guard. */
+int port_stan_ray_block(float local_x, float local_y, float local_z,
+                        float dx, float dy, float dz, float *t_out);
 
 #endif

@@ -48,6 +48,14 @@ float port_persp_aspect(void);
 float port_view_hfov(void);
 
 int port_player_spawned(void);
+/* Campaign-sized i32 so a hitscan is visible on the HUD. */
+#define PORT_PLAYER_HEALTH_MAX 8
+#define PORT_PLAYER_RADIUS 30.0f
+int port_player_health(void);
+void port_player_damage(int amount);
+/* Cylinder at the current seat (local xz, eye-relative height). */
+int port_player_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
+                        float *t_out);
 float port_player_x(void);
 float port_player_y(void);
 float port_player_z(void);
