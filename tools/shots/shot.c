@@ -341,7 +341,7 @@ static int upper_stair_proof(const char *tag, float sx, float sz)
     return 0;
 }
 
-static int stairs_climb_proof(void)
+static int stairs_climb_proof(float spawn_x, float spawn_z)
 {
     static const float kdx[8] = { 8.f, 8.f, 0.f, -8.f, -8.f, -8.f, 0.f, 8.f };
     static const float kdz[8] = { 0.f, 8.f, 8.f, 8.f, 0.f, -8.f, -8.f, -8.f };
@@ -439,10 +439,8 @@ static int stairs_climb_proof(void)
     }
     /* r6 landing is a mid-height island (405.9) with no Rare link to r13/15.
      * Real ground stairs r3/r18 and the r12 ramp Rare-link onto r15. */
-    spawn_to_stair_note(port_api_player_x(), port_api_player_z(),
-                        R3_STAIR_X, R3_STAIR_Z);
-    spawn_to_stair_note(port_api_player_x(), port_api_player_z(),
-                        R18_STAIR_X, R18_STAIR_Z);
+    spawn_to_stair_note(spawn_x, spawn_z, R3_STAIR_X, R3_STAIR_Z);
+    spawn_to_stair_note(spawn_x, spawn_z, R18_STAIR_X, R18_STAIR_Z);
     if (upper_stair_proof("r3_T2565", R3_STAIR_X, R3_STAIR_Z) != 0)
         return -1;
     if (upper_stair_proof("r18_T2296", R18_STAIR_X, R18_STAIR_Z) != 0)
@@ -747,7 +745,7 @@ int main(int argc, char **argv)
                        (double)port_api_player_x(), (double)port_api_player_z(),
                        (double)port_api_player_y(), port_api_current_room());
             }
-            if (stairs_climb_proof() != 0) {
+            if (stairs_climb_proof(port_api_player_x(), port_api_player_z()) != 0) {
                 port_api_shutdown();
                 free(pack);
                 return 3;
@@ -961,7 +959,7 @@ int main(int argc, char **argv)
     }
     if (shot_one(out_dir, "stairs") != 0)
         goto done;
-    if (stairs_climb_proof() != 0)
+    if (stairs_climb_proof(spawn_x, spawn_z) != 0)
         goto done;
     if (probe_eye_band("bathroom_after_stairs", -491.9f, -2238.5f, 70.f, 110.f) != 0)
         goto done;
