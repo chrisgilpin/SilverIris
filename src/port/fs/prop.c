@@ -1321,6 +1321,29 @@ static void place_idle_off_spawn_look(float sx, float sz, const float r1[3])
     }
 }
 
+
+static void place_dbg(const char *tag, float sx, float sz, const float r1[3])
+{
+    int i, gi = 0;
+    printf("place_dbg %s spawn=%.1f,%.1f intro=%d idle=%d walk=%d nprop=%d nmdl=%d\n",
+           tag, (double)sx, (double)sz, g_have_intro, g_idle_prop, g_walk_prop, g_nprop, g_nmdl);
+    if (g_have_intro)
+        printf("place_dbg intro_world=%.1f,%.1f,%.1f\n",
+               (double)g_intro_pos[0], (double)g_intro_pos[1], (double)g_intro_pos[2]);
+    for (i = 0; i < g_nprop && gi < 5; i++) {
+        float lx, lz;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        lx = g_prop[i].pos[0] - r1[0];
+        lz = g_prop[i].pos[2] - r1[2];
+        printf("place_dbg g[%d] pi=%d pad=%d world=%.1f,%.1f local=%.1f,%.1f slab=%d fire=%d idle=%d walk=%d\n",
+               gi, i, g_prop[i].pad, (double)g_prop[i].pos[0], (double)g_prop[i].pos[2],
+               (double)lx, (double)lz, spawn_look_slab(lx, lz, sx, sz),
+               in_spawn_fire_box(lx, lz), i == g_idle_prop, i == g_walk_prop);
+        gi++;
+    }
+}
+
 int port_prop_place_walker_near_spawn(void)
 {
     float sx, sz, r1[3];
@@ -1369,11 +1392,13 @@ int port_prop_place_walker_near_spawn(void)
                 /* Closest idle stays around the corner, not in the spawn
                  * 270 look ray — spawn flash is a door/wall shot. */
                 place_idle_off_spawn_look(sx, sz, r1);
+                place_dbg("sit", sx, sz, r1);
                 return 1;
             }
         }
     }
     place_idle_off_spawn_look(sx, sz, r1);
+    place_dbg("fail", sx, sz, r1);
     return 0;
 }
 
@@ -2518,7 +2543,6 @@ static void choose_pickup(void)
         printf("pickup_pick NONE\n");
         return;
     }
-    if (1) { printf("pickup_skip_load pad=%d (exp)\n", g_pcand[best].pad); return; }
     if (load_one_pickup(&g_pcand[best]) != 0) {
         int saved = best;
         best = -1;
