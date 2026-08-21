@@ -1251,31 +1251,6 @@ int main(int argc, char **argv)
             float sx = port_api_player_x(), sz = port_api_player_z();
             int urc;
             port_stage_dump_portals();
-            printf("r14_probe\n");
-            port_stan_dump_cross(14, 13);
-            port_stan_dump_cross(14, 15);
-            port_stan_dump_cross(14, 0);
-            port_stan_dump_cross(13, 0);
-            port_stan_dump_cross(15, 0);
-            {
-                static const float ks[][2] = {
-                    {-746.f, -2820.f}, {-626.f, -2820.f}, {-866.f, -2820.f},
-                    {-810.f, -2884.f}, {-810.f, -2764.f}, {-810.f, -3004.f},
-                    {-650.f, -3050.f}, {-650.f, -2884.f}, {-746.f, -2700.f},
-                    {-700.f, -2820.f}, {-600.f, -2820.f}, {-500.f, -2820.f},
-                };
-                int i;
-                for (i = 0; i < (int)(sizeof ks / sizeof ks[0]); i++) {
-                    float x = ks[i][0], z = ks[i][1], y = 0.f;
-                    int on = port_stan_on_tile(x, z);
-                    int low = port_stan_tile_room(x, z);
-                    int e737 = port_stan_tile_room_at_eye(x, z, 737.4f);
-                    int ey = port_stan_eye_y(x, z, &y);
-                    printf("r14_stand xz=%.1f,%.1f on=%d low=%d e737=%d ey_rc=%d eye=%.1f\n",
-                           (double)x, (double)z, on, low, e737, ey, (double)y);
-                    port_stan_debug_at(x, z);
-                }
-            }
             urc = path_unlatch_proof();
             if (urc == 0)
                 urc = wide_door_side_proof();
