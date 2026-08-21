@@ -715,15 +715,17 @@ int port_stage_portal_count(void) { return g_nportals; }
 
 int port_stage_path_opening(int ra, int rb)
 {
-    /* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3 / r21.
-     * r8-r5/6/10, r11-r71, r1-r3, catwalk, r6 island, gas-plant stay unbound. */
+    /* Door-sized Rare quads only. Dump first; do not invent slabs.
+     * Unbound: catwalk r13-r15, r8-r5/6/10, r6 island, gas-plant, alcove. */
     return (ra == 71 && rb == 7) || (ra == 7 && rb == 71) ||
            (ra == 7 && rb == 8) || (ra == 8 && rb == 7) ||
            (ra == 8 && rb == 20) || (ra == 20 && rb == 8) ||
            (ra == 20 && rb == 19) || (ra == 19 && rb == 20) ||
            (ra == 19 && rb == 18) || (ra == 18 && rb == 19) ||
            (ra == 3 && rb == 18) || (ra == 18 && rb == 3) ||
-           (ra == 19 && rb == 21) || (ra == 21 && rb == 19);
+           (ra == 19 && rb == 21) || (ra == 21 && rb == 19) ||
+           (ra == 1 && rb == 3) || (ra == 3 && rb == 1) ||
+           (ra == 11 && rb == 71) || (ra == 71 && rb == 11);
 }
 
 static void bind_path_openings(void)
