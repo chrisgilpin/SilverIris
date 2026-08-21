@@ -213,7 +213,8 @@ function ensurePlayer(): AudioPlayer | null {
   player = AudioPlayer.create((out, n) => {
     game?.audioCb(out, n);
   }, game.audioRate());
-  if (player) game.audioSetMusic(true);
+  /* Placeholder 196/294 Hz triangle drone stays off. Gun SFX still pumps. */
+  if (player) game.audioSetMusic(false);
   return player;
 }
 
@@ -414,7 +415,8 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
   }
   /* Do not construct AudioContext here: extract already consumed the
    * user gesture. The first click / Z / Space unlocks Web Audio. */
-  game.audioSetMusic(true);
+  /* Keep mixer ambient off on load. Click/Z unlocks Web Audio for one-shot SFX only. */
+  game.audioSetMusic(false);
   {
     const FACILITY = 34;
     const rc = game.loadStage(FACILITY);
