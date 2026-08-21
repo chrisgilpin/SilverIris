@@ -98,9 +98,10 @@ void port_chr_kill(void)
     g_health = 0.0f;
 }
 
-int port_chr_ray_hit(float ox, float oz, float dx, float dz, float *t_out)
+int port_chr_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
+                     float *t_out)
 {
-    float fx, fz, a, b, c, disc, t, r;
+    float fx, fz, a, b, c, disc, t, r, hy;
 
     if (!g_alive || g_health <= 0.0f)
         return 0;
@@ -119,6 +120,9 @@ int port_chr_ray_hit(float ox, float oz, float dx, float dz, float *t_out)
     if (t < 0.05f)
         t = (-b + sqrtf(disc)) / (2.0f * a);
     if (t < 0.05f || t > 4000.0f)
+        return 0;
+    hy = oy + dy * t;
+    if (hy < g_y || hy > g_y + PORT_CHR_HEIGHT)
         return 0;
     if (t_out)
         *t_out = t;

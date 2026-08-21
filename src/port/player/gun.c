@@ -52,28 +52,21 @@ static void fire_hitscan(void)
     float ox = port_player_x();
     float oy = port_player_y();
     float oz = port_player_z();
-    /* Pitched look: phi=0 is (sin θ, 0, -cos θ) as before. */
-    float dx, dy, dz, hdx, hdz, hlen;
+    /* 3D look: phi=0 is (sin θ, 0, -cos θ). Door/guard use the same t
+     * as the floor ray so a high/low shot can miss a standing cylinder. */
+    float dx, dy, dz;
     float t_best = 1.0e9f;
     float t;
     int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor */
 
     port_player_look_dir(&dx, &dy, &dz);
-    hlen = sqrtf(dx * dx + dz * dz);
-    hdx = (hlen > 1.0e-5f) ? dx / hlen : 0.0f;
-    hdz = (hlen > 1.0e-5f) ? dz / hlen : 0.0f;
-
-    if (hlen > 1.0e-5f) {
-        if (port_stan_ray_hit(ox, oz, hdx, hdz, &t) && t < t_best) {
-            t_best = t;
-            src = 1;
-        }
-        if (port_chr_ray_hit(ox, oz, hdx, hdz, &t) && t < t_best) {
-            t_best = t;
-            src = 2;
-        }
-        if (src != 0)
-            t_best = t_best / hlen;
+    if (port_stan_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
+        t_best = t;
+        src = 1;
+    }
+    if (port_chr_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
+        t_best = t;
+        src = 2;
     }
     /* Fake PORT wall only for no_assets / empty synthetic (no tiles/doors). */
     if (!port_stan_ready() && dz != 0.0f) {

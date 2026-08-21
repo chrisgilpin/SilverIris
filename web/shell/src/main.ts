@@ -311,6 +311,7 @@ function paint(now: number): void {
           x: game.playerXAt(viewSeat),
           z: game.playerZAt(viewSeat),
           theta: game.playerThetaAt(viewSeat),
+          phi: game.playerPhiAt(viewSeat),
         },
         hits: hitMarks,
         chrs: overlay,
@@ -340,7 +341,7 @@ function paint(now: number): void {
         }
         drawPortView(
           ctx,
-          { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat) },
+          { x: game.playerXAt(seat), z: game.playerZAt(seat), theta: game.playerThetaAt(seat), phi: game.playerPhiAt(seat) },
           seat === mySeat ? hitMarks : [],
           guard.concat(peers),
           box,

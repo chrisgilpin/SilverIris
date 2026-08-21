@@ -3,6 +3,7 @@ import {
   blitRgbaToCanvas,
   horPlusHfovDeg,
   lookDir,
+  overlayGunGeom,
   PORT_NATIVE_FOVY,
   PORT_WALL_Z,
   presentLiveView,
@@ -47,6 +48,52 @@ describe("port view", () => {
   });
 });
 
+
+describe("overlay PP7 pitch", () => {
+  it("phi=0 matches the historical yaw-only mesh", () => {
+    const g = overlayGunGeom(320, 240, 0);
+    expect(g.tipX).toBeCloseTo(160, 5);
+    expect(g.tipY).toBeCloseTo(240 * 0.74, 5);
+    expect(g.baseLX).toBeCloseTo(320 * 0.42, 5);
+    expect(g.baseLY).toBeCloseTo(240, 5);
+    expect(g.baseRX).toBeCloseTo(320 * 0.58, 5);
+    expect(g.slideX).toBeCloseTo(320 * 0.48, 5);
+    expect(g.slideY).toBeCloseTo(240 * 0.74, 5);
+    expect(g.slideW).toBeCloseTo(320 * 0.04, 5);
+    expect(g.slideH).toBeCloseTo(240 * 0.08, 5);
+  });
+
+  it("look down (-45) raises the tip and shows more slide", () => {
+    const z = overlayGunGeom(320, 240, 0);
+    const d = overlayGunGeom(320, 240, -45);
+    expect(d.tipY).toBeLessThan(z.tipY);
+    expect(d.slideH).toBeGreaterThan(z.slideH);
+    expect(d.slideY).toBe(d.tipY);
+  });
+
+  it("look up (+45) tucks the tip and shrinks the slide", () => {
+    const z = overlayGunGeom(320, 240, 0);
+    const u = overlayGunGeom(320, 240, 45);
+    expect(u.tipY).toBeGreaterThan(z.tipY);
+    expect(u.slideH).toBeLessThan(z.slideH);
+    expect(u.slideY).toBe(u.tipY);
+  });
+
+  it("draws the pitched slide on the G1 overlay path", () => {
+    const rec = mockCtx(320, 240);
+    const fb = new Uint8ClampedArray(320 * 240 * 4);
+    fb[3] = 255;
+    const down = overlayGunGeom(320, 240, -45);
+    presentLiveView(rec.ctx, {
+      gdlRaw: true,
+      gdlC0: false,
+      fb: { rgba: fb, w: 320, h: 240 },
+      cam: { x: 0, z: 0, theta: 0, phi: -45 },
+      hits: [],
+    });
+    expect(rec.ops.some((o) => o.includes("#2a2a28") && o.includes(`${down.slideY}`))).toBe(true);
+  });
+});
 describe("stage G1 present", () => {
   it("only treats raw Fast3D or inflated C0 as drawable", () => {
     expect(stageHasDrawableRooms({ gdlRaw: false, gdlC0: false })).toBe(false);
@@ -127,7 +174,7 @@ function mockCtx(w: number, h: number) {
       ops.push("drawImage");
     },
     fillRect(_x: number, _y: number, fw: number, fh: number) {
-      ops.push(`fillRect ${String(this.fillStyle)} ${fw}x${fh}`);
+      ops.push(`fillRect ${String(this.fillStyle)} y=${_y} ${fw}x${fh}`);
     },
     createImageData(iw: number, ih: number) {
       return { width: iw, height: ih, data: new Uint8ClampedArray(iw * ih * 4) };

@@ -29,6 +29,8 @@ void port_stan_add_door(float world_x, float world_z, float look_x, float look_z
 
 /* Standing setup-guard body at the pad (world xz). Radius PORT_GUARD_RADIUS. */
 #define PORT_GUARD_RADIUS 30.0f
+#define PORT_GUARD_HEIGHT 185.0f
+#define PORT_DOOR_HEIGHT 250.0f
 void port_stan_clear_guards(void);
 void port_stan_add_guard(float world_x, float world_z);
 int port_stan_guard_count(void);
@@ -55,10 +57,13 @@ int port_stan_on_tile(float local_x, float local_z);
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
 
 /*
- * First hit along a unit xz look ray from room-local origin: closed door
+ * First hit along a 3D look ray from room-local origin: closed door
  * slab, exterior stan-tile edge (leave walkable), or guard cylinder.
+ * Door/guard are finite-height (PORT_DOOR_HEIGHT / PORT_GUARD_HEIGHT
+ * above the tile floor); tile-exit walls stay full-height xz.
  * Open doors do not block. Returns 1 and writes t in [0.05, 4000].
  */
-int port_stan_ray_hit(float local_x, float local_z, float dx, float dz, float *t_out);
+int port_stan_ray_hit(float local_x, float local_y, float local_z,
+                      float dx, float dy, float dz, float *t_out);
 
 #endif

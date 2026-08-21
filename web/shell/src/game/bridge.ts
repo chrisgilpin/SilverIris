@@ -77,6 +77,7 @@ export type GameModule = {
   _port_api_player_x_at: (seat: number) => number;
   _port_api_player_z_at: (seat: number) => number;
   _port_api_player_theta_at: (seat: number) => number;
+  _port_api_player_phi_at: (seat: number) => number;
   _port_api_vp_left: (seat: number) => number;
   _port_api_vp_top: (seat: number) => number;
   _port_api_vp_width: (seat: number) => number;
@@ -158,6 +159,7 @@ export type GameBridge = {
   playerXAt(seat: number): number;
   playerZAt(seat: number): number;
   playerThetaAt(seat: number): number;
+  playerPhiAt(seat: number): number;
   vpLeft(seat: number): number;
   vpTop(seat: number): number;
   vpWidth(seat: number): number;
@@ -414,6 +416,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     playerThetaAt(seat: number): number {
       return alive ? M._port_api_player_theta_at(seat) : 0;
+    },
+    playerPhiAt(seat: number): number {
+      return alive ? M._port_api_player_phi_at(seat) : 0;
     },
     vpLeft(seat: number): number {
       return alive ? M._port_api_vp_left(seat) : 0;

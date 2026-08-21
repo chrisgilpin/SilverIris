@@ -298,6 +298,68 @@ static int test_pitch_floor_hit(void)
     return 0;
 }
 
+/* A +45 look over a standing cylinder / door slab must miss; far tile still hits. */
+static int test_pitch_miss_cylinder(void)
+{
+    float hx, hy, hz, y;
+
+    if (load_corridor() != 0)
+        return 1;
+    if (port_stan_eye_y(80.0f, 0.0f, &y) != 0)
+        return fail("pitch-miss eye");
+
+    port_stan_clear_doors();
+    port_stan_clear_guards();
+    port_stan_add_guard(260.0f, 0.0f);
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    port_player_set_pitch(45.0f);
+    if (fire_once(300) != 0)
+        return 1;
+    if (port_stan_guard_was_hit(0))
+        return fail("phi+45 still hit the guard");
+    if (port_score_kills() != 0)
+        return fail("phi+45 scored a kill");
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("phi+45 should still hit the far tile");
+    if (fabsf(hx - 400.0f) > 2.0f) {
+        fprintf(stderr, "phi+45 hit x=%g want ~400\n", (double)hx);
+        return 1;
+    }
+    printf("hitscan_pitch_miss_guard x=%.1f y=%.1f kills=0 (phi=+45)\n",
+           (double)hx, (double)hy);
+
+    port_stan_clear_guards();
+    port_stan_add_guard(260.0f, 0.0f);
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    if (fire_once(310) != 0)
+        return 1;
+    if (!port_stan_guard_was_hit(0))
+        return fail("phi=0 missed the guard");
+    printf("hitscan_pitch0_guard still hits kills=%d\n", port_score_kills());
+
+    port_stan_clear_guards();
+    port_stan_clear_doors();
+    port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    port_player_set_pitch(45.0f);
+    if (fire_once(320) != 0)
+        return 1;
+    if (!port_gun_last_hit(&hx, &hy, &hz))
+        return fail("phi+45 door miss pos");
+    if (fabsf(hx - 400.0f) > 2.0f) {
+        fprintf(stderr, "phi+45 door hit x=%g want ~400 (miss slab)\n", (double)hx);
+        return 1;
+    }
+    printf("hitscan_pitch_miss_door x=%.1f y=%.1f (phi=+45 over slab)\n",
+           (double)hx, (double)hy);
+
+    port_stan_unload();
+    return 0;
+}
+
 int main(void)
 {
     SimChecksum a, b;
@@ -365,6 +427,8 @@ int main(void)
     if (test_world_hitscan() != 0)
         return 1;
     if (test_pitch_floor_hit() != 0)
+        return 1;
+    if (test_pitch_miss_cylinder() != 0)
         return 1;
     return 0;
 }

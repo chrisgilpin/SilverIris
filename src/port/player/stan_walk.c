@@ -477,7 +477,16 @@ static int ray_aabb_1d(float o, float d, float lo, float hi, float *t0, float *t
     }
 }
 
-static int door_ray_hit(float wx, float wz, float dx, float dz, float *t_out)
+static float object_floor_local(float wx, float wz)
+{
+    const StanTile *t = tile_at_world(wx, wz);
+    if (!t)
+        return 0.0f;
+    return tile_floor_y(t, wx, wz) - g_oy;
+}
+
+static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float dz,
+                        float *t_out)
 {
     int i, hit = 0;
     float best = PORT_RAY_TMAX + 1.0f;
@@ -497,6 +506,11 @@ static int door_ray_hit(float wx, float wz, float dx, float dz, float *t_out)
             continue;
         if (!ray_aabb_1d(oz, odz, -PORT_DOOR_HALF_W, PORT_DOOR_HALF_W, &t0, &t1))
             continue;
+        {
+            float floor = object_floor_local(d->x, d->z);
+            if (!ray_aabb_1d(wy, dy, floor, floor + PORT_DOOR_HEIGHT, &t0, &t1))
+                continue;
+        }
         if (t0 < best) {
             best = t0;
             hit = 1;
@@ -533,10 +547,10 @@ static int tile_exit_hit(float wx, float wz, float dx, float dz, float *t_out)
     return 1;
 }
 
-static int cyl_ray_hit(float ox, float oz, float dx, float dz, float cx, float cz,
-                       float r, float *t_out)
+static int cyl_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
+                       float cx, float cz, float r, float y0, float y1, float *t_out)
 {
-    float fx, fz, a, b, c, disc, t;
+    float fx, fz, a, b, c, disc, t, hy;
 
     fx = ox - cx;
     fz = oz - cz;
@@ -553,21 +567,27 @@ static int cyl_ray_hit(float ox, float oz, float dx, float dz, float cx, float c
         t = (-b + sqrtf(disc)) / (2.0f * a);
     if (t < PORT_RAY_TMIN || t > PORT_RAY_TMAX)
         return 0;
+    hy = oy + dy * t;
+    if (hy < y0 || hy > y1)
+        return 0;
     if (t_out)
         *t_out = t;
     return 1;
 }
 
-static int guard_ray_hit(float wx, float wz, float dx, float dz, float *t_out, int *idx)
+static int guard_ray_hit(float wx, float wy, float wz, float dx, float dy, float dz,
+                         float *t_out, int *idx)
 {
     int i, best_i = -1;
     float best = PORT_RAY_TMAX + 1.0f;
 
     for (i = 0; i < g_nguard; i++) {
-        float t;
+        float t, floor;
         if (g_guard[i].hit)
             continue;
-        if (!cyl_ray_hit(wx, wz, dx, dz, g_guard[i].x, g_guard[i].z, PORT_GUARD_RADIUS, &t))
+        floor = object_floor_local(g_guard[i].x, g_guard[i].z);
+        if (!cyl_ray_hit(wx, wy, wz, dx, dy, dz, g_guard[i].x, g_guard[i].z,
+                         PORT_GUARD_RADIUS, floor, floor + PORT_GUARD_HEIGHT, &t))
             continue;
         if (t < best) {
             best = t;
@@ -583,7 +603,8 @@ static int guard_ray_hit(float wx, float wz, float dx, float dz, float *t_out, i
     return 1;
 }
 
-int port_stan_ray_hit(float local_x, float local_z, float dx, float dz, float *t_out)
+int port_stan_ray_hit(float local_x, float local_y, float local_z,
+                      float dx, float dy, float dz, float *t_out)
 {
     float wx, wz, t, best;
     int hit = 0;
@@ -592,7 +613,7 @@ int port_stan_ray_hit(float local_x, float local_z, float dx, float dz, float *t
     g_ray_guard = -1;
     local_to_world(local_x, local_z, &wx, &wz);
     best = PORT_RAY_TMAX + 1.0f;
-    if (door_ray_hit(wx, wz, dx, dz, &t) && t < best) {
+    if (door_ray_hit(wx, local_y, wz, dx, dy, dz, &t) && t < best) {
         best = t;
         hit = 1;
         gi = -1;
@@ -604,7 +625,7 @@ int port_stan_ray_hit(float local_x, float local_z, float dx, float dz, float *t
     }
     {
         int idx = -1;
-        if (guard_ray_hit(wx, wz, dx, dz, &t, &idx) && t < best) {
+        if (guard_ray_hit(wx, local_y, wz, dx, dy, dz, &t, &idx) && t < best) {
             best = t;
             hit = 1;
             gi = idx;

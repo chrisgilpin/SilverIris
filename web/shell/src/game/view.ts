@@ -11,7 +11,7 @@ export function horPlusHfovDeg(fovyDeg: number, aspect: number): number {
   return (2 * Math.atan(Math.tan(half) * a) * 180) / Math.PI;
 }
 
-export type PortCam = { x: number; z: number; theta: number };
+export type PortCam = { x: number; z: number; theta: number; phi?: number };
 export type PortHit = { x: number; y: number; z: number };
 export type PortChr = { x: number; z: number; theta: number; dead?: boolean; peer?: boolean };
 export type PortViewBox = { x: number; y: number; w: number; h: number };
@@ -34,6 +34,43 @@ export function wrapPi(a: number): number {
 export function lookDir(thetaDeg: number): { dx: number; dz: number } {
   const th = (thetaDeg * Math.PI) / 180;
   return { dx: Math.sin(th), dz: -Math.cos(th) };
+}
+
+/** Screen-space PP7 trapezoid. phi=0 is the historical yaw-only mesh. */
+export const PORT_PITCH_MAX = 70;
+export type OverlayGunGeom = {
+  tipX: number;
+  tipY: number;
+  baseLX: number;
+  baseLY: number;
+  baseRX: number;
+  baseRY: number;
+  slideX: number;
+  slideY: number;
+  slideW: number;
+  slideH: number;
+};
+
+/**
+ * +phi looks up (tuck: tip drops, slide shrinks).
+ * -phi looks down (raise: tip rises, more slide/top).
+ */
+export function overlayGunGeom(w: number, h: number, phiDeg = 0): OverlayGunGeom {
+  const k = Math.max(-1, Math.min(1, phiDeg / PORT_PITCH_MAX));
+  const tipY = h * (0.74 + k * 0.12);
+  const slideH = h * (0.08 - k * 0.04);
+  return {
+    tipX: w * 0.5,
+    tipY,
+    baseLX: w * 0.42,
+    baseLY: h,
+    baseRX: w * 0.58,
+    baseRY: h,
+    slideX: w * 0.48,
+    slideY: tipY,
+    slideW: w * 0.04,
+    slideH,
+  };
 }
 
 export function wallHitscan(cam: PortCam): PortHit | null {
@@ -230,14 +267,15 @@ function drawOverlayMarks(
   ctx.lineTo(w / 2, h / 2 + 5);
   ctx.stroke();
 
+  const gun = overlayGunGeom(w, h, cam.phi ?? 0);
   ctx.fillStyle = "#3a3a38";
   ctx.beginPath();
-  ctx.moveTo(w * 0.42, h);
-  ctx.lineTo(w * 0.5, h * 0.74);
-  ctx.lineTo(w * 0.58, h);
+  ctx.moveTo(gun.baseLX, gun.baseLY);
+  ctx.lineTo(gun.tipX, gun.tipY);
+  ctx.lineTo(gun.baseRX, gun.baseRY);
   ctx.fill();
   ctx.fillStyle = "#2a2a28";
-  ctx.fillRect(w * 0.48, h * 0.74, w * 0.04, h * 0.08);
+  ctx.fillRect(gun.slideX, gun.slideY, gun.slideW, gun.slideH);
 
   if (h >= 100) drawRadar(ctx, cam, hits, chrs, h);
 }

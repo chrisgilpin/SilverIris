@@ -212,6 +212,7 @@ PORT_KEEP void port_api_set_look_delta(int seat, float yaw_deg, float pitch_deg)
 PORT_KEEP float port_api_player_x_at(int seat) { return port_player_x_at(seat); }
 PORT_KEEP float port_api_player_z_at(int seat) { return port_player_z_at(seat); }
 PORT_KEEP float port_api_player_theta_at(int seat) { return port_player_theta_at(seat); }
+PORT_KEEP float port_api_player_phi_at(int seat) { return port_player_phi_at(seat); }
 
 PORT_KEEP int port_api_vp_left(int seat)
 {
