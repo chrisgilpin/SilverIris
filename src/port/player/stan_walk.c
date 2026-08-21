@@ -935,6 +935,29 @@ static const StanTile *tile_for_walk(float wx, float wz)
 /* Follow Rare point.link from start along (ox,oz)->(dx,dz).
  * Dest still inside the current tile stays there (stacked bathroom / stair
  * foot keep the floor we are on). A linked neighbor is the stair step. */
+static float tile_centroid_dist(const StanTile *a, const StanTile *b)
+{
+    float ax = 0.f, az = 0.f, bx = 0.f, bz = 0.f;
+    int k;
+    if (!a || !b || a->n < 1 || b->n < 1)
+        return 0.f;
+    for (k = 0; k < a->n; k++) {
+        ax += a->x[k];
+        az += a->z[k];
+    }
+    for (k = 0; k < b->n; k++) {
+        bx += b->x[k];
+        bz += b->z[k];
+    }
+    ax /= (float)a->n;
+    az /= (float)a->n;
+    bx /= (float)b->n;
+    bz /= (float)b->n;
+    ax -= bx;
+    az -= bz;
+    return sqrtf(ax * ax + az * az);
+}
+
 static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
                                   float dx, float dz)
 {
@@ -963,6 +986,13 @@ static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
         }
         if (point_in_tile(tile, dx, dz))
             return tile;
+        /* Rising Rare link whose polygon is far from this tile and does
+         * not contain dest: Facility r18/r3 ground portals onto r15.
+         * Spatial stair chains (unit A->B->C, r7->r6 stacked foot) stay
+         * on the graph. Do not hop the r6 island (no Rare rise to r13/15). */
+        if (next && tile_avg_y(next) > tile_avg_y(tile) + 200.0f &&
+            tile_centroid_dist(tile, next) > 400.0f)
+            return next;
         for (k = 0; k < tile->n && !next; k++) {
             int nn = (k + 1 == tile->n) ? 0 : k + 1;
             const StanTile *nb;
@@ -1055,6 +1085,67 @@ static int try_snap_local(float *lx, float *lz, float *ly)
     return 1;
 }
 
+
+/* Landing tile of a rising portal may be a zero-area sliver (T2300).
+ * Prefer a spacious neighbor at the same high floor. */
+static const StanTile *rising_landing(const StanTile *t)
+{
+    const StanTile *best = t;
+    float best_a, ay;
+    int k;
+    if (!t)
+        return NULL;
+    best_a = fabsf(tile_xz_twice_area(t));
+    ay = tile_avg_y(t);
+    if (best_a > 40.0f)
+        return t;
+    for (k = 0; k < t->n; k++) {
+        const StanTile *nb;
+        float a, by;
+        if (t->nb[k] < 0)
+            continue;
+        nb = &g_tile[t->nb[k]];
+        by = tile_avg_y(nb);
+        if (by < ay - 20.0f)
+            continue;
+        a = fabsf(tile_xz_twice_area(nb));
+        if (a > best_a) {
+            best = nb;
+            best_a = a;
+        }
+    }
+    return best;
+}
+
+static void snap_onto_tile(const StanTile *t, float *wx, float *wz)
+{
+    float cx = 0.0f, cz = 0.0f, ox, oz, vx, vz, len;
+    int k;
+    if (!t || t->n < 1 || !wx || !wz)
+        return;
+    for (k = 0; k < t->n; k++) {
+        cx += t->x[k];
+        cz += t->z[k];
+    }
+    cx /= (float)t->n;
+    cz /= (float)t->n;
+    if (point_in_tile(t, *wx, *wz))
+        return;
+    closest_on_tile(t, *wx, *wz, &ox, &oz);
+    vx = cx - ox;
+    vz = cz - oz;
+    len = sqrtf(vx * vx + vz * vz);
+    if (len > 1.0f) {
+        ox += vx * (8.0f / len);
+        oz += vz * (8.0f / len);
+    } else {
+        ox = cx;
+        oz = cz;
+    }
+    *wx = ox;
+    *wz = oz;
+}
+
 static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, int follow)
 {
     float owx, owz, cwx, cwz;
@@ -1118,6 +1209,15 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         ot = (follow && g_have_links) ? tile_for_walk(owx, owz) : NULL;
         dt = (follow && g_have_links && ot) ? walk_tiles(ot, owx, owz, cwx2, cwz2) : NULL;
         if (dt) {
+            if (!point_in_tile(dt, cwx2, cwz2) &&
+                ot && tile_avg_y(dt) > tile_avg_y(ot) + 40.0f) {
+                dt = rising_landing(dt);
+                snap_onto_tile(dt, &cwx2, &cwz2);
+                cx = cwx2 - g_ox;
+                cz = cwz2 - g_oz;
+                *nx = cx;
+                *nz = cz;
+            }
             ey = (tile_floor_y(dt, cwx2, cwz2) + PORT_EYE_HEIGHT) - g_oy;
             if (finite_f(ey)) {
                 *ny = ey;
@@ -1175,12 +1275,16 @@ int port_stan_climb_along_links(float start_x, float start_z,
 
     if (!end_x || !end_z || !end_y || !end_room || g_ntile <= 0)
         return -1;
-    cur_clear();
     local_to_world(start_x, start_z, &wx, &wz);
-    lo = tile_at_world(wx, wz);
+    /* Honor stand_on_tile so a stacked ramp (T2374 over r71) can start high. */
+    lo = tile_for_walk(wx, wz);
+    if (!lo)
+        lo = tile_at_world(wx, wz);
     if (!lo)
         return -1;
     start = (int)(lo - g_tile);
+    cur_clear();
+    cur_put(wx, wz, lo);
 
     /* Phase 1: first upward landing (eye>200), never walk down. */
     for (i = 0; i < g_ntile; i++) {
@@ -1442,6 +1546,146 @@ void port_stan_debug_at(float local_x, float local_z)
         printf("stan_debug snap=fail hits=%d near=%d\n", n_hit, n_near);
 }
 
+
+void port_stan_dump_tile_i(int i)
+{
+    const StanTile *t;
+    float cx = 0.f, cz = 0.f, ay, ey;
+    int k, nlink = 0;
+    if (i < 0 || i >= g_ntile) {
+        printf("dump_tile[%d] out (ntile=%d)\n", i, g_ntile);
+        return;
+    }
+    t = &g_tile[i];
+    for (k = 0; k < t->n; k++) {
+        cx += t->x[k];
+        cz += t->z[k];
+        if (t->link[k] >> 4)
+            nlink++;
+    }
+    if (t->n > 0) {
+        cx /= (float)t->n;
+        cz /= (float)t->n;
+    }
+    ay = tile_avg_y(t);
+    ey = (ay + PORT_EYE_HEIGHT) - g_oy;
+    printf("dump_tile[%d] room=%u rare=0x%04x n=%d links=%d/%d "
+           "centroid_w=%.1f,%.1f local=%.1f,%.1f avgY=%.1f eye=%.1f\n",
+           i, (unsigned)t->room, (unsigned)t->rare, t->n, nlink, t->n,
+           (double)cx, (double)cz, (double)(cx - g_ox), (double)(cz - g_oz),
+           (double)ay, (double)ey);
+    for (k = 0; k < t->n; k++) {
+        int nbi = t->nb[k];
+        int nn = (k + 1 == t->n) ? 0 : k + 1;
+        printf("  e%d (%.1f,%.1f)->(%.1f,%.1f) link=0x%04x nb=%d",
+               k, (double)t->x[k], (double)t->z[k],
+               (double)t->x[nn], (double)t->z[nn],
+               (unsigned)t->link[k], nbi);
+        if (nbi >= 0)
+            printf(" -> r%u ay=%.1f", (unsigned)g_tile[nbi].room,
+                   (double)tile_avg_y(&g_tile[nbi]));
+        printf("\n");
+    }
+}
+
+void port_stan_dump_rare(unsigned rare)
+{
+    int i, n = 0;
+    printf("dump_rare 0x%04x (%u)\n", rare, rare);
+    for (i = 0; i < g_ntile; i++) {
+        if (g_tile[i].rare != (uint16_t)rare)
+            continue;
+        port_stan_dump_tile_i(i);
+        n++;
+    }
+    if (!n)
+        printf("dump_rare 0x%04x not found ntile=%d\n", rare, g_ntile);
+}
+
+void port_stan_dump_cross(unsigned from_room, unsigned to_room)
+{
+    int i, k, n = 0;
+    printf("dump_cross r%u -> r%u ntile=%d\n", from_room, to_room, g_ntile);
+    for (i = 0; i < g_ntile; i++) {
+        if (from_room && g_tile[i].room != (uint8_t)from_room)
+            continue;
+        for (k = 0; k < g_tile[i].n; k++) {
+            int nbi = g_tile[i].nb[k];
+            if (nbi < 0)
+                continue;
+            if (to_room && g_tile[nbi].room != (uint8_t)to_room)
+                continue;
+            if (!to_room && g_tile[nbi].room == g_tile[i].room)
+                continue;
+            printf("  [%d] rare=0x%04x r%u ay=%.1f --e%d--> [%d] rare=0x%04x r%u ay=%.1f\n",
+                   i, (unsigned)g_tile[i].rare, (unsigned)g_tile[i].room,
+                   (double)tile_avg_y(&g_tile[i]), k, nbi,
+                   (unsigned)g_tile[nbi].rare, (unsigned)g_tile[nbi].room,
+                   (double)tile_avg_y(&g_tile[nbi]));
+            n++;
+        }
+    }
+    printf("dump_cross r%u -> r%u count=%d\n", from_room, to_room, n);
+}
+
+void port_stan_dump_stair_links(void)
+{
+    int i, k, n = 0;
+    printf("stair_links ntile=%d (low->high, dest within 400 xz)\n", g_ntile);
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float ay = tile_avg_y(t), tcx = 0.f, tcz = 0.f;
+        int p;
+        if (t->n < 3)
+            continue;
+        for (p = 0; p < t->n; p++) {
+            tcx += t->x[p];
+            tcz += t->z[p];
+        }
+        tcx /= (float)t->n;
+        tcz /= (float)t->n;
+        for (k = 0; k < t->n; k++) {
+            int nbi = t->nb[k];
+            const StanTile *nb;
+            float by, ncx = 0.f, ncz = 0.f, dx, dz, d, miny, maxy;
+            int q;
+            if (nbi < 0)
+                continue;
+            nb = &g_tile[nbi];
+            by = tile_avg_y(nb);
+            if (!(ay < -200.f && by > ay + 80.f) && !(ay > -200.f && by > ay + 80.f))
+                continue;
+            for (q = 0; q < nb->n; q++) {
+                ncx += nb->x[q];
+                ncz += nb->z[q];
+            }
+            if (nb->n > 0) {
+                ncx /= (float)nb->n;
+                ncz /= (float)nb->n;
+            }
+            dx = ncx - tcx;
+            dz = ncz - tcz;
+            d = sqrtf(dx * dx + dz * dz);
+            miny = maxy = t->y[0];
+            for (q = 1; q < t->n; q++) {
+                if (t->y[q] < miny)
+                    miny = t->y[q];
+                if (t->y[q] > maxy)
+                    maxy = t->y[q];
+            }
+            printf("stair_link %d->%d r%u->r%u ay=%.1f->%.1f d=%.1f yspan=%.1f "
+                   "from_w=%.1f,%.1f to_w=%.1f,%.1f from_l=%.1f,%.1f to_l=%.1f,%.1f%s\n",
+                   i, nbi, (unsigned)t->room, (unsigned)nb->room,
+                   (double)ay, (double)by, (double)d, (double)(maxy - miny),
+                   (double)tcx, (double)tcz, (double)ncx, (double)ncz,
+                   (double)(tcx - g_ox), (double)(tcz - g_oz),
+                   (double)(ncx - g_ox), (double)(ncz - g_oz),
+                   d < 400.f ? " NEAR" : " FAR");
+            n++;
+        }
+    }
+    printf("stair_links count=%d\n", n);
+}
 
 void port_stan_link_reach(float local_x, float local_z)
 {

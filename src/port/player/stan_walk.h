@@ -89,7 +89,12 @@ void port_stan_clear_current(void);
 
 /* Dump overlapping / nearby tiles at xz (harness / diagnose). */
 void port_stan_debug_at(float local_x, float local_z);
+/* Print one loaded tile by index, or -1 if out of range. */
+void port_stan_dump_tile_i(int i);
+void port_stan_dump_rare(unsigned rare);
+void port_stan_dump_cross(unsigned from_room, unsigned to_room);
 /* BFS Rare point.link from every tile at xz; print if upstairs is reachable. */
+void port_stan_dump_stair_links(void);
 void port_stan_link_reach(float local_x, float local_z);
 int port_stan_climb_along_links(float start_x, float start_z,
                                 float *end_x, float *end_z, float *end_y,

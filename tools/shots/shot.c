@@ -267,6 +267,80 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
 /* clip_step from the stairs foot. 8-way greedy toward room 13, preferring
  * a rising floor. Must reach a high upstairs tile (eye ~737) and not snap
  * back to 86.8. Bathroom xz is not a stair link and must stay low. */
+
+/* r3 ground stair foot (T2565). Rare-links to T2300 r15. */
+#define R3_STAIR_X 1161.1f
+#define R3_STAIR_Z (-717.9f)
+/* r18 ground stair foot (T2296). Rare-links to T2300/T2302 r15. */
+#define R18_STAIR_X 1165.6f
+#define R18_STAIR_Z (-731.2f)
+
+/* Walk clip_step from spawn toward the r3 foot. Closed spawn doors are
+ * expected; document the first stall so the climb is still proved from
+ * the stair foot. */
+static void spawn_to_stair_note(float sx, float sz, float tx, float tz)
+{
+    float x = sx, z = sz, ny = 0.f;
+    int k, room0, room1, blocked = 0;
+    room0 = port_stan_tile_room(sx, sz);
+    for (k = 0; k < 400; k++) {
+        float dx = tx - x, dz = tz - z, dist, nx, nz;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist < 20.f) {
+            printf("spawn_to_stair REACH step=%d xz=%.1f,%.1f eye=%.1f room=%d\n",
+                   k, (double)x, (double)z, (double)ny,
+                   port_stan_tile_room(x, z));
+            return;
+        }
+        if (dist > 12.f) {
+            dx *= 12.f / dist;
+            dz *= 12.f / dist;
+        }
+        nx = x + dx;
+        nz = z + dz;
+        ny = ny;
+        port_stan_clip_step(x, z, &nx, &nz, &ny);
+        if (nx == x && nz == z) {
+            blocked = 1;
+            break;
+        }
+        x = nx;
+        z = nz;
+    }
+    room1 = port_stan_tile_room(x, z);
+    printf("spawn_to_stair %s step=%d start=%.1f,%.1f room=%d end=%.1f,%.1f "
+           "eye=%.1f room=%d (closed door / wall; climb proved from stair foot)\n",
+           blocked ? "DOOR" : "SHORT", k, (double)sx, (double)sz, room0,
+           (double)x, (double)z, (double)ny, room1);
+}
+
+/* clip_step along Rare rising links from a ground stair onto r15/r13. */
+static int upper_stair_proof(const char *tag, float sx, float sz)
+{
+    float ex = sx, ez = sz, ey = 0.f, bath = 0.f;
+    int er = 0, rc;
+    if (port_stan_eye_y(sx, sz, &ey) != 0)
+        ey = PORT_EYE_HEIGHT;
+    printf("upper_stair %s start xz=%.1f,%.1f eye=%.1f room=%d\n",
+           tag, (double)sx, (double)sz, (double)ey, port_stan_tile_room(sx, sz));
+    rc = port_stan_climb_along_links(sx, sz, &ex, &ez, &ey, &er);
+    printf("upper_stair %s rc=%d end xz=%.1f,%.1f eye=%.1f room=%d\n",
+           tag, rc, (double)ex, (double)ez, (double)ey, er);
+    if (port_stan_eye_y(-491.9f, -2238.5f, &bath) != 0 || bath < 70.f || bath > 110.f) {
+        fprintf(stderr, "upper_stair %s bathroom eye=%.1f (want ~86.8)\n",
+                tag, (double)bath);
+        return -1;
+    }
+    if (rc != 0 || !(ey == ey) || ey < 600.f || (er != 13 && er != 15)) {
+        fprintf(stderr, "upper_stair %s failed rc=%d eye=%.1f room=%d "
+                "(want r15/r13 eye~737)\n", tag, rc, (double)ey, er);
+        return -1;
+    }
+    printf("upper_stair %s OK bath=%.1f (r6 island still unlinked; no invented hop)\n",
+           tag, (double)bath);
+    return 0;
+}
+
 static int stairs_climb_proof(void)
 {
     static const float kdx[8] = { 8.f, 8.f, 0.f, -8.f, -8.f, -8.f, 0.f, 8.f };
@@ -363,6 +437,18 @@ static int stairs_climb_proof(void)
         fprintf(stderr, "stairs_climb failed high=%d snap=%d\n", high, snap);
         return -1;
     }
+    /* r6 landing is a mid-height island (405.9) with no Rare link to r13/15.
+     * Real ground stairs r3/r18 and the r12 ramp Rare-link onto r15. */
+    spawn_to_stair_note(port_api_player_x(), port_api_player_z(),
+                        R3_STAIR_X, R3_STAIR_Z);
+    spawn_to_stair_note(port_api_player_x(), port_api_player_z(),
+                        R18_STAIR_X, R18_STAIR_Z);
+    if (upper_stair_proof("r3_T2565", R3_STAIR_X, R3_STAIR_Z) != 0)
+        return -1;
+    if (upper_stair_proof("r18_T2296", R18_STAIR_X, R18_STAIR_Z) != 0)
+        return -1;
+    /* r12 T2374 is a mid ramp (ay=126.5), not a ground stair. r6 landing
+     * stays an island — no invented hop onto r13/15. */
     return 0;
 }
 
@@ -595,6 +681,32 @@ int main(int argc, char **argv)
             if (strcmp(argv[a], "--probe") == 0)
                 probe = 1;
         if (probe) {
+            port_stan_dump_stair_links();
+            printf("stairs_probe cross-room links\n");
+            port_stan_dump_cross(18, 15);
+            port_stan_dump_cross(3, 15);
+            port_stan_dump_cross(12, 15);
+            port_stan_dump_cross(13, 12);
+            port_stan_dump_cross(15, 13);
+            port_stan_dump_cross(6, 15);
+            port_stan_dump_cross(6, 13);
+            port_stan_dump_cross(18, 0);
+            port_stan_dump_cross(3, 0);
+            port_stan_dump_cross(12, 0);
+            port_stan_dump_cross(15, 0);
+            port_stan_dump_cross(13, 0);
+            {
+                static const int ktiles[] = {
+                    2292, 2296, 2298, 2299, 2300, 2301, 2302, 2304,
+                    2334, 2335, 2336, 2374, 2565
+                };
+                int ti;
+                printf("stairs_probe named tiles\n");
+                for (ti = 0; ti < (int)(sizeof ktiles / sizeof ktiles[0]); ti++) {
+                    port_stan_dump_tile_i(ktiles[ti]);
+                    port_stan_dump_rare((unsigned)ktiles[ti]);
+                }
+            }
             printf("stairs_probe foot\n");
             port_stan_debug_at(STAIR_X, STAIR_Z);
             port_stan_link_reach(STAIR_X, STAIR_Z);
@@ -604,6 +716,37 @@ int main(int argc, char **argv)
             printf("stairs_probe room13\n");
             port_stan_debug_at(-650.f, -3050.f);
             port_stan_link_reach(-650.f, -3050.f);
+            {
+                float ex, ez, ey;
+                int er, rc;
+                static const float kfeet[][2] = {
+                    {1161.1f, -717.9f}, /* T2565 r3 */
+                    {1134.6f, -864.6f}, /* T2292 r18 */
+                    {1165.6f, -731.2f}, /* T2296 r18 */
+                    {1165.6f, -762.7f}, /* T2298 r18 */
+                    {1205.3f, -749.1f}, /* T2299 r18 */
+                    {-147.9f, -2703.3f}, /* T2374 r12 ramp */
+                    {-89.9f, -2670.7f}, /* T2304 r15 */
+                    {-131.9f, -2675.1f}, /* T2302 r15 */
+                };
+                static const char *ktag[] = {"r3_T2565","r18_T2292","r18_T2296","r18_T2298","r18_T2299","r12_T2374","r15_T2304","r15_T2302"};
+                int fi;
+                for (fi = 0; fi < 8; fi++) {
+                    printf("climb_try %s start=%.1f,%.1f\n", ktag[fi],
+                           (double)kfeet[fi][0], (double)kfeet[fi][1]);
+                    port_stan_debug_at(kfeet[fi][0], kfeet[fi][1]);
+                    rc = port_stan_climb_along_links(kfeet[fi][0], kfeet[fi][1],
+                                                     &ex, &ez, &ey, &er);
+                    printf("climb_try %s rc=%d end=%.1f,%.1f eye=%.1f room=%d\n",
+                           ktag[fi], rc, (double)ex, (double)ez, (double)ey, er);
+                }
+                printf("ramp_dump\n");
+                { int di; for (di = 2370; di <= 2382; di++) port_stan_dump_tile_i(di); }
+                { int di; for (di = 2300; di <= 2313; di++) port_stan_dump_tile_i(di); }
+                printf("probe_spawn xz=%.1f,%.1f y=%.1f room=%d\n",
+                       (double)port_api_player_x(), (double)port_api_player_z(),
+                       (double)port_api_player_y(), port_api_current_room());
+            }
             if (stairs_climb_proof() != 0) {
                 port_api_shutdown();
                 free(pack);
