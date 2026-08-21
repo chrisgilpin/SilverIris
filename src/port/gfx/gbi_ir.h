@@ -26,7 +26,7 @@ typedef struct {
     uint8_t r, g, b, a;
 } GirVert;
 
-#define G1_MAX_CMDS 4096
+#define G1_MAX_CMDS 16384
 
 typedef struct {
     GirOp op;

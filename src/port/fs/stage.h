@@ -30,6 +30,9 @@ int port_stage_gdl_c0(void);
 int port_stage_gdl_vtx(void);
 int port_stage_gdl_sec(void);
 int port_stage_portal_count(void);
+/* Door-sized portal openings (world center xz, floor y, look-yaw, width). */
+int port_stage_opening_count(void);
+int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
 int port_stage_current_room(void);
 int port_stage_rooms_walked(void);
 int port_stage_prop_count(void);

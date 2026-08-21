@@ -4,6 +4,7 @@
 #include "inflate1172.h"
 #include "pack_dma.h"
 #include "player/stan_walk.h"
+#include "player/move.h"
 #include "stage.h"
 
 #include <math.h>
@@ -923,6 +924,17 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
             near = 1;
         }
     }
+    /* Player is room-1 local; pads/portals are world. Same 4000 cap. */
+    {
+        float px = port_player_x() + room1[0];
+        float py = port_player_y() + room1[1];
+        float pz = port_player_z() + room1[2];
+        dx = pr->pos[0] - px;
+        dy = pr->pos[1] - py;
+        dz = pr->pos[2] - pz;
+        if (dx * dx + dy * dy + dz * dz <= PORT_PROP_NEAR * PORT_PROP_NEAR)
+            return 1;
+    }
     if (!near && nrooms > 0)
         return 0;
     if (nrooms <= 0) {
@@ -933,6 +945,76 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
             return 0;
     }
     return 1;
+}
+
+
+/* Closed-door G1DL slab (XY quad, both windings). Retail P*Z door DLs bind
+ * SETTEX but do not raster visible tris at the spawn clip/euler, so openings
+ * that have no pad door use this instead of the first-loaded cubicle model. */
+static uint8_t g_slab_file[160];
+static PortModel g_slab_mdl;
+static int g_slab_ok;
+
+static void wr32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+static void wr16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)(v >> 8);
+    p[1] = (uint8_t)v;
+}
+
+static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z)
+{
+    wr16(v + 0, (uint16_t)x);
+    wr16(v + 2, (uint16_t)y);
+    wr16(v + 4, (uint16_t)z);
+    v[12] = 118;
+    v[13] = 112;
+    v[14] = 98;
+    v[15] = 255;
+}
+
+static PortModel *slab_door(void)
+{
+    /* Two proven 3-vert G_VTX+G_TRI4 packets (same encoding as the magenta
+     * door test). A 4-vert packet left stale room verts on one triangle. */
+    uint32_t vtx = ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16);
+    uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
+    const uint32_t v1 = 44, v2 = 44 + 48;
+
+    if (g_slab_ok)
+        return &g_slab_mdl;
+    memset(g_slab_file, 0, sizeof g_slab_file);
+    wr32(g_slab_file, PORT_BG_MAGIC_G1DL);
+    wr32(g_slab_file + 4, vtx);
+    wr32(g_slab_file + 8, 0x05000000u | v1);
+    wr32(g_slab_file + 12, 0xB1000002u);
+    wr32(g_slab_file + 16, 0x00000010u);
+    wr32(g_slab_file + 20, vtx);
+    wr32(g_slab_file + 24, 0x05000000u | v2);
+    wr32(g_slab_file + 28, 0xB1000002u);
+    wr32(g_slab_file + 32, 0x00000010u);
+    wr32(g_slab_file + 36, end);
+    wr_vtx(g_slab_file + v1 + 0, -90, 0, 0);
+    wr_vtx(g_slab_file + v1 + 16, 90, 0, 0);
+    wr_vtx(g_slab_file + v1 + 32, 90, 260, 0);
+    wr_vtx(g_slab_file + v2 + 0, -90, 0, 0);
+    wr_vtx(g_slab_file + v2 + 16, 90, 260, 0);
+    wr_vtx(g_slab_file + v2 + 32, -90, 260, 0);
+    memset(&g_slab_mdl, 0, sizeof g_slab_mdl);
+    g_slab_mdl.file = g_slab_file;
+    g_slab_mdl.file_len = v2 + 48;
+    g_slab_mdl.part[0].pri = g_slab_file + 4;
+    g_slab_mdl.part[0].pri_n = 5;
+    g_slab_mdl.npart = 1;
+    g_slab_ok = 1;
+    return &g_slab_mdl;
 }
 
 static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const PortModel *mdl,
@@ -1049,24 +1131,146 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     g_drawn = 0;
     if (!out || cap < 1 || !room1)
         return 0;
+    /* Pad doors first so Facility openings are not eaten by guard parts. */
     for (i = 0; i < g_nprop && k < cap; i++) {
         PortProp *pr = &g_prop[i];
         float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
-        if (!pr->mdl || pr->mdl->npart == 0)
+        if (pr->type != PDEF_DOOR || !pr->mdl || pr->mdl->npart == 0)
+            continue;
+        if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
+            continue;
+        if (port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
+            door_open_pose(pr, &add_yaw, &odx, &ody, &odz);
+        k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                       add_yaw, odx, ody, odz);
+    }
+    /*
+     * Start-hallway openings have no PROPDEF_DOOR (those pads sit in the
+     * gas-plant cluster). Fit a closed G1DL slab on door-sized portals.
+     */
+    {
+        PortModel *slab = slab_door();
+        int o, no = port_stage_opening_count();
+        float pwx = room1[0] + port_player_x();
+        float pwz = room1[2] + port_player_z();
+        float floor_y = room1[1] + (port_player_y() - 175.f);
+        float th = port_player_theta() * (PI_F / 180.f);
+        float lookx = sinf(th), lookz = -cosf(th);
+        for (o = 0; o < no && k < cap; o++) {
+            float pos[3], yaw = 0.f, width = 0.f;
+            PortProp tmp, probe;
+            int j, covered = 0;
+            float lx, lz, tox, toz;
+            int ra = 0, rb = 0, in_walk = 0, r;
+            if (port_stage_opening(o, pos, &yaw, &width, &ra, &rb) != 0)
+                continue;
+            for (r = 0; r < nrooms; r++) {
+                if (room_ids && (room_ids[r] == ra || room_ids[r] == rb)) {
+                    in_walk = 1;
+                    break;
+                }
+            }
+            if (!in_walk)
+                continue;
+            memset(&probe, 0, sizeof probe);
+            probe.pos[0] = pos[0];
+            probe.pos[1] = pos[1];
+            probe.pos[2] = pos[2];
+            if (!near_room(&probe, room1, room_xyz, nrooms, room_ids))
+                continue;
+            for (j = 0; j < g_nprop; j++) {
+                float dx, dy, dz;
+                if (g_prop[j].type != PDEF_DOOR)
+                    continue;
+                dx = g_prop[j].pos[0] - pos[0];
+                dy = g_prop[j].pos[1] - pos[1];
+                dz = g_prop[j].pos[2] - pos[2];
+                if (dx * dx + dy * dy + dz * dz < 250.f * 250.f) {
+                    covered = 1;
+                    break;
+                }
+            }
+            if (covered)
+                continue;
+            lx = pos[0] - pwx;
+            lz = pos[2] - pwz;
+            if (lx * lx + lz * lz > 900.f * 900.f)
+                continue;
+            if (lx * lx + lz * lz < 250.f * 250.f)
+                continue;
+            tox = pos[0] - pwx;
+            toz = pos[2] - pwz;
+            if (tox * lookx + toz * lookz < 40.f)
+                continue;
+            /* Upper/catwalk portals sit hundreds of units above the floor. */
+            if (pos[1] > floor_y + 200.f)
+                continue;
+            memset(&tmp, 0, sizeof tmp);
+            tmp.pos[0] = pos[0];
+            tmp.pos[1] = floor_y;
+            tmp.pos[2] = pos[2];
+            /* Face the player so the XY slab is not edge-on / backface. */
+            if (yaw == 90.f)
+                tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
+            else
+                tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
+            tmp.scale = (width > 1.f) ? (width / (2.f * PORT_DOOR_HALF_W)) : 1.f;
+            tmp.mdl = slab;
+            k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f,
+                           0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+        }
+        /* Start alcoves are in-room GDL, not portals. One left-wall slab
+         * when no door-sized portal already sits on that wall. */
+        if (k < cap && no > 0) {
+            float leftx = lookz, leftz = -lookx;
+            int o, have_left = 0, no = port_stage_opening_count();
+            for (o = 0; o < no; o++) {
+                float pos[3], yaw, width, tox, toz, d2;
+                int ra, rb;
+                if (port_stage_opening(o, pos, &yaw, &width, &ra, &rb) != 0)
+                    continue;
+                tox = pos[0] - pwx;
+                toz = pos[2] - pwz;
+                d2 = tox * tox + toz * toz;
+                if (d2 < 400.f * 400.f && tox * leftx + toz * leftz > 50.f)
+                    have_left = 1;
+            }
+            if (!have_left) {
+                PortProp tmp;
+                memset(&tmp, 0, sizeof tmp);
+                tmp.pos[0] = pwx + leftx * 160.f;
+                tmp.pos[1] = floor_y;
+                tmp.pos[2] = pwz + leftz * 160.f;
+                tmp.yaw = (pwz + leftz * 160.f > pwz) ? 0.f : 180.f;
+                /* Face the player: left wall is +Z at spawn, yaw 0 faces +Z. */
+                if (leftz > 0.f)
+                    tmp.yaw = 180.f;
+                else if (leftz < 0.f)
+                    tmp.yaw = 0.f;
+                else
+                    tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
+                tmp.scale = 1.15f;
+                tmp.mdl = slab;
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f,
+                               0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+            }
+        }
+    }
+    for (i = 0; i < g_nprop && k < cap; i++) {
+        PortProp *pr = &g_prop[i];
+        if (!pr->mdl || pr->mdl->npart == 0 || pr->type == PDEF_DOOR)
             continue;
         if (!near_room(pr, room1, room_xyz, nrooms, room_ids))
             continue;
         if (pr->type == PDEF_GUARD &&
             port_stan_guard_dead_at(pr->pos[0], pr->pos[2]))
             continue;
-        if (pr->type == PDEF_DOOR && port_stan_door_is_open_at(pr->pos[0], pr->pos[2]))
-            door_open_pose(pr, &add_yaw, &odx, &ody, &odz);
         k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                       add_yaw, odx, ody, odz);
+                       0.f, 0.f, 0.f, 0.f);
         if (pr->head && pr->head->npart)
             k = emit_parts(out, cap, k, pr, pr->head, room1, pr->head_off[0], pr->head_off[1],
-                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz, add_yaw,
-                           odx, ody, odz);
+                           pr->head_off[2], pr->head_rx, pr->head_ry, pr->head_rz, 0.f,
+                           0.f, 0.f, 0.f);
     }
     g_drawn = k;
     return k;

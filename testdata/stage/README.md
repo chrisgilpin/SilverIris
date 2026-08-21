@@ -45,5 +45,5 @@ cap, lookup RGB15 rejected). Huffman (Rare tree) and Huffman-lookup
 bind, including niter>4096. texMiss abs vs dec is honest. Facility
 GDLs have no DETAIL second SETTEX. A synthetic setup + `P*Z` G1DL (or
 Rare node) door at a known pad must paint; a pack with no setup or
-an END-only setup must keep the greyscale G1 hash. Far pads cull.
+an END-only setup must keep the greyscale G1 hash. Far pads cull. Door-sized bg portals (and the start alcove) with no nearby pad door get a closed G1DL slab.
 Do not commit retail texels.

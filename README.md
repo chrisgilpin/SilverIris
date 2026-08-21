@@ -62,7 +62,7 @@ SETTEX/clip/portal walk, remaining grey in a doorway is missing
 **props** (doors), not another wall format. G1 now also inflates the
 stage setup (`UsetuparkZ`), walks PROPDEF_DOOR / PROP / glass, loads
 `P*Z` models (G1DL magic or Rare node GDL on segment 5), and rasters
-them at the pad with look-yaw through the same clip/SETTEX path.
+them at the pad with look-yaw through the same clip/SETTEX path. Facility start has no PROPDEF_DOOR (pads sit ~9000u away in the gas-plant cluster); door-sized portals and the start alcove get a closed G1DL slab so spawn/hallway openings are not empty holes.
 Rooms without a setup stay bit-identical on the greyscale G1 hash.
 Native tests prove a magenta door GDL at a known pad, a Rare node
 tree, far-pad cull, and empty-setup hash stability. The player now

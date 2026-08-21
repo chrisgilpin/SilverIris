@@ -55,6 +55,10 @@ typedef struct {
 
 typedef struct {
     uint8_t a, b;
+    uint8_t doorlike;
+    float pos[3];
+    float yaw;
+    float width;
 } PortPortal;
 
 static const StageFiles k_stages[] = {
@@ -208,6 +212,69 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  * stays the greyscale / SETTEX / clip path; neighbors use the same
  * interpreter with a look-at offset of (room.pos - room1.pos).
  */
+/* World-space portal quad. Door-like: 80-450 wide, 80-500 tall, thin<=80. */
+static void portal_geom(uint8_t *bg, size_t n, uint32_t off, PortPortal *po)
+{
+    uint8_t *pt = (uint8_t *)maybe_ptr(bg, n, off);
+    int np, k;
+    float mn[3], mx[3];
+    float dx, dy, dz, horiz, thin;
+
+    po->doorlike = 0;
+    po->width = 0.f;
+    po->yaw = 0.f;
+    po->pos[0] = po->pos[1] = po->pos[2] = 0.f;
+    if (!pt || pt + 4 > bg + n)
+        return;
+    np = pt[0];
+    if (np < 3 || np > 8 || pt + 4 + np * 12 > bg + n)
+        return;
+    mn[0] = mx[0] = be_f32(pt + 4);
+    mn[1] = mx[1] = be_f32(pt + 8);
+    mn[2] = mx[2] = be_f32(pt + 12);
+    po->pos[0] = mn[0];
+    po->pos[1] = mn[1];
+    po->pos[2] = mn[2];
+    for (k = 1; k < np; k++) {
+        float x = be_f32(pt + 4 + k * 12);
+        float y = be_f32(pt + 8 + k * 12);
+        float z = be_f32(pt + 12 + k * 12);
+        po->pos[0] += x;
+        po->pos[1] += y;
+        po->pos[2] += z;
+        if (x < mn[0])
+            mn[0] = x;
+        if (y < mn[1])
+            mn[1] = y;
+        if (z < mn[2])
+            mn[2] = z;
+        if (x > mx[0])
+            mx[0] = x;
+        if (y > mx[1])
+            mx[1] = y;
+        if (z > mx[2])
+            mx[2] = z;
+    }
+    po->pos[0] /= (float)np;
+    po->pos[2] /= (float)np;
+    /* Sit the model on the portal sill (Rare door origin is the pad floor). */
+    po->pos[1] = mn[1];
+    {
+        dx = mx[0] - mn[0];
+        dy = mx[1] - mn[1];
+        dz = mx[2] - mn[2];
+        horiz = dx > dz ? dx : dz;
+        thin = dx < dz ? dx : dz;
+        if (horiz < 80.f || horiz > 450.f || dy < 80.f || dy > 500.f || thin > 80.f)
+            return;
+        po->width = horiz;
+        po->doorlike = 1;
+        /* Thin-X opening faces ±X (yaw 90). First-triangle normal is 0 on a
+         * vertical doorway and used to default yaw=0 — edge-on, no pixels. */
+        po->yaw = (dx <= dz) ? 90.f : 0.f;
+    }
+}
+
 static int fixup_bg(uint8_t *bg, size_t n)
 {
     uint32_t magic, rooms_seg, portal_seg;
@@ -312,6 +379,7 @@ static int fixup_bg(uint8_t *bg, size_t n)
             if (a && b) {
                 g_portals[g_nportals].a = a;
                 g_portals[g_nportals].b = b;
+                portal_geom(bg, n, off, &g_portals[g_nportals]);
                 g_nportals++;
             }
             p += 8;
@@ -610,6 +678,44 @@ int port_stage_gdl_vtx(void) { return g_gdl_vtx; }
 int port_stage_gdl_sec(void) { return g_gdl_sec; }
 
 int port_stage_portal_count(void) { return g_nportals; }
+
+int port_stage_opening_count(void)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nportals; i++) {
+        if (g_portals[i].doorlike)
+            n++;
+    }
+    return n;
+}
+
+int port_stage_opening(int want, float pos[3], float *yaw, float *width, int *ra, int *rb)
+{
+    int i, n = 0;
+    for (i = 0; i < g_nportals; i++) {
+        if (!g_portals[i].doorlike)
+            continue;
+        if (n == want) {
+            if (pos) {
+                pos[0] = g_portals[i].pos[0];
+                pos[1] = g_portals[i].pos[1];
+                pos[2] = g_portals[i].pos[2];
+            }
+            if (yaw)
+                *yaw = g_portals[i].yaw;
+            if (width)
+                *width = g_portals[i].width;
+            if (ra)
+                *ra = g_portals[i].a;
+            if (rb)
+                *rb = g_portals[i].b;
+            return 0;
+        }
+        n++;
+    }
+    return -1;
+}
+
 
 int port_stage_current_room(void) { return g_cur_room; }
 
