@@ -1346,13 +1346,9 @@ int port_prop_place_walker_near_spawn(void)
 
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
-    if (g_have_intro) {
-        sx = g_intro_pos[0] - r1[0];
-        sz = g_intro_pos[2] - r1[2];
-    } else {
-        sx = port_player_x();
-        sz = port_player_z();
-    }
+    /* Snapped Bond pose, not raw pad 167 (that sits 144u past the tile). */
+    sx = port_player_x();
+    sz = port_player_z();
     /* Stall fire-box Z-floor is measured from this first-frame spawn. */
     g_walk_spawn_x = sx;
     g_walk_spawn_z = sz;
@@ -2498,13 +2494,6 @@ static void choose_pickup(void)
             skip = 1;
             why = "firebox";
         }
-        printf("pickup_cand[%d] type=%d model=%d pad=%d orig=%d flags=0x%08x "
-               "world=%.1f,%.1f,%.1f local=%.1f,%.1f,%.1f dist=%.1f on=%d "
-               "eye=%.1f ground=%d kind=%d %s\n",
-               i, c->type, c->model, c->pad, c->orig_pad, c->flags,
-               (double)c->pos[0], (double)c->pos[1], (double)c->pos[2],
-               (double)lx, (double)ly, (double)lz, (double)dist, on,
-               (double)ey, ground, kind, why);
         if (skip || !kind)
             continue;
         rank = cand_rank(c, ground, on, near);
@@ -2625,8 +2614,6 @@ static int parse_setup(const uint8_t *st, size_t n)
             int amount_raw = 0;
             if (bytes >= 132)
                 amount_raw = (int)be32(p + 128);
-            printf("pickup_raw type=%d model=%d pad=%d flags=0x%08x amount=%d\n",
-                   type, (int)model, (int)orig_pad, flags, amount_raw);
             if (pad < 0 && last_scenery_pd)
                 pad = (int16_t)last_scenery_pad, pd = last_scenery_pd;
             else if (pad >= 0 && pad < npad)
