@@ -18,6 +18,7 @@
 #define PORT_WALL_Z (-50.0f)
 
 void port_gun_reset(void);
+void port_gun_reset_seat(int seat);
 void port_gun_tick(uint16_t buttons);
 /* Skip this rising Z: it was a door use, not a shot. */
 void port_gun_suppress_fire(void);

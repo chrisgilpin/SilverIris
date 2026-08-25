@@ -141,14 +141,21 @@ void port_gun_suppress_fire(void)
     G()->suppress_fire = 1;
 }
 
+void port_gun_reset_seat(int seat)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    memset(&g_gun[seat], 0, sizeof g_gun[seat]);
+    g_gun[seat].ammo[PORT_AMMO_9MM] = PORT_PP7_RESERVE;
+    g_gun[seat].mag = PORT_PP7_MAG;
+}
+
 void port_gun_reset(void)
 {
     int i;
     memset(g_gun, 0, sizeof g_gun);
-    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
-        g_gun[i].ammo[PORT_AMMO_9MM] = PORT_PP7_RESERVE;
-        g_gun[i].mag = PORT_PP7_MAG;
-    }
+    for (i = 0; i < PORT_MAX_PLAYERS; i++)
+        port_gun_reset_seat(i);
 }
 
 void port_gun_tick(uint16_t buttons)

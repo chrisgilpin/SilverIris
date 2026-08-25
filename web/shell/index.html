@@ -44,6 +44,23 @@
           analytics SDK. No server browser.
         </p>
         <label>Nick <input id="nick" maxlength="16" value="Player" /></label>
+        <label>Stage
+          <select id="stage">
+            <option value="34" selected>Facility</option>
+            <option value="31">Complex</option>
+          </select>
+        </label>
+        <label>Length
+          <select id="length">
+            <option value="0">Unlimited</option>
+            <option value="1">5 min</option>
+            <option value="2" selected>10 min</option>
+            <option value="3">20 min</option>
+            <option value="4">First to 5</option>
+            <option value="5">First to 10</option>
+            <option value="6">First to 20</option>
+          </select>
+        </label>
         <button type="button" id="create-room">Create room</button>
         <label>Code <input id="join-code" maxlength="5" spellcheck="false" /></label>
         <button type="button" id="join-room">Join</button>

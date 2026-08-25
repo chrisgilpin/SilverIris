@@ -54,6 +54,7 @@ typedef struct {
     int spawned;
     int32_t health;
     int32_t armour;
+    int dead_ticks;
 } PortPly;
 
 static PortPly g_p[PORT_MAX_PLAYERS];
@@ -368,6 +369,7 @@ void port_player_spawn(void)
         g_p[i].spawned = 1;
         g_p[i].health = PORT_PLAYER_HEALTH_MAX;
         g_p[i].armour = 0;
+        g_p[i].dead_ticks = 0;
     }
     g_safe_y = PORT_EYE_HEIGHT;
     port_stan_clear_current();
@@ -498,8 +500,21 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
 
     if (!p->spawned)
         return;
-    if (p->health <= 0)
+    if (port_score_over()) {
+        p->prev_buttons = buttons;
         return;
+    }
+    if (p->health <= 0) {
+        int rising;
+        p->dead_ticks += 1;
+        rising = ((buttons & PORT_Z_TRIG) != 0) && ((p->prev_buttons & PORT_Z_TRIG) == 0);
+        p->prev_buttons = buttons;
+        if (p->dead_ticks >= PORT_RESPAWN_AUTO_TICKS
+            || (p->dead_ticks >= PORT_RESPAWN_Z_TICKS && rising))
+            port_player_respawn_seat(g_cur);
+        return;
+    }
+    p->dead_ticks = 0;
 
     walk = (float)analog_deadzone((int)stick_y) / STICK_DIV;
     turn = (float)analog_deadzone((int)stick_x) / STICK_DIV;
@@ -553,6 +568,64 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
 }
 
 int port_player_health(void) { return g_p[g_cur].health; }
+
+int port_player_health_at(int seat)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return 0;
+    return g_p[seat].health;
+}
+
+int port_player_dead_ticks(void) { return g_p[g_cur].dead_ticks; }
+
+int port_player_dead_ticks_at(int seat)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return 0;
+    return g_p[seat].dead_ticks;
+}
+
+void port_player_respawn_seat(int seat)
+{
+    float x, y, z, th;
+    int saved;
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    if (port_score_over())
+        return;
+    saved = g_cur;
+    g_cur = seat;
+    if (g_have_origin) {
+        x = g_origin_x;
+        y = g_origin_y;
+        z = g_origin_z;
+        th = g_origin_th;
+        if (seat > 0) {
+            if (g_have_seat[seat]) {
+                x = g_seat_x[seat];
+                y = g_seat_y[seat];
+                z = g_seat_z[seat];
+                th = g_seat_th[seat];
+            } else {
+                x = g_origin_x + k_spawn_x[seat];
+                z = g_origin_z + k_spawn_z[seat];
+                y = g_origin_y;
+            }
+        }
+    } else {
+        x = k_spawn_x[seat];
+        y = 0.0f;
+        z = k_spawn_z[seat];
+        th = 0.0f;
+    }
+    sit_seat(seat, x, y, z, th);
+    g_p[seat].health = PORT_PLAYER_HEALTH_MAX;
+    g_p[seat].armour = 0;
+    g_p[seat].dead_ticks = 0;
+    g_p[seat].prev_buttons = 0;
+    port_gun_reset_seat(seat);
+    g_cur = saved;
+}
 
 int port_player_armour(void) { return g_p[g_cur].armour; }
 

@@ -63,9 +63,16 @@ int port_player_spawned(void);
 #define PORT_PLAYER_ARMOUR_MAX 8
 #define PORT_PLAYER_RADIUS 30.0f
 int port_player_health(void);
+int port_player_health_at(int seat);
 int port_player_armour(void);
 void port_player_add_armour(int amount);
 void port_player_damage(int amount);
+/* MP: 20 ticks (1 s) Z-rising respawn; 40 ticks auto. */
+#define PORT_RESPAWN_Z_TICKS 20
+#define PORT_RESPAWN_AUTO_TICKS 40
+int port_player_dead_ticks(void);
+int port_player_dead_ticks_at(int seat);
+void port_player_respawn_seat(int seat);
 /* Cylinder at the current seat (local xz, eye-relative height). */
 int port_player_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
                         float *t_out);

@@ -73,7 +73,64 @@ int main(void)
     if (port_score_kills() != 1)
         return fail("dead body is not a second kill");
 
-    printf("score ok kills=%d scenario=%d act=%d crc=%08x\n", port_score_kills(),
-        port_score_scenario(), port_chr_action(), b.crc_objectives);
+    port_score_configure(PORT_SCENARIO_NORMAL, PORT_LEN_5PT);
+    if (port_score_over())
+        return fail("5pt not over at 1");
+    {
+        int k;
+        for (k = 0; k < 4; k++)
+            port_score_add_kill();
+    }
+    if (!port_score_over())
+        return fail("5pt must end");
+    if (port_score_winner() != 0)
+        return fail("P0 winner");
+
+    port_set_player_count(2);
+    port_player_spawn();
+    port_score_configure(PORT_SCENARIO_NORMAL, PORT_LEN_UNLIMITED);
+    port_set_cur_player(0);
+    port_score_add_kill();
+    port_set_cur_player(1);
+    port_player_damage(PORT_PLAYER_HEALTH_MAX);
+    if (port_player_health() != 0)
+        return fail("p1 dead");
+    for (i = 0; i < PORT_RESPAWN_AUTO_TICKS; i++) {
+        port_set_local_pad(0, 0, 0, 0);
+        port_set_local_pad(1, 0, 0, 0);
+        if (port_sim_tick((uint32_t)(20 + i)) != 0)
+            return fail("respawn idle");
+    }
+    port_set_cur_player(1);
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX) {
+        fprintf(stderr, "p1 hp=%d ticks=%d\n", port_player_health(),
+            port_player_dead_ticks());
+        return fail("auto respawn");
+    }
+    if (port_score_kills() != 1)
+        return fail("respawn must keep match kills");
+
+    port_set_player_count(2);
+    port_player_spawn();
+    port_score_configure(PORT_SCENARIO_NORMAL, PORT_LEN_UNLIMITED);
+    port_set_cur_player(1);
+    port_player_damage(PORT_PLAYER_HEALTH_MAX);
+    for (i = 0; i < PORT_RESPAWN_Z_TICKS; i++) {
+        port_set_local_pad(0, 0, 0, 0);
+        port_set_local_pad(1, 0, 0, 0);
+        port_sim_tick((uint32_t)(80 + i));
+    }
+    port_set_cur_player(1);
+    if (port_player_health() != 0)
+        return fail("no auto before 40");
+    port_set_local_pad(1, 0, 0, (int)PORT_Z_TRIG);
+    port_sim_tick(80 + PORT_RESPAWN_Z_TICKS);
+    port_set_cur_player(1);
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
+        return fail("Z respawn");
+
+    printf("score ok kills=%d scenario=%d act=%d crc=%08x over=%d\n",
+        port_score_kills(), port_score_scenario(), port_chr_action(),
+        b.crc_objectives, port_score_over());
     return 0;
 }

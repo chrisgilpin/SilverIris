@@ -28,7 +28,7 @@ export function defaultSignalUrl(): string {
 }
 
 /** 20 bytes. Bump when InputBlock / sim contract changes so mixed shells cannot join. */
-export const LOBBY_BUILD_ID = "siliris-ck-props-v2!";
+export const LOBBY_BUILD_ID = "siliris-respawn-v3!!";
 
 function buildIdBytes(): Uint8Array {
   const b = new Uint8Array(20);
@@ -37,13 +37,20 @@ function buildIdBytes(): Uint8Array {
   return b;
 }
 
+export const STAGE_FACILITY = 34;
+export const STAGE_COMPLEX = 31;
+
 export function packedLobbyCfg(
   packHashHex: string,
   nseats = 2,
   delayTicks = 2,
+  stage = STAGE_FACILITY,
+  gameLength = 2,
 ): { cfg: string; cfgHash: string } {
   const n = Math.max(2, Math.min(4, nseats | 0));
   const delay = Math.max(1, Math.min(3, delayTicks | 0));
+  const st = stage === STAGE_COMPLEX ? STAGE_COMPLEX : STAGE_FACILITY;
+  const glen = Math.max(0, Math.min(6, gameLength | 0));
   const packHash = new Uint8Array(32);
   for (let i = 0; i < 32; i++)
     packHash[i] = parseInt(packHashHex.slice(i * 2, i * 2 + 2), 16) || 0;
@@ -60,9 +67,9 @@ export function packedLobbyCfg(
     radar: 1,
     pad0: 0,
     rngSeed: 1,
-    stage: 34,
+    stage: st,
     scenario: 0,
-    gameLength: 2,
+    gameLength: glen,
     chars: [1, 2, 3, 4],
     handicaps: [0, 0, 0, 0],
     favWeapons: [

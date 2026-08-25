@@ -21,4 +21,12 @@ describe("packedLobbyCfg seats", () => {
     expect(decodeMatchConfig(bytesFromHex(packedLobbyCfg(HASH, 1).cfg))?.nseats).toBe(2);
     expect(decodeMatchConfig(bytesFromHex(packedLobbyCfg(HASH, 9).cfg))?.nseats).toBe(4);
   });
+
+  it("packs Complex stage 31 and 5-pt length", () => {
+    const packed = packedLobbyCfg(HASH, 2, 2, 31, 4);
+    const d = decodeMatchConfig(bytesFromHex(packed.cfg));
+    expect(d?.stage).toBe(31);
+    expect(d?.gameLength).toBe(4);
+    expect(packedLobbyCfg(HASH, 2, 2, 34, 2).cfgHash).not.toBe(packed.cfgHash);
+  });
 });

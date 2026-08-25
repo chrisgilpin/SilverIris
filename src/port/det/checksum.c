@@ -100,6 +100,8 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         o += 4;
         wr_f32(buf + o, (float)port_player_armour() / (float)PORT_PLAYER_ARMOUR_MAX);
         o += 4;
+        wr_i32(buf + o, (int32_t)port_player_dead_ticks());
+        o += 4;
     }
     port_set_cur_player(saved);
     out->crc_players = port_crc32c(buf, o);
@@ -215,5 +217,13 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         wr_i32(buf + o, (int32_t)port_score_kill_counts(i));
         o += 4;
     }
+    wr_i32(buf + o, (int32_t)port_score_game_length());
+    o += 4;
+    wr_i32(buf + o, (int32_t)port_score_remain_ticks());
+    o += 4;
+    wr_i32(buf + o, (int32_t)port_score_over());
+    o += 4;
+    wr_i32(buf + o, (int32_t)port_score_winner());
+    o += 4;
     out->crc_objectives = port_crc32c(buf, o);
 }

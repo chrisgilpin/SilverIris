@@ -150,7 +150,9 @@ npm run dev
 ### Netplay (default on)
 
 Host creates a room; 2-4
-players join the same code, Ready, then host Start. Transport is a full-mesh
+players join the same code, Ready, then host Start. Host picks Facility or
+Complex and a match length (time or first-to-N). Dead seats respawn after 2 s
+(or Z after 1 s). Transport is a full-mesh
 of `inp` + `ctl` DataChannels (6 channels per client at 4P). Delay is 2
 ticks on Internet STUN, or 1 with `?ff_lan=1`.
 

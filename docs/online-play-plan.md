@@ -60,12 +60,41 @@ Public CI: 2P corridor tape (walk, door, guard kill, PvP), plus synth TAPE1 repl
 
 ---
 
-## Still true after M6
+## M7 — MP respawn
+
+Dead seats stayed dead (hp 0, no move). That is not a match.
+
+**Does:** after 20 ticks (1 s) a rising Z respawns; at 40 ticks (2 s) auto-respawn. Seat returns to its intro / on-tile pad with full HP, 0 armour, PP7 mag/reserve. Other seats, score, and chrs stay. Match-over freezes respawn.
+
+**Exit:** kill P1, wait 40 ticks, P1 hp is 8 and on-tile. Checksum includes `dead_ticks`.
+
+## M8 — Match length + scoreboard
+
+`MatchConfig.gameLength` was packed and ignored. HUD showed a single kill counter.
+
+**Does:** GAMELENGTH 0–6 (unlimited / 5–20 min / 5–10–20 pts). Clock ticks at 20 Hz. Point limit ends the match on the killing shot. HUD shows per-seat kills and remaining time. Overlay MATCH OVER.
+
+**Exit:** 5-pt configure + 5 kills → over; 10-min default stays under 12000 ticks.
+
+## M9 — Facility / Complex select
+
+Lobby cfg hard-coded stage 34. Complex (31) is already dump-verified in the pack.
+
+**Does:** host picks Facility or Complex; `MatchConfig.stage` is packed; every peer `loadStage`s that id before lockstep. Solo can switch from the same control. Failed load keeps the current stage.
+
+**Exit:** packed cfg with stage 31 round-trips; `loadStage(31)` is called from Start.
+
+Lobby `buildId` `siliris-respawn-v3!!`.
+
+---
+
+## Still true after M9
 
 - G1 walls ≠ stan tiles (some visual clip-through remains).
 - Combat AI is chase / LOS, not full GE.
 - Full matching engine is not in wasm (PORT + G1 slices).
 - Hosting `game.wasm` is still a compiled derivative. See `docs/legal-posture.md`.
+- Walk speed stays the pinned analog (~3 units/tick).
 
 ## Hard rules (every milestone)
 

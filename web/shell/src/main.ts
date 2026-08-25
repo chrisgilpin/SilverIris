@@ -16,7 +16,7 @@ import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
 import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, presentLiveView, stageHasDrawableRooms, type PortChr, type PortHit } from "./game/view.ts";
 import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
 import { decodeInputDatagram, encodeInputDatagram, emptyPad, lookDegFromQ, quantizeLookDeg } from "./net/datagram.ts";
-import { defaultSignalUrl, LOBBY_BUILD_ID, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
+import { defaultSignalUrl, LOBBY_BUILD_ID, packedLobbyCfg, STAGE_COMPLEX, STAGE_FACILITY, SignalClient } from "./net/lobby.ts";
 import { ICE_FAIL_OVERLAY, LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
 import { bytesFromHex, decodeMatchConfig, hexBytes } from "./net/match_config.ts";
 import { releaseMatchHold, startMatchHold } from "./net/hold_tab.ts";
@@ -36,6 +36,8 @@ const reportBtn = document.querySelector<HTMLButtonElement>("#report");
 const lobbyEl = document.querySelector<HTMLElement>("#lobby");
 const nickEl = document.querySelector<HTMLInputElement>("#nick");
 const createRoomBtn = document.querySelector<HTMLButtonElement>("#create-room");
+const stageSel = document.querySelector<HTMLSelectElement>("#stage");
+const lengthSel = document.querySelector<HTMLSelectElement>("#length");
 const joinCodeEl = document.querySelector<HTMLInputElement>("#join-code");
 const joinRoomBtn = document.querySelector<HTMLButtonElement>("#join-room");
 const lobbyStatus = document.querySelector<HTMLParagraphElement>("#lobby-status");
@@ -206,10 +208,22 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   {
     const los = game.guardLos();
+    const n = game.playerCount();
+    const board = [0, 1, 2, 3]
+      .slice(0, Math.max(1, n))
+      .map((s) => `P${s + 1} ${game.killCounts(s)}`)
+      .join("  ");
+    const remain = game.scoreRemain();
+    const clock =
+      remain > 0
+        ? `  ${Math.floor(remain / 20 / 60)}:${String(Math.floor((remain / 20) % 60)).padStart(2, "0")}`
+        : game.scoreOver()
+          ? "  OVER"
+          : "";
     const gline =
       game.chrCount() > 0
-        ? `kills ${game.kills()}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`
-        : `kills ${game.kills()}`;
+        ? `${board}${clock}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`
+        : `${board}${clock}`;
     ctx.fillText(
       `${gline}${los ? `  los ${los} shots ${game.guardShots()}` : ""}`,
       8,
@@ -235,17 +249,26 @@ function drawHurtFlash(): void {
 
 function drawDeathCue(): void {
   if (!game?.ready()) return;
-  if (game.health() > 0) return;
+  if (game.health() > 0 && !game.scoreOver()) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.fillStyle = "rgba(10, 6, 6, 0.48)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#e07070";
   ctx.font = "bold 48px ui-sans-serif, system-ui, sans-serif";
+  if (game.scoreOver()) {
+    ctx.fillText("MATCH OVER", 16, Math.max(96, canvas.height * 0.42));
+    ctx.fillStyle = "#e8e6e1";
+    ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
+    const w = game.scoreWinner();
+    ctx.fillText(w >= 0 ? `P${w + 1} wins` : "draw", 18, Math.max(120, canvas.height * 0.42 + 26));
+    return;
+  }
   ctx.fillText("DEAD", 16, Math.max(96, canvas.height * 0.42));
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText("hp 0", 18, Math.max(120, canvas.height * 0.42 + 26));
+  const left = Math.max(0, 40 - game.deadTicks());
+  ctx.fillText(left > 20 ? `respawn in ${left} ticks` : "Z / Space to respawn", 18, Math.max(120, canvas.height * 0.42 + 26));
 }
 
 function flashPew(): void {
@@ -937,10 +960,19 @@ async function beginMesh(): Promise<void> {
     lobbyStatus.textContent = `Lockstep ${netLock?.nseats ?? 2}P delay ${netLock?.delay ?? 2} (${dataChannelsPerPeer(netLock?.nseats ?? 2)} DataChannels). WASD+Z is this seat. Keep tab visible.`;
 }
 
+function selectedStage(): number {
+  return Number(stageSel?.value) === STAGE_COMPLEX ? STAGE_COMPLEX : STAGE_FACILITY;
+}
+
+function selectedLength(): number {
+  const n = Number(lengthSel?.value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(6, n | 0)) : 2;
+}
+
 function publishLobbyCfg(nseats: number): void {
   if (!lastPackHash)
     return;
-  const packed = packedLobbyCfg(lastPackHash, nseats, flags.lan ? 1 : 2);
+  const packed = packedLobbyCfg(lastPackHash, nseats, flags.lan ? 1 : 2, selectedStage(), selectedLength());
   lastCfgHash = packed.cfgHash;
   lastCfgHex = packed.cfg;
   signal?.send({ v: 1, t: "cfg", cfg: packed.cfg, cfgHash: packed.cfgHash });
@@ -1002,6 +1034,14 @@ function startLockstep(): void {
   const nseats = Math.min(4, Math.max(2, lastRosterSeats.length || 0, cfg?.nseats ?? 0));
   const delay = Math.min(3, Math.max(1, cfg?.delayTicks ?? 2));
   const seed = cfg?.rngSeed ?? 1;
+  const stage = cfg?.stage === STAGE_COMPLEX ? STAGE_COMPLEX : STAGE_FACILITY;
+  const glen = Math.max(0, Math.min(6, cfg?.gameLength ?? 2));
+  {
+    const rc = game.loadStage(stage);
+    if (rc !== 0)
+      lastStageNote = `Stage ${stage} load rc=${rc}. ${game.lastError()}`;
+  }
+  game.configureMatch(cfg?.scenario ?? 0, glen);
   netLock = new LockstepSession(mySeat, nseats, delay, lockEngine());
   netLock.start(seed);
   simN = 0;
@@ -1174,5 +1214,16 @@ bindReset?.addEventListener("click", () => {
   renderBinds();
 });
 renderBinds();
+
+stageSel?.addEventListener("change", () => {
+  if (netLock || !game?.ready())
+    return;
+  const id = selectedStage();
+  const rc = game.loadStage(id);
+  lastStageNote = rc === 0
+    ? `Loaded ${id === STAGE_COMPLEX ? "Complex" : "Facility"}.`
+    : `Stage ${id} load rc=${rc}. ${game.lastError()}`;
+  setStatus(rc === 0 ? "ok" : "err", lastStageNote);
+});
 
 void flags;

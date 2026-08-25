@@ -93,6 +93,12 @@ PORT_KEEP int port_api_chr_action(void);
 PORT_KEEP uint32_t port_api_crc_chrs(void);
 
 PORT_KEEP int port_api_kills(void);
+PORT_KEEP int port_api_kill_counts(int seat);
+PORT_KEEP void port_api_configure_match(int scenario, uint32_t game_length);
+PORT_KEEP int port_api_score_remain(void);
+PORT_KEEP int port_api_score_over(void);
+PORT_KEEP int port_api_score_winner(void);
+PORT_KEEP int port_api_dead_ticks(void);
 /* Packed i32 [mag, reserve, hits, kills, health]. JS reads getInt32/HEAP32, not HEAPF32. */
 PORT_KEEP int32_t *port_api_hud_i32(void);
 PORT_KEEP int port_api_health(void);

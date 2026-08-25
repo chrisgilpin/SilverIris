@@ -102,6 +102,12 @@ export type GameModule = {
   _port_api_chr_action: () => number;
   _port_api_crc_chrs: () => number;
   _port_api_kills: () => number;
+  _port_api_kill_counts?: (seat: number) => number;
+  _port_api_configure_match?: (scenario: number, gameLength: number) => void;
+  _port_api_score_remain?: () => number;
+  _port_api_score_over?: () => number;
+  _port_api_score_winner?: () => number;
+  _port_api_dead_ticks?: () => number;
   _port_api_hud_i32?: () => number;
   _port_api_health?: () => number;
   _port_api_guard_los?: () => number;
@@ -192,6 +198,12 @@ export type GameBridge = {
   chrAction(): number;
   crcChrs(): number;
   kills(): number;
+  killCounts(seat: number): number;
+  configureMatch(scenario: number, gameLength: number): void;
+  scoreRemain(): number;
+  scoreOver(): boolean;
+  scoreWinner(): number;
+  deadTicks(): number;
   health(): number;
   armour(): number;
   guardLos(): number;
@@ -525,6 +537,25 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     kills(): number {
       return alive ? hudSlot(M, 3, () => M._port_api_kills()) : 0;
+    },
+    killCounts(seat: number): number {
+      return alive && M._port_api_kill_counts ? M._port_api_kill_counts(seat) | 0 : 0;
+    },
+    configureMatch(scenario: number, gameLength: number): void {
+      if (alive && M._port_api_configure_match)
+        M._port_api_configure_match(scenario | 0, gameLength >>> 0);
+    },
+    scoreRemain(): number {
+      return alive && M._port_api_score_remain ? M._port_api_score_remain() | 0 : 0;
+    },
+    scoreOver(): boolean {
+      return !!(alive && M._port_api_score_over && M._port_api_score_over());
+    },
+    scoreWinner(): number {
+      return alive && M._port_api_score_winner ? M._port_api_score_winner() | 0 : -1;
+    },
+    deadTicks(): number {
+      return alive && M._port_api_dead_ticks ? M._port_api_dead_ticks() | 0 : 0;
     },
     health(): number {
       return alive ? hudSlot(M, 4, () => (M._port_api_health ? M._port_api_health() : 8)) : 0;

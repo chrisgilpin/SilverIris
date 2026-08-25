@@ -299,6 +299,21 @@ static int32_t g_hud_i32[5];
 
 PORT_KEEP int port_api_kills(void) { return port_score_kills(); }
 
+PORT_KEEP int port_api_kill_counts(int seat) { return port_score_kill_counts(seat); }
+
+PORT_KEEP void port_api_configure_match(int scenario, uint32_t game_length)
+{
+    port_score_configure(scenario, game_length);
+}
+
+PORT_KEEP int port_api_score_remain(void) { return port_score_remain_ticks(); }
+
+PORT_KEEP int port_api_score_over(void) { return port_score_over(); }
+
+PORT_KEEP int port_api_score_winner(void) { return port_score_winner(); }
+
+PORT_KEEP int port_api_dead_ticks(void) { return port_player_dead_ticks(); }
+
 PORT_KEEP int port_api_health(void) { return port_player_health(); }
 
 PORT_KEEP int port_api_armour(void) { return port_player_armour(); }

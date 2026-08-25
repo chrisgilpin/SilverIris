@@ -2,6 +2,7 @@
 
 #include "../../overrides/lv_clock.h"
 #include "chr/patrol.h"
+#include "mp/score.h"
 #include "player/gun.h"
 #include "player/move.h"
 #include "player/stan_walk.h"
@@ -63,5 +64,6 @@ int port_sim_tick(uint32_t tick)
     }
     if (port_prop_tick_die)
         port_prop_tick_die();
+    port_score_tick();
     return 0;
 }
