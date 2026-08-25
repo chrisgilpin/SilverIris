@@ -1,8 +1,8 @@
 # Remote instance -- 007.goodhouseinc.com
 
 Public URL: **https://007.goodhouseinc.com** (no access secret). Anyone who
-opens it can drop their own NTSC-U cartridge dump and, with `?ff_netplay=1`,
-create or join a room. The file is selected in *your* browser. It is never
+opens it can drop their own NTSC-U cartridge dump and create or join a room
+(solo: `?ff_netplay=0`). The file is selected in *your* browser. It is never
 uploaded through nginx.
 
 This box already terminates TLS with **nginx + Certbot** (same pattern as

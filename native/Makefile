@@ -62,7 +62,8 @@ PORT_STAGE_OBJS := \
 	$(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o \
 	$(BUILD)/src/port/mp/score.o \
-	$(BUILD)/src/port/det/checksum.o
+	$(BUILD)/src/port/det/checksum.o \
+	$(BUILD)/src/port/det/prop_ck_stubs.o
 
 PORT_PACK_OBJS := \
 	$(BUILD)/src/port/fs/filelist.o \
@@ -74,7 +75,7 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 	-DPORT_FILELIST_DEFAULT=\"$(FILELIST_U)\"
 
 .PHONY: all overlay ge_sim port_stub rng-test tick-test joy-playback rom-dma \
-	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test 2p-corridor-test wasm silveriris silveriris_bringup shot-bin \
+	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth replay-pack match-config lockstep-test 2p-corridor-test wasm silveriris silveriris_bringup shot-bin \
 	product-no-rom-dma clean trial
 
 all: port_stub silveriris
@@ -173,6 +174,10 @@ $(BUILD)/src/port/mp/score.o: $(PORT)/mp/score.c
 $(BUILD)/src/port/det/checksum.o: $(PORT)/det/checksum.c
 	@mkdir -p $(dir $@)
 	$(CC) -std=c11 -I$(PORT) -I$(ROOT)/src -c $< -o $@
+
+$(BUILD)/src/port/det/prop_ck_stubs.o: $(PORT)/det/prop_ck_stubs.c
+	@mkdir -p $(dir $@)
+	$(CC) -std=c11 -I$(PORT) -c $< -o $@
 
 $(BUILD)/src/port/det/tape.o: $(PORT)/det/tape.c
 	@mkdir -p $(dir $@)
@@ -433,7 +438,7 @@ player-test: overlay $(BUILD)/test_player
 $(BUILD)/test_gun: $(ROOT)/tools/det/test_gun.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
@@ -441,7 +446,7 @@ $(BUILD)/test_gun: $(ROOT)/tools/det/test_gun.c \
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_gun.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o -lm
@@ -452,7 +457,7 @@ gun-test: overlay $(BUILD)/test_gun
 $(BUILD)/test_chr: $(ROOT)/tools/det/test_chr.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
@@ -460,7 +465,7 @@ $(BUILD)/test_chr: $(ROOT)/tools/det/test_chr.c \
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_chr.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o -lm
@@ -471,7 +476,7 @@ chr-test: overlay $(BUILD)/test_chr
 $(BUILD)/test_score: $(ROOT)/tools/det/test_score.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
@@ -479,7 +484,7 @@ $(BUILD)/test_score: $(ROOT)/tools/det/test_score.c \
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_score.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o -lm
@@ -490,7 +495,7 @@ score-test: overlay $(BUILD)/test_score
 $(BUILD)/test_split: $(ROOT)/tools/det/test_split.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
@@ -498,7 +503,7 @@ $(BUILD)/test_split: $(ROOT)/tools/det/test_split.c \
 	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_split.c \
 		$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 		$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/overrides/lv_clock.o \
+		$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/overrides/lv_clock.o \
 		$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o -lm
@@ -529,7 +534,7 @@ view-seat-test: overlay $(BUILD)/test_view_seat
 TAPE_OBJS := \
 	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-	$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/tape.o \
+	$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o $(BUILD)/src/port/det/tape.o \
 	$(BUILD)/src/overrides/lv_clock.o \
 	$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 	$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
@@ -551,6 +556,26 @@ $(BUILD)/replay: $(ROOT)/tools/det/replay.c $(TAPE_OBJS) | overlay
 replay-synth: tape-test $(BUILD)/replay
 	$(BUILD)/replay $(SYNTH_TAPE)
 
+# Private pack tape: never commit the pack. SILVERIRIS_PACK or --pack.
+REPLAY_PACK_OBJS := $(PORT_STAGE_OBJS) $(PORT_PACK_OBJS) \
+	$(BUILD)/src/port/det/tape.o \
+	$(BUILD)/src/port/fs/sha256.o \
+	$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
+	$(BUILD)/src/port/os/ultra_stubs.o \
+	$(BUILD)/src/port/vi/wait_override.o \
+	$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+	$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
+	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
+	$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o
+
+$(BUILD)/replay_pack: $(ROOT)/tools/det/replay.c $(REPLAY_PACK_OBJS) | overlay
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DPORT_REPLAY_PACK -I$(ROOT)/src -I$(PORT) -o $@ $(ROOT)/tools/det/replay.c \
+		$(REPLAY_PACK_OBJS) -lm
+
+replay-pack: overlay tape-test $(BUILD)/replay_pack
+	$(BUILD)/replay_pack $(SYNTH_TAPE)
+
 $(BUILD)/test_match_config: $(ROOT)/tools/det/test_match_config.c $(PORT)/net/match_config.c $(PORT)/net/match_config.h
 	@mkdir -p $(BUILD)
 	$(CC) -std=c11 -Wall -Wextra -Werror -o $@ $(ROOT)/tools/det/test_match_config.c $(PORT)/net/match_config.c -I$(PORT)
@@ -562,7 +587,7 @@ LOCKSTEP_OBJS := \
 	$(BUILD)/src/port/net/lockstep.o \
 	$(BUILD)/src/port/player/move.o $(BUILD)/src/port/player/stan_walk.o $(BUILD)/src/port/player/gun.o \
 	$(BUILD)/src/port/chr/patrol.o $(BUILD)/src/port/mp/score.o \
-	$(BUILD)/src/port/det/checksum.o \
+	$(BUILD)/src/port/det/checksum.o $(BUILD)/src/port/det/prop_ck_stubs.o \
 	$(BUILD)/src/overrides/lv_clock.o \
 	$(BUILD)/src/port/vi/sim_tick.o $(BUILD)/src/port/os/count.o \
 	$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
@@ -628,6 +653,7 @@ WASM_SRCS := \
 	$(PORT)/chr/patrol.c \
 	$(PORT)/mp/score.c \
 	$(PORT)/det/checksum.c \
+	$(PORT)/det/prop_ck_stubs.c \
 	$(PORT)/rng/random.c
 
 $(BUILD)/wasm/frametiming.o: $(DECOMP)/src/game/frametiming.c | overlay

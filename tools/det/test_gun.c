@@ -472,6 +472,110 @@ static int test_pitch_miss_cylinder(void)
     return 0;
 }
 
+/* Strong overrides of prop_ck_stubs so a divergent pickup/drop changes ck
+ * without linking prop.c or a ROM. Defaults match the empty weak record. */
+static int g_ck_pickup_pad = -1;
+static int g_ck_pickup_kind = 0;
+static int g_ck_pickup_hidden = 1;
+static float g_ck_pickup_x, g_ck_pickup_y, g_ck_pickup_z;
+static int g_ck_drop_model = -1;
+static int g_ck_drop_hidden = 1;
+static float g_ck_drop_x, g_ck_drop_y, g_ck_drop_z;
+
+int port_prop_pickup_pad(void) { return g_ck_pickup_pad; }
+int port_prop_pickup_kind(void) { return g_ck_pickup_kind; }
+int port_prop_pickup_hidden(void) { return g_ck_pickup_hidden; }
+int port_prop_pickup_xyz(float *x, float *y, float *z)
+{
+    if (x)
+        *x = g_ck_pickup_x;
+    if (y)
+        *y = g_ck_pickup_y;
+    if (z)
+        *z = g_ck_pickup_z;
+    return g_ck_pickup_pad < 0 ? -1 : 0;
+}
+int port_prop_drop_model(void) { return g_ck_drop_model; }
+int port_prop_drop_hidden(void) { return g_ck_drop_hidden; }
+int port_prop_drop_xyz(float *x, float *y, float *z)
+{
+    if (x)
+        *x = g_ck_drop_x;
+    if (y)
+        *y = g_ck_drop_y;
+    if (z)
+        *z = g_ck_drop_z;
+    return g_ck_drop_model < 0 ? -1 : 0;
+}
+
+static int test_crc_props(void)
+{
+    SimChecksum a, b, c;
+    float y, gx, gz;
+
+    if (load_corridor() != 0)
+        return 1;
+    if (port_stan_eye_y(80.0f, 0.0f, &y) != 0)
+        return fail("ck eye");
+    port_set_player_count(1);
+    port_stan_add_guard(260.0f, 0.0f);
+    port_stan_add_guard(260.0f, 40.0f);
+    port_player_spawn();
+    port_player_set_pose(80.0f, y, 0.0f, 90.0f);
+    port_player_set_pitch(0.0f);
+    port_set_cur_player(0);
+    port_checksum(0, &a);
+    if (port_stan_guard_xz(0, &gx, &gz) != 0)
+        return fail("guard xz");
+    port_stan_move_guard(260.0f, 0.0f, 300.0f, 0.0f);
+    port_checksum(0, &b);
+    if (a.crc_props == b.crc_props)
+        return fail("moved guard must change crc_props");
+    port_stan_move_guard(300.0f, 0.0f, 260.0f, 0.0f);
+    if (fire_once(400) != 0)
+        return 1;
+    if (!port_stan_guard_was_hit(0))
+        return fail("ck guard miss");
+    port_checksum(0, &c);
+    if (b.crc_props == c.crc_props)
+        return fail("dead guard must change crc_props");
+
+    g_ck_pickup_pad = 215;
+    g_ck_pickup_kind = 2; /* PORT_PICKUP_ARMOUR */
+    g_ck_pickup_hidden = 0;
+    g_ck_pickup_x = 100.f;
+    g_ck_pickup_y = 50.f;
+    g_ck_pickup_z = 0.f;
+    port_checksum(0, &a);
+    if (a.crc_props == c.crc_props)
+        return fail("pad-215 armour must change crc_props");
+    g_ck_pickup_hidden = 1;
+    port_checksum(0, &b);
+    if (a.crc_props == b.crc_props)
+        return fail("collected armour must change crc_props");
+
+    g_ck_drop_model = 184; /* KF7 chrkalash */
+    g_ck_drop_hidden = 0;
+    g_ck_drop_x = 260.f;
+    g_ck_drop_y = 50.f;
+    g_ck_drop_z = 0.f;
+    port_checksum(0, &c);
+    if (b.crc_props == c.crc_props)
+        return fail("KF7 drop must change crc_props");
+    g_ck_drop_hidden = 1;
+    port_checksum(0, &a);
+    if (a.crc_props == c.crc_props)
+        return fail("collected KF7 drop must change crc_props");
+
+    g_ck_pickup_pad = -1;
+    g_ck_pickup_kind = 0;
+    g_ck_pickup_hidden = 1;
+    g_ck_drop_model = -1;
+    g_ck_drop_hidden = 1;
+    printf("crc_props ok guard/pad215/kf7\n");
+    return 0;
+}
+
 int main(void)
 {
     SimChecksum a, b;
@@ -555,6 +659,8 @@ int main(void)
     if (test_pitch_miss_cylinder() != 0)
         return 1;
     if (test_pvp_hitscan() != 0)
+        return 1;
+    if (test_crc_props() != 0)
         return 1;
     return 0;
 }

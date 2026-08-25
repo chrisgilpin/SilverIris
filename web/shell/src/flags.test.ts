@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { readFlags } from "./flags.ts";
 
 describe("readFlags", () => {
-  it("defaults netplay off and widescreen on", () => {
+  it("defaults netplay on and widescreen on", () => {
     const f = readFlags("");
-    expect(f.netplay).toBe(false);
+    expect(f.netplay).toBe(true);
     expect(f.turnForce).toBe(false);
     expect(f.wsRelay).toBe(false);
     expect(f.widescreen).toBe(true);

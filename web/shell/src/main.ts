@@ -1,6 +1,15 @@
 import { extractRom } from "../../extractor/src/index.ts";
 import type { ExtractedFile } from "../../extractor/src/extract.ts";
 import { AudioPlayer, lastAudioError, unlockAudio } from "./audio/player.ts";
+import {
+  BIND_ACTIONS,
+  BIND_LABELS,
+  formatBind,
+  loadBinds,
+  saveBinds,
+  setBind,
+  type BindAction,
+} from "./binds.ts";
 import { buildReport, encodeTapeExcerpt } from "./det/report.ts";
 import { flags } from "./flags.ts";
 import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
@@ -54,6 +63,9 @@ let lookPitchAcc = 0;
 const C_UP = 0x0008;
 const C_DOWN = 0x0004;
 const STRAFE = 0x0020;
+
+let p1Binds = loadBinds();
+let rebindAction: BindAction | null = null;
 let lastHp = 8;
 let hurtFlash = 0;
 const held = new Set<string>();
@@ -125,17 +137,21 @@ function consumeMouseLook(): { lookYaw: number; lookPitch: number } {
   return { lookYaw: yawQ, lookPitch: pitchQ };
 }
 
+function heldBind(action: BindAction): boolean {
+  return p1Binds[action].some((c) => held.has(c));
+}
+
 function padP1Move(): ReturnType<typeof emptyPad> {
   const pad = stickPad({
-    up: held.has("KeyW"),
-    down: held.has("KeyS"),
-    left: held.has("KeyA"),
-    right: held.has("KeyD"),
-    fire: held.has("KeyZ") || held.has("Space"),
+    up: heldBind("up"),
+    down: heldBind("down"),
+    left: heldBind("left"),
+    right: heldBind("right"),
+    fire: heldBind("fire"),
   });
   const oneP = !game || game.playerCount() <= 1 || !!netLock;
-  if (held.has("KeyI") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
-  if (held.has("KeyK") || (oneP && held.has("ArrowDown"))) pad.buttons |= C_DOWN;
+  if (heldBind("lookUp") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
+  if (heldBind("lookDown") || (oneP && held.has("ArrowDown"))) pad.buttons |= C_DOWN;
   if (typeof document !== "undefined" && document.pointerLockElement)
     pad.buttons |= STRAFE;
   return pad;
@@ -431,8 +447,8 @@ function afterLoadStatus(packHash: string, fromIdb: boolean): string {
   const src = fromIdb ? "from this browser" : "loaded";
   const prefix = fromIdb ? "" : "NTSC-U verified. ";
   const net = flags.netplay
-    ? "Netplay lobby is on (opt-in). Campaign is not v1."
-    : "Solo. Netplay is opt-in (?ff_netplay=1). Campaign is not v1.";
+    ? "Netplay lobby is on. Create or join by room code. Campaign is not v1."
+    : "Solo (?ff_netplay=0). Campaign is not v1.";
   return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Live G1 blit if this pack\'s room GDL is drawable, else PORT mesh. " + lastStageNote + " Click picture or Z/Space for audio. " + net;
 }
 
@@ -565,7 +581,25 @@ document.addEventListener("mousemove", (ev) => {
   lookYawAcc += ev.movementX;
   lookPitchAcc += ev.movementY;
 });
+function typingInField(ev: KeyboardEvent): boolean {
+  const t = ev.target;
+  if (!(t instanceof HTMLElement)) return false;
+  const tag = t.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
+}
+
 window.addEventListener("keydown", (ev) => {
+  if (rebindAction) {
+    ev.preventDefault();
+    if (ev.code !== "Escape") {
+      p1Binds = setBind(p1Binds, rebindAction, ev.code);
+      saveBinds(p1Binds);
+    }
+    rebindAction = null;
+    renderBinds();
+    return;
+  }
+  if (typingInField(ev)) return;
   if (ev.code === "Digit1" || ev.code === "Digit2" || ev.code === "Digit3" || ev.code === "Digit4") {
     ev.preventDefault();
     if (netLock)
@@ -584,17 +618,13 @@ window.addEventListener("keydown", (ev) => {
     onAudioGesture();
     return;
   }
+  const p1Codes = BIND_ACTIONS.flatMap((a) => p1Binds[a]);
   if (
-    ev.code === "KeyW" ||
-    ev.code === "KeyA" ||
-    ev.code === "KeyS" ||
-    ev.code === "KeyD" ||
+    p1Codes.includes(ev.code) ||
     ev.code === "ArrowUp" ||
     ev.code === "ArrowDown" ||
     ev.code === "ArrowLeft" ||
     ev.code === "ArrowRight" ||
-    ev.code === "KeyI" ||
-    ev.code === "KeyK" ||
     ev.code === "ShiftRight"
   ) {
     ev.preventDefault();
@@ -1116,4 +1146,33 @@ void (async () => {
     setStatus("", `Pack is in this browser. Engine not started (${msg}).`);
   }
 })();
+const bindList = document.querySelector<HTMLDivElement>("#bind-list");
+const bindReset = document.querySelector<HTMLButtonElement>("#bind-reset");
+
+function renderBinds(): void {
+  if (!bindList) return;
+  bindList.replaceChildren();
+  BIND_ACTIONS.forEach((action) => {
+    const lab = document.createElement("span");
+    lab.textContent = BIND_LABELS[action];
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = rebindAction === action ? "press a key…" : formatBind(p1Binds[action]);
+    if (rebindAction === action) btn.classList.add("listening");
+    btn.addEventListener("click", () => {
+      rebindAction = action;
+      renderBinds();
+    });
+    bindList.append(lab, btn);
+  });
+}
+
+bindReset?.addEventListener("click", () => {
+  p1Binds = loadBinds({ getItem: () => null });
+  saveBinds(p1Binds);
+  rebindAction = null;
+  renderBinds();
+});
+renderBinds();
+
 void flags;

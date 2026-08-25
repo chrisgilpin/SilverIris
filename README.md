@@ -26,7 +26,7 @@ if they appear (`tools/guard`).
 
 Public URL: [https://007.goodhouseinc.com](https://007.goodhouseinc.com)
 (no access secret). The shell lobby, 2-4P lockstep, and coturn TURN exist.
-Netplay is **opt-in** (`?ff_netplay=1`) and is **not** default-on. The live
+Netplay is **on** at that URL. Solo is `?ff_netplay=0`. The live
 canvas calls `port_api_draw` and blits the stage G1 framebuffer when the
 user pack produced a drawable room GDL (synthetic Fast3D or inflated 1172
 C0/`G_TRI4`). Otherwise it keeps the PORT mesh so a non-drawable pack does
@@ -94,12 +94,11 @@ This box: [`docs/remote-dev.md`](docs/remote-dev.md).
 
 ## QoL flags
 
-Query `?ff_name=0|1` overrides `localStorage` `ff_name`. Do not default
-netplay on.
+Query `?ff_name=0|1` overrides `localStorage` `ff_name`.
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `ff_netplay` | off | Show the lobby and start a 2-4P lockstep mesh |
+| `ff_netplay` | on | Show the lobby and start a 2-4P lockstep mesh. `?ff_netplay=0` is solo. |
 | `ff_lan` | off | Delay 1 tick (LAN) instead of 2 (Internet) |
 | `ff_turnForce` | off | ICE `relay` only (TURN path; hides host IP) |
 | `ff_wsRelay` | off | Force `/ws` relay of `inp`/`ctl` (also auto-on after ICE fail) |
@@ -135,8 +134,8 @@ redistributing a compiled engine lawful. Read [`docs/legal-posture.md`](docs/leg
 ROM gate + in-tab extract + `.c0pack` in IndexedDB, then `game.wasm` `init(pack)`
 (hash check, 256 MB, G1 blit when the pack's room GDL is drawable, else the
 PORT mesh, placeholder AudioWorklet). Title music and gun are integer-phase
-stubs, not cartridge banks. Netplay is opt-in (`?ff_netplay=1`); campaign is
-not v1.
+stubs, not cartridge banks. Netplay is on at the public URL
+(`?ff_netplay=0` for solo); campaign is not v1.
 
 ```bash
 make -C native wasm                 # emcc → web/shell/public/game.{js,wasm}
@@ -148,9 +147,9 @@ npm run dev
 
 `npm run dev` is localhost-only. The public instance is already live. See [`docs/remote-dev.md`](docs/remote-dev.md).
 
-### Netplay (opt-in, `?ff_netplay=1`)
+### Netplay (default on)
 
-Netplay stays **off** unless the query flag is set. Host creates a room; 2-4
+Host creates a room; 2-4
 players join the same code, Ready, then host Start. Transport is a full-mesh
 of `inp` + `ctl` DataChannels (6 channels per client at 4P). Delay is 2
 ticks on Internet STUN, or 1 with `?ff_lan=1`.
@@ -175,7 +174,7 @@ AudioWorklet and navigator.wakeLock reduce throttle when they work; there
 is no good fix. Background-tab lockstep is unsupported.
 
 How to try 3-4P: open four tabs at
-`https://007.goodhouseinc.com/?ff_netplay=1` (or add `&ff_lan=1` on a LAN).
+`https://007.goodhouseinc.com` (or add `?ff_lan=1` on a LAN).
 Each tab loads the same NTSC-U ROM. Host Create room, others Join the code,
 Ready, host Start. Each tab is one seat with its own full-frame view.
 

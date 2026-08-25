@@ -167,6 +167,17 @@ int port_stan_guard_was_hit(int i)
     return g_guard[i].hit;
 }
 
+int port_stan_guard_xz(int i, float *x, float *z)
+{
+    if (i < 0 || i >= g_nguard)
+        return -1;
+    if (x)
+        *x = g_guard[i].x;
+    if (z)
+        *z = g_guard[i].z;
+    return 0;
+}
+
 int port_stan_ray_hit_guard(void) { return g_ray_guard >= 0; }
 
 int port_stan_guard_dead_at(float world_x, float world_z)

@@ -92,8 +92,8 @@ rooms stays on the placeholder mesh. Retail-shaped rooms also inflate the
 vertex table onto segment 14 and look-at from the player so TRI4s can paint.
 SETTEX binds pack tiles (including IA4/IA8 floor-like banks) onto a per-tri
 cache; the secondary room GDL is walked; floor tris that cross the camera
-are clipped instead of dropped. Flags `netplay`/`campaign` stay off. Title
-is still later.
+are clipped instead of dropped. Flag `campaign` stays off. `netplay` is on at the public
+URL. Title is still later.
 
 ## Audio stub (PR-10)
 

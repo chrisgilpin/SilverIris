@@ -174,6 +174,7 @@ int port_tape_replay(const uint8_t *bytes, size_t len, uint32_t *mismatch_tick)
         port_checksum(fr[i].tick, &got);
         if (got.rng_lo != fr[i].cs.rng_lo || got.chr_rng_lo != fr[i].cs.chr_rng_lo
             || got.crc_players != fr[i].cs.crc_players || got.crc_chrs != fr[i].cs.crc_chrs
+            || got.crc_props != fr[i].cs.crc_props
             || got.crc_objectives != fr[i].cs.crc_objectives) {
             rc = 1;
             if (mismatch_tick)

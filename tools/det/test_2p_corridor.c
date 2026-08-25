@@ -12,12 +12,14 @@
 #include "vi/sim_tick.h"
 
 /*
- * M2: 2P lockstep on a synthetic on-tile corridor. Walk, Z-unlatch a
- * door, one PvP shot. No ROM. Replay checksums must match.
+ * M2/M5: 2P lockstep on a synthetic on-tile corridor. Walk, Z-unlatch a
+ * door, kill a setup-guard cylinder, one PvP shot. No ROM. Replay
+ * checksums (including crc_props) must match.
  */
 
-#define NFRAMES 48
+#define NFRAMES 56
 #define DOOR_X 150.0f
+#define GUARD_X 200.0f
 
 static int fail(const char *msg)
 {
@@ -80,6 +82,7 @@ static int setup_world(void)
     port_stan_clear_doors();
     port_stan_clear_guards();
     port_stan_add_door(DOOR_X, 0.0f, 1.0f, 0.0f);
+    port_stan_add_guard(GUARD_X, 0.0f);
     if (port_stan_eye_y(60.0f, 0.0f, &y) != 0)
         return fail("eye");
     port_begin_match(2, 1);
@@ -89,7 +92,8 @@ static int setup_world(void)
 }
 
 /* Tick 0 idle (delay-1). 1–20 P0 walk +X. 21 Z-unlatch. 22–24 idle
- * while the slab swings. 25–40 walk through. 41 PvP Z. Rest idle. */
+ * while the slab swings. 25–40 walk through. 41 Z kills the on-axis
+ * guard. 42 idle (rising edge). 43 PvP Z. Rest idle. Look stays 0. */
 static void pads_for(uint32_t t, PortPad out[2])
 {
     memset(out, 0, sizeof(PortPad) * 2);
@@ -99,7 +103,7 @@ static void pads_for(uint32_t t, PortPad out[2])
         out[0].buttons = (uint16_t)PORT_Z_TRIG;
     else if (t >= 25 && t <= 40)
         out[0].stick_y = (int8_t)-70;
-    else if (t == 41)
+    else if (t == 41 || t == 43)
         out[0].buttons = (uint16_t)PORT_Z_TRIG;
 }
 
@@ -235,7 +239,9 @@ int main(int argc, char **argv)
     if (!port_stan_door_is_open(0) && port_stan_door_frac(0) <= 0.f)
         return fail("door still shut");
     if (a.crc_props == props0)
-        return fail("door must change crc_props");
+        return fail("door/guard must change crc_props");
+    if (!port_stan_guard_was_hit(0))
+        return fail("on-axis guard still alive");
     if (!(port_player_x_at(0) > DOOR_X)) {
         fprintf(stderr, "P0 x=%g want > %g\n", (double)port_player_x_at(0),
             (double)DOOR_X);
@@ -245,8 +251,8 @@ int main(int argc, char **argv)
     hits0 = port_gun_hits();
     port_set_cur_player(1);
     hp1 = port_player_health();
-    if (hits0 < 1)
-        return fail("P0 PvP miss");
+    if (hits0 < 2)
+        return fail("P0 guard+PvP miss");
     if (hp1 != PORT_PLAYER_HEALTH_MAX - PORT_PP7_DAMAGE) {
         fprintf(stderr, "P1 hp=%d hits=%d\n", hp1, hits0);
         return fail("P1 took one shot");
@@ -293,8 +299,8 @@ int main(int argc, char **argv)
         fclose(f);
     }
     free(bytes);
-    printf("2p-corridor ok P0x=%.1f door_frac=%.2f P1hp=%d hits=%d crc=%08x props=%08x\n",
-        (double)port_player_x_at(0), (double)port_stan_door_frac(0), hp1, hits0,
-        a.crc_players, a.crc_props);
+    printf("2p-corridor ok P0x=%.1f door_frac=%.2f guard=%d P1hp=%d hits=%d crc=%08x props=%08x\n",
+        (double)port_player_x_at(0), (double)port_stan_door_frac(0),
+        port_stan_guard_was_hit(0), hp1, hits0, a.crc_players, a.crc_props);
     return 0;
 }

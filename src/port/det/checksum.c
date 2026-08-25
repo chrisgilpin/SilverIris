@@ -9,6 +9,19 @@
 
 #include <string.h>
 
+/* Strong bodies in prop.c. Weak empty record in prop_ck_stubs.c. */
+int port_prop_guard_count(void);
+int port_prop_guard_xz(int i, float *x, float *z);
+int port_prop_guard_yaw(int i, float *yaw, int *alerted);
+int port_prop_guard_alerted(void);
+int port_prop_pickup_pad(void);
+int port_prop_pickup_kind(void);
+int port_prop_pickup_hidden(void);
+int port_prop_pickup_xyz(float *x, float *y, float *z);
+int port_prop_drop_model(void);
+int port_prop_drop_hidden(void);
+int port_prop_drop_xyz(float *x, float *y, float *z);
+
 /* CRC32C Castagnoli (reflected poly 0x82F63B78). Never fileGenerateCRC. */
 
 uint32_t port_crc32c(const uint8_t *data, uint32_t len)
@@ -109,11 +122,21 @@ void port_checksum(uint32_t tick, SimChecksum *out)
     out->crc_chrs = port_crc32c(buf, o);
 
     {
-        uint8_t pbuf[4 + 128 * 8];
+        /* doors + stan cylinders + setup-guard xz/alert/dead + pad-215 + KF7 drop */
+        uint8_t pbuf[4 + 128 * 8 + 4 + 128 * 12 + 4 + 128 * 16 + 80];
         int nd = port_stan_door_count();
+        int ng = port_stan_guard_count();
+        int np = port_prop_guard_count();
         uint32_t po = 0;
+        float gx, gy, gz, yaw;
+        int alerted;
+
         if (nd > 128)
             nd = 128;
+        if (ng > 128)
+            ng = 128;
+        if (np > 128)
+            np = 128;
         wr_i32(pbuf + po, (int32_t)nd);
         po += 4;
         for (i = 0; i < nd; i++) {
@@ -122,6 +145,62 @@ void port_checksum(uint32_t tick, SimChecksum *out)
             wr_f32(pbuf + po, port_stan_door_frac(i));
             po += 4;
         }
+        wr_i32(pbuf + po, (int32_t)ng);
+        po += 4;
+        for (i = 0; i < ng; i++) {
+            gx = gz = 0.f;
+            (void)port_stan_guard_xz(i, &gx, &gz);
+            wr_f32(pbuf + po, gx);
+            po += 4;
+            wr_f32(pbuf + po, gz);
+            po += 4;
+            wr_i32(pbuf + po, (int32_t)port_stan_guard_was_hit(i));
+            po += 4;
+        }
+        wr_i32(pbuf + po, (int32_t)np);
+        po += 4;
+        wr_i32(pbuf + po, (int32_t)port_prop_guard_alerted());
+        po += 4;
+        for (i = 0; i < np; i++) {
+            gx = gz = yaw = 0.f;
+            alerted = 0;
+            (void)port_prop_guard_xz(i, &gx, &gz);
+            (void)port_prop_guard_yaw(i, &yaw, &alerted);
+            wr_f32(pbuf + po, gx);
+            po += 4;
+            wr_f32(pbuf + po, gz);
+            po += 4;
+            wr_i32(pbuf + po, alerted);
+            po += 4;
+            wr_i32(pbuf + po, port_stan_guard_dead_at(gx, gz));
+            po += 4;
+        }
+        wr_i32(pbuf + po, port_prop_pickup_pad());
+        po += 4;
+        wr_i32(pbuf + po, port_prop_pickup_kind());
+        po += 4;
+        wr_i32(pbuf + po, port_prop_pickup_hidden());
+        po += 4;
+        gx = gy = gz = 0.f;
+        (void)port_prop_pickup_xyz(&gx, &gy, &gz);
+        wr_f32(pbuf + po, gx);
+        po += 4;
+        wr_f32(pbuf + po, gy);
+        po += 4;
+        wr_f32(pbuf + po, gz);
+        po += 4;
+        wr_i32(pbuf + po, port_prop_drop_model());
+        po += 4;
+        wr_i32(pbuf + po, port_prop_drop_hidden());
+        po += 4;
+        gx = gy = gz = 0.f;
+        (void)port_prop_drop_xyz(&gx, &gy, &gz);
+        wr_f32(pbuf + po, gx);
+        po += 4;
+        wr_f32(pbuf + po, gy);
+        po += 4;
+        wr_f32(pbuf + po, gz);
+        po += 4;
         out->crc_props = port_crc32c(pbuf, po);
     }
 

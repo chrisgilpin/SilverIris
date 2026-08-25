@@ -176,6 +176,40 @@ button:hover {
   padding: 0;
 }
 
+.binds {
+  margin-top: 1.25rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+  max-width: 40rem;
+}
+
+.binds h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.binds .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.bind-list {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+
+.bind-list span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.bind-list button.listening {
+  border-color: var(--accent);
+}
+
 footer {
   padding: 1rem 1.5rem 1.5rem;
   color: var(--muted);

@@ -51,5 +51,7 @@ jobs:
         run: make -C native match-config
       - name: 2P lockstep inject + checksum replay
         run: make -C native lockstep-test
-      - name: 2P corridor tape (walk, door, PvP shot)
+      - name: 2P corridor tape (walk, door, guard, PvP shot)
         run: make -C native 2p-corridor-test
+      - name: replay --pack hook (synthetic tape, no ROM)
+        run: make -C native replay-pack

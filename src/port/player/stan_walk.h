@@ -42,6 +42,8 @@ void port_stan_add_guard(float world_x, float world_z);
 void port_stan_move_guard(float from_x, float from_z, float to_x, float to_z);
 int port_stan_guard_count(void);
 int port_stan_guard_was_hit(int i);
+/* World xz of cylinder i. -1 if none. */
+int port_stan_guard_xz(int i, float *x, float *z);
 void port_stan_mark_ray_guard(void);
 int port_stan_ray_hit_guard(void);
 /* One-shot: a marked pad guard is dead (skip draw + later rays). */

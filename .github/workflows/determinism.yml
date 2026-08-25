@@ -20,7 +20,9 @@ jobs:
         run: make -C native tape-test
       - name: replay CLI on synthetic tape
         run: make -C native replay-synth
-      - name: 2P corridor tape (walk, door, PvP)
+      - name: 2P corridor tape (walk, door, guard, PvP)
         run: make -C native 2p-corridor-test
-      - name: netplay stays default off
-        run: grep -q 'netplay: false' web/shell/src/flags.ts
+      - name: private pack replay hook (synth tape, no ROM)
+        run: make -C native replay-pack
+      - name: netplay defaults on
+        run: grep -q 'netplay: true' web/shell/src/flags.ts

@@ -2,7 +2,7 @@
 
 **Goal:** anyone opens https://007.goodhouseinc.com, supplies a legally obtained NTSC-U ROM, and plays Facility/Complex **2P delay lockstep** (create/join by room code) plus local split-screen.
 
-Campaign is out of v1. Product name is SilverIris. Netplay stays **opt-in** (`?ff_netplay=1`) until M5 is green, then default on (M6).
+Campaign is out of v1. Product name is SilverIris. Netplay is **on** at the public URL (`?ff_netplay=0` for solo).
 
 Long-form design: `docs/SilverIris-browser-port-design.md`.
 
@@ -42,23 +42,21 @@ Walk speed stays the pinned analog (~3 units/tick, dt=3). That is hardware-compa
 
 **Exit:** both seats on stan tiles; neither in a slab. Empty-stan tests keep P1 at (40, 20).
 
-## M4 — Checksum the rest of the G1 sim
+## M4 — Checksum the rest of the G1 sim (done this push)
 
-`crc_chrs` is still the patrol dummy. Include setup-guard xz / alert / dead, pad-215 armour, and KF7 death-drop in `crc_props` (or an extended chr CRC).
+`crc_props` now hashes doors, stan-guard xz/hit, setup-guard xz/alert/dead, pad-215 armour (pad/kind/hidden/xyz), and the KF7 death-drop (model/hidden/xyz). Tape replay compares `crc_props`. A divergent guard or pickup changes `ck`.
 
-**Exit:** a divergent guard or pickup changes `ck` and halts DESYNC.
+Lobby `buildId` `siliris-ck-props-v2!` so mixed shells cannot join.
 
-## M5 — Green 2P Facility tape
+## M5 — Green 2P tape (done this push)
 
-Private pack tape: minutes of walk / door / shoot, 0 DESYNC native↔wasm. That is the P5 ship bar. Do not assume it exists until it does.
+Public CI: 2P corridor tape (walk, door, guard kill, PvP), plus synth TAPE1 replay. `make -C native replay-pack` is the private hook: `./build/native/replay_pack --pack <local.c0pack> --stage facility private.tape`. Never commit a pack or ROM. A minutes-long Facility recording is local-only until someone records one.
 
-**Exit:** recorded tape replays; two browser tabs at `?ff_netplay=1` stay in sync for that duration.
+## M6 — Public 2P (P8) (done this push)
 
-## M6 — Public 2P (P8)
+`ff_netplay` default **on** at the public URL. Remap UI in the shell. Privacy copy on the lobby + README. No server browser. No campaign.
 
-`ff_netplay` default **on** at the public URL. PR-19 polish: modern remap UI, privacy copy. No server browser. No campaign.
-
-**Exit:** README + ROM-gate copy + privacy note; two strangers can create/join by room code without a query flag.
+**Exit:** two strangers can create/join by room code without a query flag. `?ff_netplay=0` is solo.
 
 ---
 
@@ -75,12 +73,12 @@ Private pack tape: minutes of walk / door / shoot, 0 DESYNC native↔wasm. That 
 - NTSC-U SHA-1 `abe01e4aeb033b6c0836819f549c791b26cfde83`.
 - Dump-verified Facility data only. No invented pads, ammo crates, or lock/key.
 - Port matching C through `src/port`. Do not emulate the N64 or rewrite it as a dedicated server.
-- Do not default netplay on before M5.
+- Do not default netplay on before M5 (M6 is that default).
 
 ## Local loop
 
 ```
-make -C native lockstep-test gun-test score-test
+make -C native lockstep-test gun-test score-test 2p-corridor-test replay-pack
 cd web/shell && npm test
 make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 ```
