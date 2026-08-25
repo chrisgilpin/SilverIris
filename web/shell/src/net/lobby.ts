@@ -27,11 +27,13 @@ export function defaultSignalUrl(): string {
   return `${proto}//${location.host}/ws`;
 }
 
+/** 20 bytes. Bump when InputBlock / sim contract changes so mixed shells cannot join. */
+export const LOBBY_BUILD_ID = "siliris-inp-look-v1!";
+
 function buildIdBytes(): Uint8Array {
   const b = new Uint8Array(20);
-  const s = "silveriris-buildid!!";
   for (let i = 0; i < 20; i++)
-    b[i] = s.charCodeAt(i);
+    b[i] = LOBBY_BUILD_ID.charCodeAt(i) || 0;
   return b;
 }
 

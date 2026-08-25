@@ -4,6 +4,7 @@
 #include "mp/score.h"
 #include "player/gun.h"
 #include "player/move.h"
+#include "player/stan_walk.h"
 #include "rng/random.h"
 
 #include <string.h>
@@ -106,6 +107,23 @@ void port_checksum(uint32_t tick, SimChecksum *out)
     wr_i32(buf + o, (int32_t)port_chr_nextstep());
     o += 4;
     out->crc_chrs = port_crc32c(buf, o);
+
+    {
+        uint8_t pbuf[4 + 128 * 8];
+        int nd = port_stan_door_count();
+        uint32_t po = 0;
+        if (nd > 128)
+            nd = 128;
+        wr_i32(pbuf + po, (int32_t)nd);
+        po += 4;
+        for (i = 0; i < nd; i++) {
+            wr_i32(pbuf + po, (int32_t)port_stan_door_is_open(i));
+            po += 4;
+            wr_f32(pbuf + po, port_stan_door_frac(i));
+            po += 4;
+        }
+        out->crc_props = port_crc32c(pbuf, po);
+    }
 
     o = 0;
     wr_i32(buf + o, (int32_t)port_score_scenario());

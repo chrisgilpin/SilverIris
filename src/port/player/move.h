@@ -13,15 +13,21 @@
 /* N64 CONT_E / CONT_D. Held C-up raises phi (look up). */
 #define PORT_C_UP 0x0008u
 #define PORT_C_DOWN 0x0004u
+/* CONT_L: WASD A/D is strafe, not turn (mouse-look). */
+#define PORT_STRAFE 0x0020u
 #define PORT_PITCH_MAX 70.0f
+/* Quantized look on the pad: degrees = q / PORT_LOOK_Q. */
+#define PORT_LOOK_Q 10
 
 void port_player_spawn(void);
 void port_player_set_pose(float x, float y, float z, float theta);
+void port_player_set_pose_at(int seat, float x, float y, float z, float theta);
 void port_player_set_y(float y);
 void port_player_set_pitch(float phi);
 void port_set_look_delta(int seat, float yaw_deg, float pitch_deg);
 void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons);
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons);
+void port_set_local_look(int seat, int8_t yaw_q, int8_t pitch_q);
 void port_get_local_pad(int8_t *x, int8_t *y, uint16_t *buttons);
 
 void port_set_player_count(int n);

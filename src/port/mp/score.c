@@ -1,10 +1,12 @@
 #include "score.h"
 
+#include "player/move.h"
+
 /*
  * MP score slice of reset_mp_options_for_scenario +
  * increment_num_kills_display_text_in_MP until front.c / gunfire.c compile.
  * kill_count and kills_this_life always increment (solo returns before HUD).
- * kill_counts[0] is P1 vs-nothing for a later 2P tape.
+ * kill_counts[seat] is the shooting seat (P1 vs-nothing stays [0]).
  */
 
 static int g_scenario;
@@ -29,9 +31,12 @@ void port_score_set_scenario(int scenario)
 
 void port_score_add_kill(void)
 {
+    int seat = port_cur_player();
     g_kill_count += 1;
     g_kills_this_life += 1;
-    g_kill_counts[0] += 1;
+    if (seat < 0 || seat >= PORT_MP_SEATS)
+        seat = 0;
+    g_kill_counts[seat] += 1;
 }
 
 int port_score_scenario(void) { return g_scenario; }

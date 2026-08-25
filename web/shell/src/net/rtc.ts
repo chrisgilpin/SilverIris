@@ -16,7 +16,7 @@ export type CtlMsg =
   | { t: "ping"; t0: number }
   | { t: "pong"; t0: number }
   | { t: "nack"; fromTick: number; toTick: number }
-  | { t: "ck"; tick: number; rng_lo: number; chr_rng_lo: number; crc_players: number; crc_chrs: number; crc_objectives: number }
+  | { t: "ck"; tick: number; rng_lo: number; chr_rng_lo: number; crc_players: number; crc_chrs: number; crc_props: number; crc_objectives: number }
   | { t: "stall"; seat: number }
   | { t: "desync"; tick: number }
   | { t: "bye" };

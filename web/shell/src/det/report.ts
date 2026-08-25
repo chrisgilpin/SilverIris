@@ -21,6 +21,7 @@ export type SilverIrisReport = {
     chr_rng_lo: number;
     crc_players: number;
     crc_chrs: number;
+    crc_props: number;
     crc_objectives: number;
   }>;
   tapeExcerpt: { fromTick: number; toTick: number; pads: string };
@@ -34,15 +35,15 @@ function wrU32(b: Uint8Array, o: number, v: number): void {
   b[o + 3] = (v >>> 24) & 0xff;
 }
 
-/** Pack last N ticks as concatenated 20-byte InputBlocks (seat 0). */
+/** Pack last N ticks as concatenated 24-byte InputBlocks (seat 0). */
 export function encodeTapeExcerpt(
   nseats: number,
   frames: Array<{ tick: number; pads: ReportPad[] }>,
 ): { fromTick: number; toTick: number; pads: string } {
   const n = Math.max(1, Math.min(4, nseats | 0));
-  const buf = new Uint8Array(frames.length * 20);
+  const buf = new Uint8Array(frames.length * 24);
   frames.forEach((fr, i) => {
-    const o = i * 20;
+    const o = i * 24;
     const pad = fr.pads[0] ?? { x: 0, y: 0, buttons: 0 };
     wrU32(buf, o, INPUT_MAGIC);
     wrU32(buf, o + 4, fr.tick >>> 0);
@@ -55,6 +56,10 @@ export function encodeTapeExcerpt(
     buf[o + 14] = pad.buttons & 0xff;
     buf[o + 15] = (pad.buttons >>> 8) & 0xff;
     wrU32(buf, o + 16, 0);
+    buf[o + 20] = 0;
+    buf[o + 21] = 0;
+    buf[o + 22] = 0;
+    buf[o + 23] = 0;
   });
   let bin = "";
   buf.forEach((c) => {

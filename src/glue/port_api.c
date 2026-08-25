@@ -2,6 +2,7 @@
 
 #include "audio/audio.h"
 #include "fs/pack_dma.h"
+#include "fs/prop.h"
 #include "fs/stage.h"
 #include "gfx/gbi_interp.h"
 #include "gfx/tmem.h"
@@ -302,6 +303,10 @@ PORT_KEEP int port_api_health(void) { return port_player_health(); }
 
 PORT_KEEP int port_api_armour(void) { return port_player_armour(); }
 
+PORT_KEEP int port_api_guard_los(void) { return port_prop_guard_los(); }
+
+PORT_KEEP int port_api_guard_shots(void) { return port_prop_guard_shots(); }
+
 PORT_KEEP int32_t *port_api_hud_i32(void)
 {
     g_hud_i32[0] = (int32_t)port_gun_mag();
@@ -324,6 +329,13 @@ PORT_KEEP uint32_t port_api_crc_objectives(void)
     SimChecksum cs;
     port_checksum(0, &cs);
     return cs.crc_objectives;
+}
+
+PORT_KEEP uint32_t port_api_crc_props(void)
+{
+    SimChecksum cs;
+    port_checksum(0, &cs);
+    return cs.crc_props;
 }
 
 PORT_KEEP uint32_t port_api_rng_lo(void)

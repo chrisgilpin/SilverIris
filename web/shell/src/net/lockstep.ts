@@ -1,6 +1,6 @@
 /** Delay lockstep scheduler. Ring lives here; sim inject is port_set_local_pad. */
 
-import { INPUT_REDUNDANCY, type InputBlock, type PortPad } from "./datagram.ts";
+import { emptyPad, INPUT_REDUNDANCY, type InputBlock, type PortPad } from "./datagram.ts";
 
 export const LOCKSTEP_STALL_MS = 350;
 export const LOCKSTEP_DROP_MS = 10000;
@@ -14,6 +14,7 @@ export type CkSnap = {
   chr_rng_lo: number;
   crc_players: number;
   crc_chrs: number;
+  crc_props: number;
   crc_objectives: number;
 };
 
@@ -40,7 +41,7 @@ type Slot = {
 };
 
 function emptyPads(n: number): PortPad[] {
-  return Array.from({ length: n }, () => ({ x: 0, y: 0, buttons: 0 }));
+  return Array.from({ length: n }, () => emptyPad());
 }
 
 export function ckEqual(a: CkSnap, b: CkSnap): boolean {
@@ -50,6 +51,7 @@ export function ckEqual(a: CkSnap, b: CkSnap): boolean {
     a.chr_rng_lo === b.chr_rng_lo &&
     a.crc_players === b.crc_players &&
     a.crc_chrs === b.crc_chrs &&
+    a.crc_props === b.crc_props &&
     a.crc_objectives === b.crc_objectives
   );
 }
@@ -101,7 +103,7 @@ export class LockstepSession {
         seat: this.mySeat,
         nseats: this.nseats,
         delay: this.delay,
-        pad: { x: 0, y: 0, buttons: 0 },
+        pad: emptyPad(),
         simCrc: 0,
       });
     }
@@ -118,7 +120,13 @@ export class LockstepSession {
     const bit = 1 << seat;
     if (s.present & bit)
       return 0;
-    s.pads[seat] = { x: pad.x, y: pad.y, buttons: pad.buttons };
+    s.pads[seat] = {
+      x: pad.x,
+      y: pad.y,
+      buttons: pad.buttons,
+      lookYaw: pad.lookYaw | 0,
+      lookPitch: pad.lookPitch | 0,
+    };
     s.simCrc[seat] = simCrc >>> 0;
     s.present |= bit;
     return 1;
@@ -136,15 +144,24 @@ export class LockstepSession {
   }
 
   acceptRemoteCk(ck: CkSnap): LockstepEvent | null {
-    this.remoteCk.set(ck.tick, ck);
-    const local = this.localCk.get(ck.tick);
+    const snap: CkSnap = {
+      tick: ck.tick,
+      rng_lo: ck.rng_lo >>> 0,
+      chr_rng_lo: ck.chr_rng_lo >>> 0,
+      crc_players: ck.crc_players >>> 0,
+      crc_chrs: ck.crc_chrs >>> 0,
+      crc_props: ck.crc_props >>> 0,
+      crc_objectives: ck.crc_objectives >>> 0,
+    };
+    this.remoteCk.set(snap.tick, snap);
+    const local = this.localCk.get(snap.tick);
     if (!local)
       return null;
-    if (ckEqual(local, ck))
+    if (ckEqual(local, snap))
       return null;
     this.desynced = true;
-    this.overlay = `DESYNC at tick ${ck.tick}`;
-    return { t: "desync", tick: ck.tick, local, remote: ck };
+    this.overlay = `DESYNC at tick ${snap.tick}`;
+    return { t: "desync", tick: snap.tick, local, remote: snap };
   }
 
   hasAll(tick: number): boolean {
@@ -237,7 +254,13 @@ export class LockstepSession {
       seat: this.mySeat,
       nseats: this.nseats,
       delay: this.delay,
-      pad: { x: pad.x, y: pad.y, buttons: pad.buttons },
+      pad: {
+        x: pad.x,
+        y: pad.y,
+        buttons: pad.buttons,
+        lookYaw: pad.lookYaw | 0,
+        lookPitch: pad.lookPitch | 0,
+      },
       simCrc: this.lastCrc >>> 0,
     };
     this.pushHistory(block);

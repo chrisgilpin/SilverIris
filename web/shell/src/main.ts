@@ -6,8 +6,8 @@ import { flags } from "./flags.ts";
 import { loadGame, packHashBytes, type GameBridge } from "./game/bridge.ts";
 import { drawPortView, horPlusHfovDeg, PORT_NATIVE_FOVY, presentLiveView, stageHasDrawableRooms, type PortChr, type PortHit } from "./game/view.ts";
 import { kvGet, kvSet, packGet, packPut } from "./idb.ts";
-import { decodeInputDatagram, encodeInputDatagram } from "./net/datagram.ts";
-import { defaultSignalUrl, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
+import { decodeInputDatagram, encodeInputDatagram, emptyPad, lookDegFromQ, quantizeLookDeg } from "./net/datagram.ts";
+import { defaultSignalUrl, LOBBY_BUILD_ID, packedLobbyCfg, SignalClient } from "./net/lobby.ts";
 import { ICE_FAIL_OVERLAY, LockstepSession, type LockstepEngine, type LockstepEvent } from "./net/lockstep.ts";
 import { bytesFromHex, decodeMatchConfig, hexBytes } from "./net/match_config.ts";
 import { releaseMatchHold, startMatchHold } from "./net/hold_tab.ts";
@@ -53,6 +53,9 @@ let lookYawAcc = 0;
 let lookPitchAcc = 0;
 const C_UP = 0x0008;
 const C_DOWN = 0x0004;
+const STRAFE = 0x0020;
+let lastHp = 8;
+let hurtFlash = 0;
 const held = new Set<string>();
 let simN = 1;
 let accMs = 0;
@@ -65,11 +68,13 @@ const checksumLog: Array<{
   chr_rng_lo: number;
   crc_players: number;
   crc_chrs: number;
+  crc_props: number;
   crc_objectives: number;
   pads: Array<{ x: number; y: number; buttons: number }>;
 }> = [];
 let lastPackHash = "";
-const BUILD_ID = "silveriris-buildid!!";
+const BUILD_ID = LOBBY_BUILD_ID;
+const MOUSE_LOOK_DEG = 0.12;
 let signal: SignalClient | null = null;
 let lobbyReady = false;
 let mySeat = 0;
@@ -90,30 +95,37 @@ function stickPad(opts: {
   left: boolean;
   right: boolean;
   fire: boolean;
-}): { x: number; y: number; buttons: number } {
-  let x = 0;
-  let y = 0;
-  let buttons = 0;
-  if (opts.up) y -= 70;
-  if (opts.down) y += 70;
-  if (opts.left) x -= 70;
-  if (opts.right) x += 70;
-  if (opts.fire) buttons |= 0x2000;
-  return { x, y, buttons };
+}): ReturnType<typeof emptyPad> {
+  const pad = emptyPad();
+  if (opts.up) pad.y -= 70;
+  if (opts.down) pad.y += 70;
+  if (opts.left) pad.x -= 70;
+  if (opts.right) pad.x += 70;
+  if (opts.fire) pad.buttons |= 0x2000;
+  return pad;
 }
 
-function padFromGamepad(gp: Gamepad): { x: number; y: number; buttons: number } {
+function padFromGamepad(gp: Gamepad): ReturnType<typeof emptyPad> {
   const ax = gp.axes[0] ?? 0;
   const ay = gp.axes[1] ?? 0;
   const fire = !!(gp.buttons[0]?.pressed || gp.buttons[6]?.pressed || gp.buttons[7]?.pressed);
   return {
+    ...emptyPad(),
     x: Math.max(-70, Math.min(70, Math.round(ax * 70))),
     y: Math.max(-70, Math.min(70, Math.round(ay * 70))),
     buttons: fire ? 0x2000 : 0,
   };
 }
 
-function padP1(): { x: number; y: number; buttons: number } {
+function consumeMouseLook(): { lookYaw: number; lookPitch: number } {
+  const yawQ = quantizeLookDeg(lookYawAcc * MOUSE_LOOK_DEG);
+  const pitchQ = quantizeLookDeg(-lookPitchAcc * MOUSE_LOOK_DEG);
+  lookYawAcc = 0;
+  lookPitchAcc = 0;
+  return { lookYaw: yawQ, lookPitch: pitchQ };
+}
+
+function padP1Move(): ReturnType<typeof emptyPad> {
   const pad = stickPad({
     up: held.has("KeyW"),
     down: held.has("KeyS"),
@@ -121,13 +133,15 @@ function padP1(): { x: number; y: number; buttons: number } {
     right: held.has("KeyD"),
     fire: held.has("KeyZ") || held.has("Space"),
   });
-  const oneP = !game || game.playerCount() <= 1;
+  const oneP = !game || game.playerCount() <= 1 || !!netLock;
   if (held.has("KeyI") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
   if (held.has("KeyK") || (oneP && held.has("ArrowDown"))) pad.buttons |= C_DOWN;
+  if (typeof document !== "undefined" && document.pointerLockElement)
+    pad.buttons |= STRAFE;
   return pad;
 }
 
-function padP2Keys(): { x: number; y: number; buttons: number } {
+function padP2Keys(): ReturnType<typeof emptyPad> {
   return stickPad({
     up: held.has("ArrowUp"),
     down: held.has("ArrowDown"),
@@ -164,16 +178,24 @@ function drawHud(): void {
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
   ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`, 8, 14);
   const hp = game.health();
-  ctx.fillStyle = hp <= 0 ? "#e07070" : "#e8e6e1";
+  if (hp < lastHp)
+    hurtFlash = 12;
+  lastHp = hp;
+  ctx.fillStyle = hp <= 0 ? "#e07070" : hp < 8 || hurtFlash > 0 ? "#e07070" : "#e8e6e1";
   ctx.fillText(
-    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}${hurtFlash > 0 && hp > 0 ? "  UNDER FIRE" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
     8,
     28,
   );
   ctx.fillStyle = "#e8e6e1";
-  if (game.chrCount() > 0) {
+  {
+    const los = game.guardLos();
+    const gline =
+      game.chrCount() > 0
+        ? `kills ${game.kills()}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`
+        : `kills ${game.kills()}`;
     ctx.fillText(
-      `kills ${game.kills()}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`,
+      `${gline}${los ? `  los ${los} shots ${game.guardShots()}` : ""}`,
       8,
       42,
     );
@@ -183,6 +205,16 @@ function drawHud(): void {
     8,
     56,
   );
+}
+
+function drawHurtFlash(): void {
+  if (!game?.ready()) return;
+  if (hurtFlash <= 0) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = `rgba(140, 16, 16, ${0.22 + 0.04 * hurtFlash})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  hurtFlash -= 1;
 }
 
 function drawDeathCue(): void {
@@ -246,17 +278,18 @@ function paint(now: number): void {
   accMs += now - lastPaint;
   lastPaint = now;
   const n = game.playerCount();
-  const pads = [padP1()];
+  const pads = [padP1Move()];
   const gps = typeof navigator !== "undefined" ? navigator.getGamepads?.() ?? [] : [];
   for (let seat = 1; seat < n; seat++) {
     const gp = gps[seat - 1];
     if (gp) pads[seat] = padFromGamepad(gp);
     else if (seat === 1) pads[seat] = padP2Keys();
-    else pads[seat] = { x: 0, y: 0, buttons: 0 };
+    else pads[seat] = emptyPad();
   }
   while (accMs >= 50) {
+    const local = { ...pads[0], ...consumeMouseLook() };
     if (netLock) {
-      const evs = netLock.step(now, padP1(), typeof document !== "undefined" && document.hidden);
+      const evs = netLock.step(now, local, typeof document !== "undefined" && document.hidden);
       for (const ev of evs)
         onLockEvent(ev);
       if (netLock.history.length)
@@ -264,12 +297,11 @@ function paint(now: number): void {
       if (rttEl && mesh)
         rttEl.textContent = `${mesh.rttLine()}  lock t=${netLock.nextTick} d=${netLock.delay}${netLock.stalled ? " STALL" : ""}`;
     } else {
-      for (let seat = 0; seat < n; seat++)
-        game.setPad(seat, pads[seat].x, pads[seat].y, pads[seat].buttons);
-      if (lookYawAcc || lookPitchAcc) {
-        game.setLookDelta(0, lookYawAcc * 0.12, -lookPitchAcc * 0.12);
-        lookYawAcc = 0;
-        lookPitchAcc = 0;
+      for (let seat = 0; seat < n; seat++) {
+        const p = seat === 0 ? local : pads[seat];
+        game.setPad(seat, p.x, p.y, p.buttons);
+        if (p.lookYaw || p.lookPitch)
+          game.setLookDelta(seat, lookDegFromQ(p.lookYaw), lookDegFromQ(p.lookPitch));
       }
       game.simTick(simN++);
       checksumLog.push({
@@ -278,6 +310,7 @@ function paint(now: number): void {
         chr_rng_lo: game.chrRngLo(),
         crc_players: game.crcPlayers(),
         crc_chrs: game.crcChrs(),
+        crc_props: game.crcProps(),
         crc_objectives: game.crcObjectives(),
         pads: pads.map((p) => ({ x: p.x, y: p.y, buttons: p.buttons })),
       });
@@ -378,6 +411,7 @@ function paint(now: number): void {
       );
     }
   }
+  drawHurtFlash();
   drawHud();
   drawDeathCue();
   if (netLock?.overlay) {
@@ -409,6 +443,8 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
   }
   lastPackHash = packHashHex;
   await game.init(packBytes, packHashBytes(packHashHex));
+  lastHp = 8;
+  hurtFlash = 0;
   if (player) {
     player.stop();
     player = null;
@@ -644,6 +680,7 @@ function handleCtl(from: number, msg: CtlMsg): void {
         chr_rng_lo: 0,
         crc_players: 0,
         crc_chrs: 0,
+        crc_props: 0,
         crc_objectives: 0,
       },
       remote: {
@@ -652,6 +689,7 @@ function handleCtl(from: number, msg: CtlMsg): void {
         chr_rng_lo: 0,
         crc_players: 0,
         crc_chrs: 0,
+        crc_props: 0,
         crc_objectives: 0,
       },
     });
@@ -900,12 +938,17 @@ function lockEngine(): LockstepEngine {
   return {
     beginMatch(nseats, seed) {
       game?.beginMatch(nseats, seed);
+      lastHp = 8;
+      hurtFlash = 0;
     },
     applyTick(tick, pads) {
       if (!game)
         return -1;
-      for (let i = 0; i < pads.length; i++)
+      for (let i = 0; i < pads.length; i++) {
         game.setPad(i, pads[i].x, pads[i].y, pads[i].buttons);
+        if (pads[i].lookYaw || pads[i].lookPitch)
+          game.setLookDelta(i, lookDegFromQ(pads[i].lookYaw), lookDegFromQ(pads[i].lookPitch));
+      }
       return game.simTick(tick);
     },
     snapshot(tick) {
@@ -915,6 +958,7 @@ function lockEngine(): LockstepEngine {
         chr_rng_lo: game?.chrRngLo() ?? 0,
         crc_players: game?.crcPlayers() ?? 0,
         crc_chrs: game?.crcChrs() ?? 0,
+        crc_props: game?.crcProps() ?? 0,
         crc_objectives: game?.crcObjectives() ?? 0,
       };
     },
@@ -951,6 +995,7 @@ function onLockEvent(ev: LockstepEvent): void {
       chr_rng_lo: ev.ck.chr_rng_lo,
       crc_players: ev.ck.crc_players,
       crc_chrs: ev.ck.crc_chrs,
+      crc_props: ev.ck.crc_props,
       crc_objectives: ev.ck.crc_objectives,
       pads: [],
     });
@@ -963,6 +1008,7 @@ function onLockEvent(ev: LockstepEvent): void {
       chr_rng_lo: ev.ck.chr_rng_lo,
       crc_players: ev.ck.crc_players,
       crc_chrs: ev.ck.crc_chrs,
+      crc_props: ev.ck.crc_props,
       crc_objectives: ev.ck.crc_objectives,
     });
     if (lobbyStatus && (lobbyStatus.textContent || "").includes("waiting"))

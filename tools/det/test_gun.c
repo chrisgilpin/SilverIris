@@ -84,6 +84,66 @@ static int fire_once(uint32_t tick)
     return 0;
 }
 
+static int test_pvp_hitscan(void)
+{
+    float th;
+    int i;
+    uint32_t tick = 300;
+
+    port_stan_unload();
+    port_set_player_count(2);
+    port_player_spawn();
+    th = atan2f(40.0f, -20.0f) * (180.0f / 3.1415927f);
+    port_player_set_pose_at(0, 0.0f, 0.0f, 0.0f, th);
+    port_player_set_pose_at(1, 40.0f, 0.0f, 20.0f, 0.0f);
+    port_set_cur_player(0);
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
+        return fail("pvp p0 hp");
+    port_set_cur_player(1);
+    if (port_player_health() != PORT_PLAYER_HEALTH_MAX)
+        return fail("pvp p1 hp");
+    port_set_cur_player(0);
+    for (i = 0; i < 20; i++) {
+        port_set_cur_player(1);
+        if (port_player_health() <= 0)
+            break;
+        port_set_cur_player(0);
+        if (port_gun_mag() <= 0) {
+            port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+            if (port_sim_tick(tick++) != 0)
+                return fail("pvp reload");
+            port_set_local_pad(0, 0, 0, 0);
+            if (port_sim_tick(tick++) != 0)
+                return fail("pvp reload idle");
+        }
+        port_set_local_pad(0, 0, 0, 0);
+        if (port_sim_tick(tick++) != 0)
+            return fail("pvp idle");
+        port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        if (port_sim_tick(tick++) != 0)
+            return fail("pvp fire");
+    }
+    port_set_cur_player(0);
+    {
+        int hits = port_gun_hits();
+        port_set_cur_player(1);
+        if (port_player_health() != 0) {
+            fprintf(stderr, "pvp p1 hp=%d want 0 p0hits=%d mag=%d\n",
+                port_player_health(), hits, port_gun_mag());
+            return fail("pvp kill");
+        }
+    }
+    port_set_cur_player(0);
+    if (port_score_kills() != 1)
+        return fail("pvp kills");
+    if (port_score_kill_counts(0) != 1)
+        return fail("pvp kill_counts[0]");
+    if (port_score_kill_counts(1) != 0)
+        return fail("pvp p1 scored");
+    printf("pvp ok shots=%d p1dead theta=%g\n", port_gun_hits(), (double)th);
+    return 0;
+}
+
 /* Corridor +X used to "hit" the fake z=-50 plane; now it must hit the
  * far tile edge (x=400) or miss — never report z=-50 as the only hit. */
 static int test_world_hitscan(void)
@@ -493,6 +553,8 @@ int main(void)
     if (test_pitch_floor_hit() != 0)
         return 1;
     if (test_pitch_miss_cylinder() != 0)
+        return 1;
+    if (test_pvp_hitscan() != 0)
         return 1;
     return 0;
 }

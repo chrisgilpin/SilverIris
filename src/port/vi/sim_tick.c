@@ -6,11 +6,11 @@
 #include "player/move.h"
 #include "player/stan_walk.h"
 
-void port_prop_tick_walk(void) __attribute__((weak));
-int port_prop_tick_guard_fire(void) __attribute__((weak));
-int port_prop_walker_alerted(void) __attribute__((weak));
-void port_prop_tick_die(void) __attribute__((weak));
-void port_prop_tick_pickup(void) __attribute__((weak));
+__attribute__((weak)) void port_prop_tick_walk(void) {}
+__attribute__((weak)) int port_prop_tick_guard_fire(void) { return 0; }
+__attribute__((weak)) int port_prop_walker_alerted(void) { return 0; }
+__attribute__((weak)) void port_prop_tick_die(void) {}
+__attribute__((weak)) void port_prop_tick_pickup(void) {}
 
 #include "game/frametiming.h"
 

@@ -97,9 +97,12 @@ PORT_KEEP int port_api_kills(void);
 PORT_KEEP int32_t *port_api_hud_i32(void);
 PORT_KEEP int port_api_health(void);
 PORT_KEEP int port_api_armour(void);
+PORT_KEEP int port_api_guard_los(void);
+PORT_KEEP int port_api_guard_shots(void);
 PORT_KEEP int port_api_stan_tiles(void);
 PORT_KEEP int port_api_stan_on_tile(void);
 PORT_KEEP uint32_t port_api_crc_objectives(void);
+PORT_KEEP uint32_t port_api_crc_props(void);
 PORT_KEEP uint32_t port_api_rng_lo(void);
 PORT_KEEP uint32_t port_api_chr_rng_lo(void);
 

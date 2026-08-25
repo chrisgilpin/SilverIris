@@ -14,7 +14,7 @@ describe("InputDatagram", () => {
       seat: 1,
       nseats: 2,
       delay: 2,
-      pad: { x: -70, y: 10, buttons: 0x2000 },
+      pad: { x: -70, y: 10, buttons: 0x2000, lookYaw: 12, lookPitch: -3 },
       simCrc: 0xabcdef00 + i,
     }));
     const raw = encodeInputDatagram(1, blocks);
@@ -25,6 +25,8 @@ describe("InputDatagram", () => {
     expect(got?.blocks[0].tick).toBe(100);
     expect(got?.blocks[0].pad.x).toBe(-70);
     expect(got?.blocks[0].pad.buttons).toBe(0x2000);
+    expect(got?.blocks[0].pad.lookYaw).toBe(12);
+    expect(got?.blocks[0].pad.lookPitch).toBe(-3);
     expect(got?.blocks[7].tick).toBe(93);
   });
 });

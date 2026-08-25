@@ -57,6 +57,7 @@ int port_stan_closed_door_at_local(float local_x, float local_z);
 int port_stan_unlatch_closed(float local_x, float local_z, float look_x, float look_z);
 void port_stan_set_door_open(int i, int open);
 int port_stan_door_is_open(int i);
+float port_stan_door_frac(int i);
 int port_stan_door_is_open_at(float world_x, float world_z);
 /* Last use: +1 player was on +look, -1 on -look, 0 never used. */
 int port_stan_door_side_at(float world_x, float world_z);

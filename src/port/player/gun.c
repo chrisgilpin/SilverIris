@@ -8,7 +8,7 @@
 #include <math.h>
 #include <string.h>
 
-void port_prop_hear_player_shot(void) __attribute__((weak));
+__attribute__((weak)) void port_prop_hear_player_shot(void) {}
 
 /*
  * PP7 slice of gunfire.c until that file compiles.
@@ -60,7 +60,10 @@ static void fire_hitscan(void)
     float dx, dy, dz;
     float t_best = 1.0e9f;
     float t;
-    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor */
+    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor, 5 other seat */
+    int hit_seat = -1;
+    int shooter = port_cur_player();
+    int seat, n;
 
     port_player_look_dir(&dx, &dy, &dz);
     if (port_stan_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
@@ -70,6 +73,22 @@ static void fire_hitscan(void)
     if (port_chr_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
         t_best = t;
         src = 2;
+    }
+    n = port_player_count();
+    for (seat = 0; seat < n; seat++) {
+        if (seat == shooter)
+            continue;
+        port_set_cur_player(seat);
+        if (port_player_health() <= 0) {
+            port_set_cur_player(shooter);
+            continue;
+        }
+        if (port_player_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
+            t_best = t;
+            src = 5;
+            hit_seat = seat;
+        }
+        port_set_cur_player(shooter);
     }
     /* Fake PORT wall only for no_assets / empty synthetic (no tiles/doors). */
     if (!port_stan_ready() && dz != 0.0f) {
@@ -105,6 +124,14 @@ static void fire_hitscan(void)
         } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();
             port_score_add_kill();
+        } else if (src == 5 && hit_seat >= 0) {
+            int dead;
+            port_set_cur_player(hit_seat);
+            port_player_damage(PORT_PP7_DAMAGE);
+            dead = port_player_health() <= 0;
+            port_set_cur_player(shooter);
+            if (dead)
+                port_score_add_kill();
         }
     }
 }

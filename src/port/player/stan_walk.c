@@ -238,6 +238,13 @@ int port_stan_door_is_open(int i)
     return g_door[i].open;
 }
 
+float port_stan_door_frac(int i)
+{
+    if (i < 0 || i >= g_ndoor)
+        return 0.f;
+    return g_door[i].frac;
+}
+
 void port_stan_set_door_open(int i, int open)
 {
     if (i < 0 || i >= g_ndoor)

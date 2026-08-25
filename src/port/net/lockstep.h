@@ -22,9 +22,11 @@ uint8_t port_lockstep_nseats(void);
 uint8_t port_lockstep_delay(void);
 uint32_t port_lockstep_next_tick(void);
 
-/* 1 accepted, 0 duplicate, -1 reject. */
+/* 1 accepted, 0 duplicate, -1 reject. Look q is 0.1 deg (PORT_LOOK_Q). */
 int port_lockstep_submit(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t stick_y,
     uint16_t buttons, uint32_t sim_crc);
+int port_lockstep_submit_ex(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t stick_y,
+    uint16_t buttons, int8_t look_yaw, int8_t look_pitch, uint32_t sim_crc);
 int port_lockstep_has_all(uint32_t tick);
 /* First missing seat, or -1. */
 int port_lockstep_missing_seat(uint32_t tick);

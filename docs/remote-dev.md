@@ -12,9 +12,22 @@ This box already terminates TLS with **nginx + Certbot** (same pattern as
 Vite stays on localhost. Nginx proxies `/` to `127.0.0.1:5173` and `/ws` +
 `/api` to `127.0.0.1:18787`.
 
+## After a milestone push
+
+Repo on this box is `/home/grok/GoldenEye` (GitHub `main`). Vite cwd is `web/shell`; `game.wasm` is gitignored and must be rebuilt.
+
+```bash
+sudo -u grok git -C /home/grok/GoldenEye pull --ff-only
+sudo -u grok -H make -C /home/grok/GoldenEye/native wasm
+sudo systemctl restart silveriris-vite silveriris-signal
+sudo systemctl status silveriris-vite silveriris-signal --no-pager
+```
+
+Do not touch other nginx vhosts. Hard-refresh the public tab after wasm changes.
+
 ## Restart (usual work)
 
-Units are already enabled. After a shell or signal change:
+Units are already enabled. After a shell-only change (no C/wasm):
 
 ```bash
 sudo systemctl restart silveriris-vite silveriris-signal

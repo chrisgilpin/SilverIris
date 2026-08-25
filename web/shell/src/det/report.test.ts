@@ -16,6 +16,7 @@ describe("silveriris-report/1", () => {
           chr_rng_lo: 2,
           crc_players: 3,
           crc_chrs: 4,
+          crc_props: 6,
           crc_objectives: 5,
         },
       ],
@@ -32,12 +33,12 @@ describe("silveriris-report/1", () => {
     expect(r.tapeExcerpt.pads).toBe("AA==");
   });
 
-  it("encodes 20-byte BIN1 blocks", () => {
+  it("encodes 24-byte BIN1 blocks", () => {
     const ex = encodeTapeExcerpt(1, [{ tick: 7, pads: [{ x: -70, y: 0, buttons: 0x2000 }] }]);
     expect(ex.fromTick).toBe(7);
     expect(ex.toTick).toBe(7);
     const raw = Uint8Array.from(atob(ex.pads), (c) => c.charCodeAt(0));
-    expect(raw.byteLength).toBe(20);
+    expect(raw.byteLength).toBe(24);
     expect(raw[12]).toBe(256 - 70);
     expect(raw[14]).toBe(0x00);
     expect(raw[15]).toBe(0x20);

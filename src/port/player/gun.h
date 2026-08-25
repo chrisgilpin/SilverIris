@@ -9,6 +9,7 @@
 #define PORT_AMMO_SLOTS 30
 #define PORT_PP7_MAG 7
 #define PORT_PP7_RESERVE 21
+#define PORT_PP7_DAMAGE 1
 #define PORT_Z_TRIG 0x2000u
 /* SKEL_FLASH cards stay visible this many ticks after a spent shot. */
 #define PORT_MUZZLE_FLASH_FRAMES 3

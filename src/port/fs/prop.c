@@ -51,6 +51,10 @@
 #define PORT_GUARD_FIRE_ALONG 200.0f
 #define PORT_GUARD_FIRE_COOLDOWN 20
 #define PORT_GUARD_FIRE_DAMAGE 1
+/* Unalerted: must face the player (~70°) and notice for 0.5s before the
+ * first shot. Alerted keep shooting on LOS. */
+#define PORT_GUARD_FACE_DOT 0.35f
+#define PORT_GUARD_NOTICE_TICKS 10
 #define PORT_GUARD_AIM_Y 160.0f
 #define PORT_GUARD_AIM_OFFSET 35.0f
 /* Player shot hear: same/adj room, xz<=800. Wider than the fire box,
@@ -154,6 +158,7 @@ typedef struct {
     float scale;
     float yaw;
     int alerted;
+    int notice;
     int door_type;
     float max_frac;
     int hidden;
@@ -1144,9 +1149,17 @@ static int spawn_look_slab(float x, float z, float sx, float sz)
 static int floor_open(float lx, float lz)
 {
     /* Cubicles have G1 walls on adjacent tiles. Open room-71 floor
-     * has walkable neighbors ~half a pad step away. */
-    return port_stan_on_tile(lx + 40.f, lz) && port_stan_on_tile(lx - 40.f, lz) &&
-           port_stan_on_tile(lx, lz + 40.f) && port_stan_on_tile(lx, lz - 40.f);
+     * has walkable neighbors ~half a pad step away. 55u catches the
+     * stall cubicle at -220,-2640 whose G1 walls sit between tiles. */
+    return port_stan_on_tile(lx + 55.f, lz) && port_stan_on_tile(lx - 55.f, lz) &&
+           port_stan_on_tile(lx, lz + 55.f) && port_stan_on_tile(lx, lz - 55.f);
+}
+
+/* Dump-noted stall cubicle: G1 walls on every adjacent tile. */
+static int in_stall_cubicle(float lx, float lz)
+{
+    float dx = lx + 220.f, dz = lz + 2640.f;
+    return dx * dx + dz * dz < 90.f * 90.f;
 }
 
 static int walk_tile_ok(float lx, float lz, float sx, float sz)
@@ -1155,6 +1168,8 @@ static int walk_tile_ok(float lx, float lz, float sx, float sz)
     if (!port_stan_on_tile(lx, lz))
         return 0;
     if (!floor_open(lx, lz))
+        return 0;
+    if (in_stall_cubicle(lx, lz))
         return 0;
     if (port_stan_eye_y(lx, lz, &ey) != 0)
         return 0;
@@ -1702,6 +1717,21 @@ static int rooms_fire_ok(int pr, int wr)
     return port_stage_rooms_adjacent(pr, wr);
 }
 
+/* yaw 0 faces +Z; same atan2(dx,dz) as face_heading_prop. */
+static int guard_facing_player(int pi, float dx, float dz, float dist)
+{
+    float yaw, fx, fz, dot;
+    if (pi < 0 || pi >= g_nprop)
+        return 0;
+    if (dist < 1e-6f)
+        return 1;
+    yaw = g_prop[pi].yaw * (PI_F / 180.f);
+    fx = sinf(yaw);
+    fz = cosf(yaw);
+    dot = (fx * dx + fz * dz) / dist;
+    return dot >= PORT_GUARD_FACE_DOT;
+}
+
 static int guard_prop_in_los(int pi, float *dx_out, float *dz_out, float *dist_out)
 {
     float r1[3], lx, ly, lz, px, py, pz, dx, dz, dist;
@@ -1749,6 +1779,9 @@ static int guard_prop_in_los(int pi, float *dx_out, float *dz_out, float *dist_o
             tblk < dist - PORT_GUARD_AIM_OFFSET)
             return 0;
     }
+    /* Unalerted: only the front cone. Alerted already turned to chase. */
+    if (!g_prop[pi].alerted && !guard_facing_player(pi, dx, dz, dist))
+        return 0;
     if (dx_out)
         *dx_out = dx;
     if (dz_out)
@@ -1914,6 +1947,7 @@ int port_prop_tick_guard_fire(void)
         if (g_prop[i].type != PDEF_GUARD)
             continue;
         if (!guard_prop_in_los(i, &dx, &dz, &dist)) {
+            g_prop[i].notice = 0;
             /* Alerted: face the player even outside the fire box.
              * Do not set combat — they cannot shoot yet. */
             if (g_prop[i].alerted &&
@@ -1927,6 +1961,12 @@ int port_prop_tick_guard_fire(void)
         g_guard_los++;
         combat = 1;
         face_heading_prop(i, dx, dz);
+        if (!g_prop[i].alerted) {
+            g_prop[i].notice += 1;
+            if (g_prop[i].notice < PORT_GUARD_NOTICE_TICKS)
+                continue;
+            g_prop[i].alerted = 1;
+        }
         if (g_fire_cd > 0)
             continue;
         if (fire_guard_hitscan(i, dist)) {

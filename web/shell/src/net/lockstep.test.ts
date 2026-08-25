@@ -9,7 +9,7 @@ import {
   type CkSnap,
   type LockstepEngine,
 } from "./lockstep.ts";
-import type { PortPad } from "./datagram.ts";
+import { emptyPad, type PortPad } from "./datagram.ts";
 
 function fakeEngine(): LockstepEngine & { ticks: number[]; pads: PortPad[][]; nseats: number; seed: number } {
   const ticks: number[] = [];
@@ -37,6 +37,7 @@ function fakeEngine(): LockstepEngine & { ticks: number[]; pads: PortPad[][]; ns
         chr_rng_lo: 1,
         crc_players: mix >>> 0,
         crc_chrs: 0,
+        crc_props: 0,
         crc_objectives: 0,
       };
     },
@@ -44,8 +45,8 @@ function fakeEngine(): LockstepEngine & { ticks: number[]; pads: PortPad[][]; ns
   return eng;
 }
 
-const idle = { x: 0, y: 0, buttons: 0 };
-const walk = { x: 0, y: -70, buttons: 0 };
+const idle = emptyPad();
+const walk: PortPad = { ...emptyPad(), y: -70 };
 
 describe("LockstepSession", () => {
   it("waits until every seat has tick 0, then runs delay-1", () => {
@@ -170,5 +171,21 @@ describe("LockstepSession", () => {
     expect(a.overlay).toMatch(/Host disconnected/);
     expect(a.overlay).not.toBe(ICE_FAIL_OVERLAY);
     expect(a.step(50, idle)).toEqual([]);
+  });
+
+  it("forwards quantized look on the committed pad", () => {
+    const eng = fakeEngine();
+    const a = new LockstepSession(0, 2, 1, eng);
+    a.start(1);
+    const lookPad: PortPad = { ...emptyPad(), lookYaw: 50, lookPitch: -20 };
+    a.ingest([
+      { tick: 0, seat: 1, nseats: 2, delay: 1, pad: idle, simCrc: 0 },
+      { tick: 1, seat: 1, nseats: 2, delay: 1, pad: idle, simCrc: 0 },
+      { tick: 2, seat: 1, nseats: 2, delay: 1, pad: idle, simCrc: 0 },
+    ]);
+    a.step(0, lookPad);
+    a.step(50, idle);
+    expect(eng.pads[1][0].lookYaw).toBe(50);
+    expect(eng.pads[1][0].lookPitch).toBe(-20);
   });
 });

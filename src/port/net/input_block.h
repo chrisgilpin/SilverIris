@@ -14,7 +14,13 @@
 typedef struct {
     int8_t stick_x, stick_y;
     uint16_t buttons;
+    int8_t look_yaw;   /* 0.1 deg units, ±12.7 deg/tick */
+    int8_t look_pitch;
 } PortPad;
+
+/* Wire is 24 bytes: 20-byte BIN1 + look_yaw + look_pitch + two zero bytes.
+ * TAPE1 on-disk pads stay stick+buttons (4 bytes); look is 0 on replay. */
+#define PORT_INPUT_BLOCK_BYTES 24
 
 typedef struct {
     uint32_t magic;

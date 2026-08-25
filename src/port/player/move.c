@@ -39,8 +39,8 @@ static const float k_spawn_z[PORT_MAX_PLAYERS] = {0.0f, 20.0f, 20.0f, 40.0f};
 
 typedef struct {
     float x, y, z, theta, phi;
-    float look_yaw, look_pitch;
     int8_t pad_x, pad_y;
+    int8_t pad_look_yaw, pad_look_pitch;
     uint16_t pad_buttons;
     uint16_t prev_buttons;
     int spawned;
@@ -255,8 +255,8 @@ void port_player_spawn(void)
         g_p[i].z = k_spawn_z[i];
         g_p[i].theta = 0.0f;
         g_p[i].phi = 0.0f;
-        g_p[i].look_yaw = 0.0f;
-        g_p[i].look_pitch = 0.0f;
+        g_p[i].pad_look_yaw = 0;
+        g_p[i].pad_look_pitch = 0;
         g_p[i].pad_x = 0;
         g_p[i].pad_y = 0;
         g_p[i].pad_buttons = 0;
@@ -285,8 +285,8 @@ void port_player_set_pose(float x, float y, float z, float theta)
         g_p[i].z = z + k_spawn_z[i];
         g_p[i].theta = theta;
         g_p[i].phi = 0.0f;
-        g_p[i].look_yaw = 0.0f;
-        g_p[i].look_pitch = 0.0f;
+        g_p[i].pad_look_yaw = 0;
+        g_p[i].pad_look_pitch = 0;
         g_p[i].spawned = 1;
     }
     port_stan_clear_current();
@@ -305,12 +305,49 @@ void port_player_set_pitch(float phi)
         g_p[i].phi = phi;
 }
 
-void port_set_look_delta(int seat, float yaw_deg, float pitch_deg)
+void port_player_set_pose_at(int seat, float x, float y, float z, float theta)
 {
     if (seat < 0 || seat >= PORT_MAX_PLAYERS)
         return;
-    g_p[seat].look_yaw += yaw_deg;
-    g_p[seat].look_pitch += pitch_deg;
+    while (theta < 0.0f)
+        theta += 360.0f;
+    while (theta >= 360.0f)
+        theta -= 360.0f;
+    g_p[seat].x = x;
+    store_y(&g_p[seat], y);
+    g_p[seat].z = z;
+    g_p[seat].theta = theta;
+    g_p[seat].phi = 0.0f;
+    g_p[seat].pad_look_yaw = 0;
+    g_p[seat].pad_look_pitch = 0;
+    g_p[seat].spawned = 1;
+}
+
+static int8_t clamp_i8(int v)
+{
+    if (v > 127)
+        return 127;
+    if (v < -127)
+        return -127;
+    return (int8_t)v;
+}
+
+static int look_to_q(float deg)
+{
+    if (deg >= 0.0f)
+        return (int)(deg * (float)PORT_LOOK_Q + 0.5f);
+    return (int)(deg * (float)PORT_LOOK_Q - 0.5f);
+}
+
+void port_set_look_delta(int seat, float yaw_deg, float pitch_deg)
+{
+    int yq, pq;
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    yq = look_to_q(yaw_deg) + (int)g_p[seat].pad_look_yaw;
+    pq = look_to_q(pitch_deg) + (int)g_p[seat].pad_look_pitch;
+    g_p[seat].pad_look_yaw = clamp_i8(yq);
+    g_p[seat].pad_look_pitch = clamp_i8(pq);
 }
 
 void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons)
@@ -320,6 +357,16 @@ void port_set_local_pad(int seat, int8_t x, int8_t y, uint16_t buttons)
     g_p[seat].pad_x = x;
     g_p[seat].pad_y = y;
     g_p[seat].pad_buttons = buttons;
+    g_p[seat].pad_look_yaw = 0;
+    g_p[seat].pad_look_pitch = 0;
+}
+
+void port_set_local_look(int seat, int8_t yaw_q, int8_t pitch_q)
+{
+    if (seat < 0 || seat >= PORT_MAX_PLAYERS)
+        return;
+    g_p[seat].pad_look_yaw = yaw_q;
+    g_p[seat].pad_look_pitch = pitch_q;
 }
 
 void port_get_local_pad(int8_t *x, int8_t *y, uint16_t *buttons)
@@ -349,15 +396,17 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     turn = clampf(turn, -1.0f, 1.0f);
     fwd = walk * FWD_BOOST;
 
-    p->theta += p->look_yaw + turn * TURN_PER_DT * dt;
-    p->look_yaw = 0.0f;
+    p->theta += (float)p->pad_look_yaw / (float)PORT_LOOK_Q;
+    if ((buttons & PORT_STRAFE) == 0)
+        p->theta += turn * TURN_PER_DT * dt;
+    p->pad_look_yaw = 0;
     while (p->theta < 0.0f)
         p->theta += 360.0f;
     while (p->theta >= 360.0f)
         p->theta -= 360.0f;
 
-    p->phi += p->look_pitch;
-    p->look_pitch = 0.0f;
+    p->phi += (float)p->pad_look_pitch / (float)PORT_LOOK_Q;
+    p->pad_look_pitch = 0;
     if (buttons & PORT_C_UP)
         p->phi += LOOK_PER_DT * dt;
     if (buttons & PORT_C_DOWN)
@@ -367,8 +416,11 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     rad = p->theta * (PI_F / 180.0f);
     {
         float ox = p->x, oz = p->z, nx, nz, ny;
-        p->x += fwd * -sinf(rad) * dt;
-        p->z += fwd * cosf(rad) * dt;
+        float side = 0.0f;
+        if (buttons & PORT_STRAFE)
+            side = turn * FWD_BOOST;
+        p->x += fwd * -sinf(rad) * dt + side * cosf(rad) * dt;
+        p->z += fwd * cosf(rad) * dt + side * sinf(rad) * dt;
         if (port_stan_ready()) {
             nx = p->x;
             nz = p->z;

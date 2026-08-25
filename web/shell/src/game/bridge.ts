@@ -104,9 +104,12 @@ export type GameModule = {
   _port_api_kills: () => number;
   _port_api_hud_i32?: () => number;
   _port_api_health?: () => number;
+  _port_api_guard_los?: () => number;
+  _port_api_guard_shots?: () => number;
   _port_api_stan_tiles?: () => number;
   _port_api_stan_on_tile?: () => number;
   _port_api_crc_objectives: () => number;
+  _port_api_crc_props?: () => number;
   _port_api_rng_lo: () => number;
   _port_api_chr_rng_lo: () => number;
   _port_api_begin_match?: (nseats: number, rngSeed: number) => void;
@@ -191,9 +194,12 @@ export type GameBridge = {
   kills(): number;
   health(): number;
   armour(): number;
+  guardLos(): number;
+  guardShots(): number;
   stanTiles(): number;
   stanOnTile(): boolean;
   crcObjectives(): number;
+  crcProps(): number;
   rngLo(): number;
   chrRngLo(): number;
   beginMatch(nseats: number, rngSeed: number): void;
@@ -526,6 +532,12 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     armour(): number {
       return alive && M._port_api_armour ? M._port_api_armour() | 0 : 0;
     },
+    guardLos(): number {
+      return alive && M._port_api_guard_los ? M._port_api_guard_los() | 0 : 0;
+    },
+    guardShots(): number {
+      return alive && M._port_api_guard_shots ? M._port_api_guard_shots() | 0 : 0;
+    },
     stanTiles(): number {
       return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;
     },
@@ -534,6 +546,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     crcObjectives(): number {
       return alive ? M._port_api_crc_objectives() >>> 0 : 0;
+    },
+    crcProps(): number {
+      return alive && M._port_api_crc_props ? M._port_api_crc_props() >>> 0 : 0;
     },
     rngLo(): number {
       return alive ? M._port_api_rng_lo() >>> 0 : 0;

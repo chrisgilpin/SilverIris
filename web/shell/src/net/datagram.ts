@@ -3,10 +3,26 @@
 export const INPUT_MAGIC = 0x49314e42; /* BIN1 */
 export const DATAGRAM_MAGIC = 0x524e4942; /* BINR */
 export const INPUT_REDUNDANCY = 8;
-export const INPUT_BLOCK_BYTES = 20;
+export const INPUT_BLOCK_BYTES = 24;
 export const DATAGRAM_BYTES = 8 + INPUT_REDUNDANCY * INPUT_BLOCK_BYTES;
+export const LOOK_Q = 10;
 
-export type PortPad = { x: number; y: number; buttons: number };
+export type PortPad = { x: number; y: number; buttons: number; lookYaw: number; lookPitch: number };
+
+export function emptyPad(): PortPad {
+  return { x: 0, y: 0, buttons: 0, lookYaw: 0, lookPitch: 0 };
+}
+
+export function quantizeLookDeg(deg: number): number {
+  let q = Math.round(deg * LOOK_Q);
+  if (q > 127) q = 127;
+  if (q < -127) q = -127;
+  return q;
+}
+
+export function lookDegFromQ(q: number): number {
+  return q / LOOK_Q;
+}
 
 export type InputBlock = {
   tick: number;
@@ -40,6 +56,10 @@ export function encodeInputBlock(b: InputBlock, out: Uint8Array, o = 0): void {
   out[o + 14] = b.pad.buttons & 0xff;
   out[o + 15] = (b.pad.buttons >>> 8) & 0xff;
   wr32(out, o + 16, b.simCrc >>> 0);
+  out[o + 20] = b.pad.lookYaw;
+  out[o + 21] = b.pad.lookPitch;
+  out[o + 22] = 0;
+  out[o + 23] = 0;
 }
 
 export function decodeInputBlock(buf: Uint8Array, o = 0): InputBlock | null {
@@ -50,7 +70,13 @@ export function decodeInputBlock(buf: Uint8Array, o = 0): InputBlock | null {
     seat: buf[o + 8],
     nseats: buf[o + 9],
     delay: buf[o + 10],
-    pad: { x: (buf[o + 12] << 24) >> 24, y: (buf[o + 13] << 24) >> 24, buttons: buf[o + 14] | (buf[o + 15] << 8) },
+    pad: {
+      x: (buf[o + 12] << 24) >> 24,
+      y: (buf[o + 13] << 24) >> 24,
+      buttons: buf[o + 14] | (buf[o + 15] << 8),
+      lookYaw: buf.byteLength >= o + 21 ? (buf[o + 20] << 24) >> 24 : 0,
+      lookPitch: buf.byteLength >= o + 22 ? (buf[o + 21] << 24) >> 24 : 0,
+    },
     simCrc: rd32(buf, o + 16) >>> 0,
   };
 }

@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 
 #include "det/checksum.h"
@@ -113,6 +114,69 @@ int main(void)
     if (a.crc_players == b.crc_players)
         return fail("divergent pads should desync crc");
 
-    printf("lockstep ok delay=1 p0z=%g crc=%08x\n", (double)z0, a.crc_players);
+    /* Quantized look is on the pad: same tape must replay, a look flick must not. */
+    port_begin_match(2, 1);
+    port_lockstep_begin(2, 1);
+    port_lockstep_submit(0, 0, 0, 0, 0, 0);
+    port_lockstep_submit(0, 1, 0, 0, 0, 0);
+    run_n(1);
+    if (port_lockstep_submit_ex(1, 0, 0, 0, 0, 50, 0, 0) != 1)
+        return fail("look submit");
+    if (port_lockstep_submit(1, 1, 0, 0, 0, 0) != 1)
+        return fail("look p1");
+    if (port_lockstep_run() != 1)
+        return fail("look run");
+    if (port_player_theta_at(0) < 4.9f || port_player_theta_at(0) > 5.1f) {
+        fprintf(stderr, "look theta=%g want 5\n", (double)port_player_theta_at(0));
+        return fail("look yaw 5 deg");
+    }
+    port_checksum(2, &a);
+    port_begin_match(2, 1);
+    port_lockstep_begin(2, 1);
+    port_lockstep_submit(0, 0, 0, 0, 0, 0);
+    port_lockstep_submit(0, 1, 0, 0, 0, 0);
+    run_n(1);
+    port_lockstep_submit_ex(1, 0, 0, 0, 0, 50, 0, 0);
+    port_lockstep_submit(1, 1, 0, 0, 0, 0);
+    port_lockstep_run();
+    port_checksum(2, &b);
+    if (a.crc_players != b.crc_players)
+        return fail("look replay crc");
+    port_begin_match(2, 1);
+    port_lockstep_begin(2, 1);
+    port_lockstep_submit(0, 0, 0, 0, 0, 0);
+    port_lockstep_submit(0, 1, 0, 0, 0, 0);
+    run_n(1);
+    port_lockstep_submit(1, 0, 0, 0, 0, 0);
+    port_lockstep_submit(1, 1, 0, 0, 0, 0);
+    port_lockstep_run();
+    port_checksum(2, &b);
+    if (a.crc_players == b.crc_players)
+        return fail("look vs idle should desync crc");
+
+    /* Strafe: PORT_STRAFE + stick_x changes x, not theta. */
+    port_begin_match(1, 1);
+    port_lockstep_begin(1, 1);
+    if (port_lockstep_submit(0, 0, 0, 0, 0, 0) != 1)
+        return fail("strafe pre");
+    if (port_lockstep_run() != 1)
+        return fail("strafe t0");
+    {
+        float x0 = port_player_x_at(0), th0 = port_player_theta_at(0);
+        for (i = 1; i < 20; i++) {
+            if (port_lockstep_submit((uint32_t)i, 0, 70, 0, PORT_STRAFE, 0) != 1)
+                return fail("strafe submit");
+            if (port_lockstep_run() != 1)
+                return fail("strafe run");
+        }
+        if (!(port_player_x_at(0) > x0 + 10.0f)) {
+            fprintf(stderr, "strafe x=%g from %g\n", (double)port_player_x_at(0), (double)x0);
+            return fail("strafe +x");
+        }
+        if (fabsf(port_player_theta_at(0) - th0) > 0.5f)
+            return fail("strafe must not turn");
+    }
+
+    printf("lockstep ok delay=1 p0z=%g crc=%08x look=5\n", (double)z0, a.crc_players);
     return 0;
 }

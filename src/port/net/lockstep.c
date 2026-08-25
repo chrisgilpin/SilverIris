@@ -72,8 +72,8 @@ uint8_t port_lockstep_nseats(void) { return g_nseats; }
 uint8_t port_lockstep_delay(void) { return g_delay; }
 uint32_t port_lockstep_next_tick(void) { return g_next; }
 
-int port_lockstep_submit(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t stick_y,
-    uint16_t buttons, uint32_t sim_crc)
+int port_lockstep_submit_ex(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t stick_y,
+    uint16_t buttons, int8_t look_yaw, int8_t look_pitch, uint32_t sim_crc)
 {
     LockSlot *s;
     uint8_t bit;
@@ -93,9 +93,17 @@ int port_lockstep_submit(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t sti
     s->pads[seat].stick_x = stick_x;
     s->pads[seat].stick_y = stick_y;
     s->pads[seat].buttons = buttons;
+    s->pads[seat].look_yaw = look_yaw;
+    s->pads[seat].look_pitch = look_pitch;
     s->sim_crc[seat] = sim_crc;
     s->present = (uint8_t)(s->present | bit);
     return 1;
+}
+
+int port_lockstep_submit(uint32_t tick, uint8_t seat, int8_t stick_x, int8_t stick_y,
+    uint16_t buttons, uint32_t sim_crc)
+{
+    return port_lockstep_submit_ex(tick, seat, stick_x, stick_y, buttons, 0, 0, sim_crc);
 }
 
 int port_lockstep_has_all(uint32_t tick)
@@ -139,8 +147,10 @@ int port_lockstep_run(void)
     if (!port_lockstep_has_all(tick))
         return 0;
     s = slot_for(tick);
-    for (i = 0; i < g_nseats; i++)
+    for (i = 0; i < g_nseats; i++) {
         port_set_local_pad((int)i, s->pads[i].stick_x, s->pads[i].stick_y, s->pads[i].buttons);
+        port_set_local_look((int)i, s->pads[i].look_yaw, s->pads[i].look_pitch);
+    }
     if (port_sim_tick(tick) != 0)
         return -2;
     memset(s, 0, sizeof *s);
