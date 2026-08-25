@@ -30,11 +30,11 @@ What was blocking a real 2P game, not the mesh:
 
 Netplay still `?ff_netplay=1`. Hard-refresh after deploy (new wasm + `buildId`).
 
-## M2 — Synthetic 2P harness (next)
+## M2 — Synthetic 2P harness (done this push)
 
-Public-CI tape, no ROM: two seats on an on-tile corridor, walk, open a door, one PvP shot. Replay bit-identical native. Extends TAPE1; look stays 0 on disk pads.
+Public-CI tape, no ROM: two seats on an on-tile corridor, walk, Z-unlatch a door, one PvP shot. Replay bit-identical. `make -C native 2p-corridor-test` writes `testdata/tapes/2p-corridor.tape`. Look stays 0 on disk pads.
 
-**Exit:** `make -C native lockstep-test` plus a 2P synth tape that fails if pads or checksums diverge.
+Walk speed stays the pinned analog (~3 units/tick, dt=3). That is hardware-comparable, not a sprint. Facility is thousands of units across; stan clip vs G1 walls can make it feel slower. Do not invent a run multiplier here.
 
 ## M3 — On-tile 2P spawn
 

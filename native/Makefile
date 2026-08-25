@@ -74,7 +74,7 @@ BRINGUP_CFLAGS := $(CFLAGS) -DPORT_BRINGUP_ROM_DMA \
 	-DPORT_FILELIST_DEFAULT=\"$(FILELIST_U)\"
 
 .PHONY: all overlay ge_sim port_stub rng-test tick-test joy-playback rom-dma \
-	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test wasm silveriris silveriris_bringup shot-bin \
+	g0-test g1-test pack-dma port-api audio-test stage-test player-test gun-test chr-test score-test split-test view-seat-test tape-test replay-synth match-config lockstep-test 2p-corridor-test wasm silveriris silveriris_bringup shot-bin \
 	product-no-rom-dma clean trial
 
 all: port_stub silveriris
@@ -574,6 +574,17 @@ $(BUILD)/test_lockstep: $(ROOT)/tools/det/test_lockstep.c $(LOCKSTEP_OBJS) | ove
 
 lockstep-test: overlay $(BUILD)/test_lockstep
 	$(BUILD)/test_lockstep
+
+2P_CORRIDOR_TAPE := $(ROOT)/testdata/tapes/2p-corridor.tape
+
+$(BUILD)/test_2p_corridor: $(ROOT)/tools/det/test_2p_corridor.c \
+		$(LOCKSTEP_OBJS) $(BUILD)/src/port/det/tape.o | overlay
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(ROOT)/src -o $@ $(ROOT)/tools/det/test_2p_corridor.c \
+		$(LOCKSTEP_OBJS) $(BUILD)/src/port/det/tape.o -lm
+
+2p-corridor-test: overlay $(BUILD)/test_2p_corridor
+	$(BUILD)/test_2p_corridor $(2P_CORRIDOR_TAPE)
 
 EMCC ?= $(HOME)/emsdk/upstream/emscripten/emcc
 WASM_OUT := $(ROOT)/web/shell/public
