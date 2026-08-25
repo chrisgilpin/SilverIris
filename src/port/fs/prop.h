@@ -110,6 +110,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
  * index (may be 10000+ bound). Returns 0 if a pad was resolved. */
 int port_prop_intro(float pos[3], float look[3], int *pad_out);
 int port_prop_intro_pad(void);
+int port_prop_intro_count(void);
+int port_prop_intro_at(int i, float pos[3], float look[3], int *pad_out);
 int port_prop_door_count(void);
 int port_prop_door_xz(int i, float *x, float *z, float *lx, float *lz);
 /* Fitted-slab park at current frac: world xz delta + extra yaw. 0 if closed. */

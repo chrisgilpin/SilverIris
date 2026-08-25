@@ -22,6 +22,10 @@
 void port_player_spawn(void);
 void port_player_set_pose(float x, float y, float z, float theta);
 void port_player_set_pose_at(int seat, float x, float y, float z, float theta);
+/* Stage intro: seat 0 at this pose; extra seats k_spawn if on-tile, else
+ * the next walkable offset. begin_match re-applies this origin. */
+void port_player_set_spawn_origin(float x, float y, float z, float theta);
+void port_player_clear_spawn_origin(void);
 void port_player_set_y(float y);
 void port_player_set_pitch(float phi);
 void port_set_look_delta(int seat, float yaw_deg, float pitch_deg);

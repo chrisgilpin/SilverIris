@@ -442,6 +442,7 @@ void port_stage_unload(void)
     g1_tex_set_pack(NULL);
     g1_tex_unload();
     clear_rooms();
+    port_player_clear_spawn_origin();
     port_stan_unload();
     free(g_bg);
     free(g_stan);
@@ -672,7 +673,40 @@ int port_stage_load(int level_id)
                 (void)pad_y;
                 (void)got;
             }
-            port_player_set_pose(x, y, z, th);
+            port_player_set_spawn_origin(x, y, z, th);
+            {
+                int s, nseats = PORT_MAX_PLAYERS, ni = port_prop_intro_count();
+                float r1x = 0.f, r1y = 0.f, r1z = 0.f;
+                if (g_bg_rooms >= 1) {
+                    r1x = g_rm[1].pos[0];
+                    r1y = g_rm[1].pos[1];
+                    r1z = g_rm[1].pos[2];
+                }
+                for (s = 1; s < nseats && s < ni; s++) {
+                    float p[3], lk[3], sx, sy, sz, ths, ey, lx, lz;
+                    if (port_prop_intro_at(s, p, lk, NULL) != 0)
+                        continue;
+                    sx = p[0] - r1x;
+                    sy = p[1] - r1y;
+                    sz = p[2] - r1z;
+                    lx = lk[0];
+                    lz = lk[2];
+                    if (lx * lx + lz * lz < 1e-8f)
+                        ths = th;
+                    else {
+                        ths = atan2f(lx, -lz) * (180.f / 3.14159265f);
+                        if (ths < 0.f)
+                            ths += 360.f;
+                    }
+                    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+                    if (port_stan_eye_y(sx, sz, &ey) == 0)
+                        sy = ey;
+                    else if (port_stan_snap_walkable(&sx, &sz, lx, lz,
+                                                     PORT_STAN_NEAR_XZ, &ey) == 0)
+                        sy = ey;
+                    port_player_set_pose_at(s, sx, sy, sz, ths);
+                }
+            }
         }
     }
     /* Tiles/origin are live. Sit the walk test mover on a ground-floor

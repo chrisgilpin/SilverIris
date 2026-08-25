@@ -8,6 +8,7 @@
 #include "overrides/lv_clock.h"
 
 #include <math.h>
+#include <string.h>
 
 /*
  * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
@@ -36,6 +37,13 @@
 
 static const float k_spawn_x[PORT_MAX_PLAYERS] = {0.0f, 40.0f, -40.0f, 0.0f};
 static const float k_spawn_z[PORT_MAX_PLAYERS] = {0.0f, 20.0f, 20.0f, 40.0f};
+#define PORT_SEAT_MIN 36.0f
+
+static int g_have_origin;
+static float g_origin_x, g_origin_y, g_origin_z, g_origin_th;
+static int g_have_seat[PORT_MAX_PLAYERS];
+static float g_seat_x[PORT_MAX_PLAYERS], g_seat_y[PORT_MAX_PLAYERS];
+static float g_seat_z[PORT_MAX_PLAYERS], g_seat_th[PORT_MAX_PLAYERS];
 
 typedef struct {
     float x, y, z, theta, phi;
@@ -241,6 +249,102 @@ void port_viewport(int seat, int *left, int *top, int *width, int *height)
         *height = h;
 }
 
+static int seat_clear(int seat, float cx, float cz)
+{
+    int j;
+    float dx, dz;
+
+    if (port_stan_ready()) {
+        if (!port_stan_on_tile(cx, cz))
+            return 0;
+        if (port_stan_closed_door_at_local(cx, cz))
+            return 0;
+    }
+    for (j = 0; j < seat; j++) {
+        dx = cx - g_p[j].x;
+        dz = cz - g_p[j].z;
+        if (dx * dx + dz * dz < PORT_SEAT_MIN * PORT_SEAT_MIN)
+            return 0;
+    }
+    return 1;
+}
+
+static void sit_seat(int i, float x, float y, float z, float theta)
+{
+    while (theta < 0.0f)
+        theta += 360.0f;
+    while (theta >= 360.0f)
+        theta -= 360.0f;
+    g_p[i].x = x;
+    store_y(&g_p[i], y);
+    g_p[i].z = z;
+    g_p[i].theta = theta;
+    g_p[i].phi = 0.0f;
+    g_p[i].pad_look_yaw = 0;
+    g_p[i].pad_look_pitch = 0;
+    g_p[i].spawned = 1;
+}
+
+static void place_extra_seats(float x, float y, float z, float theta)
+{
+    int i, n;
+    float rad, fx, fz, rx, rz;
+
+    n = g_nplayers;
+    if (n < 1)
+        n = 1;
+    rad = theta * (PI_F / 180.0f);
+    fx = sinf(rad);
+    fz = -cosf(rad);
+    rx = cosf(rad);
+    rz = sinf(rad);
+    for (i = 1; i < PORT_MAX_PLAYERS; i++) {
+        float cx = x + k_spawn_x[i];
+        float cz = z + k_spawn_z[i];
+        float cy = y;
+        if (i < n && port_stan_ready() && !seat_clear(i, cx, cz)) {
+            float sx = cx, sz = cz, ey = y;
+            int found = 0;
+            if (port_stan_snap_walkable(&sx, &sz, fx, fz, PORT_STAN_NEAR_XZ, &ey) == 0
+                && seat_clear(i, sx, sz)) {
+                cx = sx;
+                cz = sz;
+                cy = ey;
+                found = 1;
+            }
+            if (!found) {
+                const float dist[4] = {40.0f, 80.0f, 120.0f, 160.0f};
+                const float dxv[6] = {1.0f, -1.0f, 0.0f, 0.0f, 0.7f, -0.7f};
+                const float dzv[6] = {0.0f, 0.0f, 1.0f, -1.0f, 0.7f, 0.7f};
+                int d, k;
+                for (d = 0; d < 4 && !found; d++) {
+                    for (k = 0; k < 6; k++) {
+                        float tx = x + (rx * dxv[k] + fx * dzv[k]) * dist[d];
+                        float tz = z + (rz * dxv[k] + fz * dzv[k]) * dist[d];
+                        float ty = y;
+                        if (!seat_clear(i, tx, tz)) {
+                            sx = tx;
+                            sz = tz;
+                            if (port_stan_snap_walkable(&sx, &sz, fx, fz, 80.0f, &ty) != 0
+                                || !seat_clear(i, sx, sz))
+                                continue;
+                            tx = sx;
+                            tz = sz;
+                        } else if (port_stan_eye_y(tx, tz, &ty) != 0)
+                            ty = y;
+                        cx = tx;
+                        cz = tz;
+                        cy = ty;
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        sit_seat(i, cx, cy, cz, theta);
+    }
+}
+
 void port_player_spawn(void)
 {
     int i;
@@ -267,6 +371,13 @@ void port_player_spawn(void)
     }
     g_safe_y = PORT_EYE_HEIGHT;
     port_stan_clear_current();
+    if (g_have_origin) {
+        port_player_set_pose(g_origin_x, g_origin_y, g_origin_z, g_origin_th);
+        for (i = 1; i < g_nplayers; i++) {
+            if (g_have_seat[i])
+                sit_seat(i, g_seat_x[i], g_seat_y[i], g_seat_z[i], g_seat_th[i]);
+        }
+    }
     port_gun_reset();
     port_chr_reset();
     port_score_reset();
@@ -274,22 +385,26 @@ void port_player_spawn(void)
 
 void port_player_set_pose(float x, float y, float z, float theta)
 {
-    int i;
-    while (theta < 0.0f)
-        theta += 360.0f;
-    while (theta >= 360.0f)
-        theta -= 360.0f;
-    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
-        g_p[i].x = x + k_spawn_x[i];
-        store_y(&g_p[i], y);
-        g_p[i].z = z + k_spawn_z[i];
-        g_p[i].theta = theta;
-        g_p[i].phi = 0.0f;
-        g_p[i].pad_look_yaw = 0;
-        g_p[i].pad_look_pitch = 0;
-        g_p[i].spawned = 1;
-    }
+    sit_seat(0, x, y, z, theta);
+    place_extra_seats(x, y, z, theta);
     port_stan_clear_current();
+}
+
+void port_player_set_spawn_origin(float x, float y, float z, float theta)
+{
+    memset(g_have_seat, 0, sizeof g_have_seat);
+    g_have_origin = 1;
+    g_origin_x = x;
+    g_origin_y = y;
+    g_origin_z = z;
+    g_origin_th = theta;
+    port_player_set_pose(x, y, z, theta);
+}
+
+void port_player_clear_spawn_origin(void)
+{
+    g_have_origin = 0;
+    memset(g_have_seat, 0, sizeof g_have_seat);
 }
 
 void port_player_set_y(float y)
@@ -309,18 +424,14 @@ void port_player_set_pose_at(int seat, float x, float y, float z, float theta)
 {
     if (seat < 0 || seat >= PORT_MAX_PLAYERS)
         return;
-    while (theta < 0.0f)
-        theta += 360.0f;
-    while (theta >= 360.0f)
-        theta -= 360.0f;
-    g_p[seat].x = x;
-    store_y(&g_p[seat], y);
-    g_p[seat].z = z;
-    g_p[seat].theta = theta;
-    g_p[seat].phi = 0.0f;
-    g_p[seat].pad_look_yaw = 0;
-    g_p[seat].pad_look_pitch = 0;
-    g_p[seat].spawned = 1;
+    sit_seat(seat, x, y, z, theta);
+    if (g_have_origin && seat > 0) {
+        g_have_seat[seat] = 1;
+        g_seat_x[seat] = x;
+        g_seat_y[seat] = y;
+        g_seat_z[seat] = z;
+        g_seat_th[seat] = theta;
+    }
 }
 
 static int8_t clamp_i8(int v)

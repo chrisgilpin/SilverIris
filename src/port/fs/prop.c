@@ -186,6 +186,11 @@ static int g_intro_pad = -1;
 static int g_have_intro;
 static float g_intro_pos[3];
 static float g_intro_look[3];
+#define PORT_INTRO_MAX 4
+static int g_nintro;
+static int g_intro_pads[PORT_INTRO_MAX];
+static float g_intro_xyz[PORT_INTRO_MAX][3];
+static float g_intro_looks[PORT_INTRO_MAX][3];
 static float g_idle_rest[PORT_SKEL_GUARD_N][3];
 static float g_walk_rest[PORT_SKEL_GUARD_N][3];
 static float g_aim_rest[PORT_SKEL_GUARD_N][3];
@@ -2388,6 +2393,7 @@ static void parse_intro(const uint8_t *st, size_t n, uint32_t pad_off, uint32_t 
 
     g_have_intro = 0;
     g_intro_pad = -1;
+    g_nintro = 0;
     if (n < PORT_SETUP_PTRS * 4)
         return;
     ioff = be32(st + 8);
@@ -2413,23 +2419,44 @@ static void parse_intro(const uint8_t *st, size_t n, uint32_t pad_off, uint32_t 
                 first = pad;
             if (demo == 0 && chosen < 0)
                 chosen = pad;
+            if (demo == 0 && g_nintro < PORT_INTRO_MAX)
+                g_intro_pads[g_nintro++] = pad;
         }
         p += bytes;
     }
     if (chosen < 0)
         chosen = first;
-    if (chosen >= 0) {
-        const uint8_t *pd = pad_bytes(st, n, pad_off, bound_off, npad, nbound, chosen);
-        if (pd) {
-            g_intro_pad = chosen;
-            g_intro_pos[0] = be_f32(pd);
-            g_intro_pos[1] = be_f32(pd + 4);
-            g_intro_pos[2] = be_f32(pd + 8);
-            g_intro_look[0] = be_f32(pd + 24);
-            g_intro_look[1] = be_f32(pd + 28);
-            g_intro_look[2] = be_f32(pd + 32);
-            g_have_intro = 1;
+    if (g_nintro <= 0 && chosen >= 0) {
+        g_intro_pads[0] = chosen;
+        g_nintro = 1;
+    }
+    {
+        int i, kept = 0;
+        for (i = 0; i < g_nintro; i++) {
+            const uint8_t *pd = pad_bytes(st, n, pad_off, bound_off, npad, nbound,
+                                          g_intro_pads[i]);
+            if (!pd)
+                continue;
+            g_intro_pads[kept] = g_intro_pads[i];
+            g_intro_xyz[kept][0] = be_f32(pd);
+            g_intro_xyz[kept][1] = be_f32(pd + 4);
+            g_intro_xyz[kept][2] = be_f32(pd + 8);
+            g_intro_looks[kept][0] = be_f32(pd + 24);
+            g_intro_looks[kept][1] = be_f32(pd + 28);
+            g_intro_looks[kept][2] = be_f32(pd + 32);
+            kept++;
         }
+        g_nintro = kept;
+    }
+    if (g_nintro > 0) {
+        g_intro_pad = g_intro_pads[0];
+        g_intro_pos[0] = g_intro_xyz[0][0];
+        g_intro_pos[1] = g_intro_xyz[0][1];
+        g_intro_pos[2] = g_intro_xyz[0][2];
+        g_intro_look[0] = g_intro_looks[0][0];
+        g_intro_look[1] = g_intro_looks[0][1];
+        g_intro_look[2] = g_intro_looks[0][2];
+        g_have_intro = 1;
     }
 }
 
@@ -2810,6 +2837,7 @@ static int parse_setup(const uint8_t *st, size_t n)
     g_nprop = 0;
     g_have_intro = 0;
     g_intro_pad = -1;
+    g_nintro = 0;
     g_npcand = 0;
     g_pickup_prop = -1;
     g_pickup_drawn = 0;
@@ -2955,6 +2983,7 @@ void port_prop_unload(void)
     g_drawn = 0;
     g_have_intro = 0;
     g_intro_pad = -1;
+    g_nintro = 0;
     g_have_idle = 0;
     g_have_walk = 0;
     g_have_aim = 0;
@@ -3032,6 +3061,27 @@ int port_prop_models(void) { return g_nmdl; }
 int port_prop_drawn(void) { return g_drawn; }
 
 int port_prop_intro_pad(void) { return g_have_intro ? g_intro_pad : -1; }
+
+int port_prop_intro_count(void) { return g_nintro; }
+
+int port_prop_intro_at(int i, float pos[3], float look[3], int *pad_out)
+{
+    if (i < 0 || i >= g_nintro)
+        return -1;
+    if (pos) {
+        pos[0] = g_intro_xyz[i][0];
+        pos[1] = g_intro_xyz[i][1];
+        pos[2] = g_intro_xyz[i][2];
+    }
+    if (look) {
+        look[0] = g_intro_looks[i][0];
+        look[1] = g_intro_looks[i][1];
+        look[2] = g_intro_looks[i][2];
+    }
+    if (pad_out)
+        *pad_out = g_intro_pads[i];
+    return 0;
+}
 
 int port_prop_intro(float pos[3], float look[3], int *pad_out)
 {

@@ -36,11 +36,11 @@ Public-CI tape, no ROM: two seats on an on-tile corridor, walk, Z-unlatch a door
 
 Walk speed stays the pinned analog (~3 units/tick, dt=3). That is hardware-comparable, not a sprint. Facility is thousands of units across; stan clip vs G1 walls can make it feel slower. Do not invent a run multiplier here.
 
-## M3 — On-tile 2P spawn
+## M3 — On-tile 2P spawn (done this push)
 
-`k_spawn_*` offsets from the intro pad can put P2 in a wall. Bind dump-verified Facility MP pads, or the next on-tile offset. No invented pads.
+`begin_match` re-applies the stage intro origin (solo pose was wiped before). Extra seats use dump intro pads when the setup lists more than one `INTROTYPE_SPAWN` (demo=0). Otherwise `k_spawn` if that xz is on-tile and not in a door slab; else the next walkable offset along look. No invented pads.
 
-**Exit:** both seats spawn on stan tiles in Facility; neither starts inside a slab.
+**Exit:** both seats on stan tiles; neither in a slab. Empty-stan tests keep P1 at (40, 20).
 
 ## M4 — Checksum the rest of the G1 sim
 

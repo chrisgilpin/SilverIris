@@ -70,6 +70,7 @@ static int setup_world(void)
     uint8_t stan[256];
     float y;
 
+    port_player_clear_spawn_origin();
     port_stan_unload();
     build_corridor_stan(stan, sizeof stan);
     port_stan_set_scale(1.0f);
@@ -130,6 +131,84 @@ static int run_script(SimChecksum *last, TapeFrame *fr)
     return 0;
 }
 
+static int test_empty_spawn(void)
+{
+    port_player_clear_spawn_origin();
+    port_stan_unload();
+    port_set_player_count(2);
+    port_player_spawn();
+    if (port_player_z_at(1) != 20.0f)
+        return fail("empty P1 z");
+    if (port_player_x_at(1) != 40.0f)
+        return fail("empty P1 x");
+    return 0;
+}
+
+static void build_narrow_stan(uint8_t *s, size_t n)
+{
+    memset(s, 0, n);
+    wr_be32(s + 4, 0x0F000080u);
+    s[0x80 + 2] = 1;
+    s[0x80 + 3] = 1;
+    wr_be16(s + 0x80 + 6, (uint16_t)((4u << 12) | (0u << 8) | (1u << 4) | 2u));
+    wr_s16(s + 0x88 + 0, 0);
+    wr_s16(s + 0x88 + 2, 50);
+    wr_s16(s + 0x88 + 4, -8);
+    wr_s16(s + 0x90 + 0, 200);
+    wr_s16(s + 0x90 + 2, 50);
+    wr_s16(s + 0x90 + 4, -8);
+    wr_s16(s + 0x98 + 0, 200);
+    wr_s16(s + 0x98 + 2, 50);
+    wr_s16(s + 0x98 + 4, 8);
+    wr_s16(s + 0xA0 + 0, 0);
+    wr_s16(s + 0xA0 + 2, 50);
+    wr_s16(s + 0xA0 + 4, 8);
+}
+
+static int test_narrow_spawn(void)
+{
+    uint8_t stan[256];
+    float y;
+
+    port_player_clear_spawn_origin();
+    port_stan_unload();
+    build_narrow_stan(stan, sizeof stan);
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("narrow stan");
+    port_stan_clear_doors();
+    if (port_stan_eye_y(0.0f, 0.0f, &y) != 0)
+        return fail("narrow eye");
+    port_set_player_count(2);
+    port_player_set_spawn_origin(0.0f, y, 0.0f, 0.0f);
+    if (!port_stan_on_tile(port_player_x_at(0), port_player_z_at(0)))
+        return fail("P0 off tile");
+    if (!port_stan_on_tile(port_player_x_at(1), port_player_z_at(1))) {
+        fprintf(stderr, "P1 xz=%g,%g off narrow tile\n",
+            (double)port_player_x_at(1), (double)port_player_z_at(1));
+        return fail("P1 off tile");
+    }
+    if (port_stan_closed_door_at_local(port_player_x_at(1), port_player_z_at(1)))
+        return fail("P1 in slab");
+    {
+        float dx = port_player_x_at(1) - port_player_x_at(0);
+        float dz = port_player_z_at(1) - port_player_z_at(0);
+        if (dx * dx + dz * dz < 30.0f * 30.0f)
+            return fail("seats overlap");
+    }
+    port_set_player_count(2);
+    port_player_spawn();
+    if (!port_stan_on_tile(port_player_x_at(1), port_player_z_at(1)))
+        return fail("begin_match P1 off tile");
+    printf("narrow spawn P0=%.1f,%.1f P1=%.1f,%.1f\n",
+        (double)port_player_x_at(0), (double)port_player_z_at(0),
+        (double)port_player_x_at(1), (double)port_player_z_at(1));
+    port_player_clear_spawn_origin();
+    port_stan_unload();
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     SimChecksum a, b;
@@ -140,6 +219,11 @@ int main(int argc, char **argv)
     uint32_t props0;
     const char *out_path;
     int hp1, hits0;
+
+    if (test_empty_spawn() != 0)
+        return 1;
+    if (test_narrow_spawn() != 0)
+        return 1;
 
     if (setup_world() != 0)
         return 1;
