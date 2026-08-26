@@ -100,7 +100,7 @@ Fire spends that mag. Reload takes from `ammo[RIFLE]`. Pickup +7 goes to
 rifle, not 9mm. Leftover PP7 mag unloads back to 9mm (not converted).
 Spawn/respawn still PP7 7/21 9mm. Hitscan damage stays 1.
 
-Lobby `buildId` `siliris-kf7-mag-v4!!`.
+Lobby `buildId` `siliris-kf7-mag-v4!!` (M12 bumps this).
 
 **Exit:** `gun-test` collect-184 then fire: weapon=KF7, mag moves on rifle,
 9mm reserve unchanged. Empty-PP7 path unchanged.
@@ -113,11 +113,13 @@ unchanged so the G1 greyscale hash stays. Dump `BoundingVolumeRadius` is
 
 **Exit:** `gun-test` KF7 hold xyz is 11/−19/−16; PP7 still 11/−24/−60.
 
-### M12 — MP5K death-drop is a hold
+### M12 — MP5K death-drop is a hold (this push)
 
 chrmp5k 189 binds Gmp5kZ (`mp5k_stats` `AMMO_9MM`, MagSize 30, Pos 11/−26.4/−35).
 Collecting switches hold + mag size. +7 is still the dump amount, into the
 MP5K mag, not leftover PP7 mag 7.
+
+Lobby `buildId` `siliris-mp5k-v5!!!!!`.
 
 **Exit:** `gun-test` collect-189: weapon=MP5K, mag size 30, ammo type 9mm.
 

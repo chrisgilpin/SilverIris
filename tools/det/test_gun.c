@@ -671,6 +671,47 @@ static int test_kf7_ammo(void)
     return 0;
 }
 
+static int test_mp5k_ammo(void)
+{
+    int32_t *ammo;
+    float hx, hy, hz;
+    int mag, res9;
+
+    port_stan_unload();
+    port_set_player_count(1);
+    port_player_spawn();
+    mag = port_gun_mag();
+    res9 = port_gun_reserve();
+    port_gun_collect_model(PORT_GUN_MODEL_MP5K);
+    if (port_gun_weapon() != PORT_WEAPON_MP5K)
+        return fail("equip MP5K");
+    if (port_gun_mag_size() != PORT_MP5K_MAG)
+        return fail("MP5K mag size");
+    if (port_gun_ammo_type() != PORT_AMMO_9MM)
+        return fail("MP5K ammo type");
+    ammo = port_ammoheldarr();
+    if (port_gun_mag() != PORT_MP5K_MAG)
+        return fail("MP5K mag full from 9mm pool");
+    if (ammo[PORT_AMMO_9MM] != res9 + mag + PORT_GUN_PICKUP_ADD - PORT_MP5K_MAG)
+        return fail("MP5K 9mm remainder");
+    if (port_gun_reserve() != ammo[PORT_AMMO_9MM])
+        return fail("MP5K reserve is 9mm");
+    port_gun_hold(&hx, &hy, &hz);
+    if (hx != PORT_MP5K_HOLD_X || hy != PORT_MP5K_HOLD_Y || hz != PORT_MP5K_HOLD_Z)
+        return fail("MP5K Rare hold");
+    mag = port_gun_mag();
+    res9 = port_gun_reserve();
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(200) != 0)
+        return fail("mp5k fire");
+    if (port_gun_mag() != mag - 1)
+        return fail("mp5k mag spend");
+    if (port_gun_reserve() != res9)
+        return fail("mp5k reserve unchanged");
+    printf("mp5k ammo ok mag_size=%d hold_y=%g\n", PORT_MP5K_MAG, (double)PORT_MP5K_HOLD_Y);
+    return 0;
+}
+
 int main(void)
 {
     SimChecksum a, b;
@@ -758,6 +799,8 @@ int main(void)
     if (test_crc_props() != 0)
         return 1;
     if (test_kf7_ammo() != 0)
+        return 1;
+    if (test_mp5k_ammo() != 0)
         return 1;
     return 0;
 }

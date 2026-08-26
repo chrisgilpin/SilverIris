@@ -124,12 +124,14 @@ int port_prop_guard_xyz(int i, float *x, float *y, float *z);
  * First-person pack gun as a static camera-space viewmodel.
  * Spawn is GwppkZ (PP7). Collecting a KF7 death-drop (chrkalash 184)
  * switches to pack Gak47Z if that blob bound. Never PchrkalashZ.
- * Hold is documented in prop.c (Rare Pos, G1 near-plane Z).
+ * Collecting MP5K (chrmp5k 189) switches to pack Gmp5kZ.
+ * Hold is port_gun_hold (Rare Pos; PP7 is G1-near-safe).
  * SKEL_FLASH cards are omitted unless port_gun_flash_frames() > 0.
  * 0 if the pack has no gun file or bind failed. Does not bump drawn.
  */
 #define PORT_GUN_WPPK_ID 9001
 #define PORT_GUN_AK47_ID 9002
+#define PORT_GUN_MP5K_ID 9003
 int port_prop_fill_viewgun(G1RoomDl *out, int cap);
 int port_prop_viewgun_parts(void);
 int port_prop_viewgun_id(void);

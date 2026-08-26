@@ -100,7 +100,11 @@
  * PchrkalashZ is third-person only — never a first-person hold. */
 #define PORT_GUN_AK47_NSW 0x24
 #define PORT_GUN_AK47_NTEX 0x12
+/* Gmp5kZ MODELFILEHEADER: NUMSWITCHES=0x24 NUMTEXTURES=9. */
+#define PORT_GUN_MP5K_NSW 0x24
+#define PORT_GUN_MP5K_NTEX 9
 #define PORT_PROP_CHRKALASH 184
+#define PORT_PROP_CHRMP5K 189
 
 #define PI_F 3.14159265f
 
@@ -252,10 +256,13 @@ static int g_viewgun_parts;
 static int g_viewgun_id = PORT_GUN_WPPK_ID;
 static PortModel *load_wppk(void);
 static PortModel *load_ak47(void);
+static PortModel *load_mp5k(void);
 static const PortPropCat k_wppk_gun = { PORT_GUN_WPPK_ID, PORT_GUN_WPPK_NSW,
                                        PORT_GUN_WPPK_NTEX, 1.f, "wppk" };
 static const PortPropCat k_ak47_gun = { PORT_GUN_AK47_ID, PORT_GUN_AK47_NSW,
                                        PORT_GUN_AK47_NTEX, 1.f, "ak47" };
+static const PortPropCat k_mp5k_gun = { PORT_GUN_MP5K_ID, PORT_GUN_MP5K_NSW,
+                                       PORT_GUN_MP5K_NTEX, 1.f, "mp5k" };
 
 /* SKELETON(guard) JOINTLIST mtxA — bitstream channel base per JointID. */
 static const uint16_t k_guard_mtxa[PORT_SKEL_GUARD_N] = {
@@ -3043,6 +3050,7 @@ int port_prop_load(int level_id)
     assign_walkers();
     (void)load_wppk();
     (void)load_ak47(); /* bind Gak47Z if present; viewgun stays PP7 */
+    (void)load_mp5k(); /* bind Gmp5kZ if present; viewgun stays PP7 */
     return PORT_PROP_OK;
 }
 
@@ -3190,10 +3198,35 @@ static PortModel *load_ak47(void)
     return NULL;
 }
 
+static PortModel *load_mp5k(void)
+{
+    PortModel *m = load_named(PORT_GUN_MP5K_ID, "gun", "G", &k_mp5k_gun, 0, NULL);
+    if (m && m->npart)
+        return m;
+    return NULL;
+}
+
+void port_prop_viewgun_sync(void)
+{
+    int w = port_gun_weapon();
+    if (w == PORT_WEAPON_KF7 && load_ak47())
+        g_viewgun_id = PORT_GUN_AK47_ID;
+    else if (w == PORT_WEAPON_MP5K && load_mp5k())
+        g_viewgun_id = PORT_GUN_MP5K_ID;
+    else
+        g_viewgun_id = PORT_GUN_WPPK_ID;
+}
+
 static PortModel *load_viewgun(void)
 {
+    port_prop_viewgun_sync();
     if (g_viewgun_id == PORT_GUN_AK47_ID) {
         PortModel *m = load_ak47();
+        if (m)
+            return m;
+    }
+    if (g_viewgun_id == PORT_GUN_MP5K_ID) {
+        PortModel *m = load_mp5k();
         if (m)
             return m;
     }
@@ -3205,10 +3238,10 @@ int port_prop_viewgun_parts(void) { return g_viewgun_parts; }
 int port_prop_viewgun_id(void) { return g_viewgun_id; }
 
 /*
- * Static first-person pack gun (GwppkZ, or Gak47Z after KF7 drop).
+ * Static first-person pack gun (GwppkZ, Gak47Z after KF7, Gmp5kZ after MP5K).
  * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
  * -Z so hold * R180 * part. Camera-space via .view. Hold is per-weapon
- * (port_gun_hold): PP7 11/-24/-60, KF7 Rare ak47_stats 11/-19/-16.
+ * (port_gun_hold).
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -3996,12 +4029,10 @@ void port_prop_tick_pickup(void)
             g_drop_drawn = 0;
         if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
             port_player_add_armour(pr->pickup_amount);
-        else if (pr->model == PORT_PROP_CHRKALASH) {
+        else if (pr->model == PORT_PROP_CHRKALASH ||
+                 pr->model == PORT_PROP_CHRMP5K)
             port_gun_collect_model(pr->model);
-            /* KF7 death-drop: switch FP bind to pack Gak47Z. Not chrkalash. */
-            if (load_ak47())
-                g_viewgun_id = PORT_GUN_AK47_ID;
-        } else
+        else
             port_gun_add_reserve(pr->pickup_amount);
     }
 }

@@ -9,6 +9,7 @@
 #include <string.h>
 
 __attribute__((weak)) void port_prop_hear_player_shot(void) {}
+__attribute__((weak)) void port_prop_viewgun_sync(void) {}
 
 /*
  * PP7 / KF7 slice of gunfire.c until that file compiles.
@@ -47,6 +48,8 @@ static int weapon_mag_size(int weapon)
 {
     if (weapon == PORT_WEAPON_KF7)
         return PORT_KF7_MAG;
+    if (weapon == PORT_WEAPON_MP5K)
+        return PORT_MP5K_MAG;
     return PORT_PP7_MAG;
 }
 
@@ -166,6 +169,8 @@ void port_gun_reset_seat(int seat)
     g_gun[seat].weapon = PORT_WEAPON_PP7;
     g_gun[seat].ammo[PORT_AMMO_9MM] = PORT_PP7_RESERVE;
     g_gun[seat].mag = PORT_PP7_MAG;
+    if (seat == port_cur_player() && port_prop_viewgun_sync)
+        port_prop_viewgun_sync();
 }
 
 void port_gun_reset(void)
@@ -212,13 +217,31 @@ int port_gun_mag_size(void) { return weapon_mag_size(G()->weapon); }
 
 void port_gun_hold(float *x, float *y, float *z)
 {
-    int kf7 = G()->weapon == PORT_WEAPON_KF7;
-    if (x)
-        *x = kf7 ? PORT_KF7_HOLD_X : PORT_PP7_HOLD_X;
-    if (y)
-        *y = kf7 ? PORT_KF7_HOLD_Y : PORT_PP7_HOLD_Y;
-    if (z)
-        *z = kf7 ? PORT_KF7_HOLD_Z : PORT_PP7_HOLD_Z;
+    int w = G()->weapon;
+    if (x) {
+        if (w == PORT_WEAPON_KF7)
+            *x = PORT_KF7_HOLD_X;
+        else if (w == PORT_WEAPON_MP5K)
+            *x = PORT_MP5K_HOLD_X;
+        else
+            *x = PORT_PP7_HOLD_X;
+    }
+    if (y) {
+        if (w == PORT_WEAPON_KF7)
+            *y = PORT_KF7_HOLD_Y;
+        else if (w == PORT_WEAPON_MP5K)
+            *y = PORT_MP5K_HOLD_Y;
+        else
+            *y = PORT_PP7_HOLD_Y;
+    }
+    if (z) {
+        if (w == PORT_WEAPON_KF7)
+            *z = PORT_KF7_HOLD_Z;
+        else if (w == PORT_WEAPON_MP5K)
+            *z = PORT_MP5K_HOLD_Z;
+        else
+            *z = PORT_PP7_HOLD_Z;
+    }
 }
 int port_gun_mag(void) { return G()->mag; }
 int port_gun_reserve(void) { return G()->ammo[weapon_ammo_type(G()->weapon)]; }
@@ -234,15 +257,22 @@ void port_gun_collect_model(int model)
 {
     PortGun *g = G();
     int at;
+    int next;
 
-    if (model != PORT_GUN_MODEL_KF7)
+    if (model == PORT_GUN_MODEL_KF7)
+        next = PORT_WEAPON_KF7;
+    else if (model == PORT_GUN_MODEL_MP5K)
+        next = PORT_WEAPON_MP5K;
+    else
         return;
     at = weapon_ammo_type(g->weapon);
     g->ammo[at] += g->mag;
     g->mag = 0;
-    g->weapon = PORT_WEAPON_KF7;
-    g->ammo[PORT_AMMO_RIFLE] += PORT_GUN_PICKUP_ADD;
+    g->weapon = next;
+    g->ammo[weapon_ammo_type(next)] += PORT_GUN_PICKUP_ADD;
     reload();
+    if (port_prop_viewgun_sync)
+        port_prop_viewgun_sync();
 }
 
 int port_gun_hits(void) { return G()->hits; }
