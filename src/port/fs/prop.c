@@ -101,14 +101,6 @@
 #define PORT_GUN_AK47_NSW 0x24
 #define PORT_GUN_AK47_NTEX 0x12
 #define PORT_PROP_CHRKALASH 184
-/* Camera-space hold. Rare wppk_stats on-screen Pos is (11, -20.8, -33.5).
- * X matches Rare (was +22, too far right). Y is a bit below Rare so the
- * mesh reads bottom-center. Z stays farther than Rare because G1 near=10
- * and the grip sits toward the eye after the 180 Y; -60 keeps the AABB
- * in front of the near plane without the old -72 right-corner scale. */
-#define PORT_VIEWGUN_X 11.f
-#define PORT_VIEWGUN_Y (-24.f)
-#define PORT_VIEWGUN_Z (-60.f)
 
 #define PI_F 3.14159265f
 
@@ -3215,7 +3207,8 @@ int port_prop_viewgun_id(void) { return g_viewgun_id; }
 /*
  * Static first-person pack gun (GwppkZ, or Gak47Z after KF7 drop).
  * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
- * -Z so hold * R180 * part. Camera-space via .view. Same hold for both.
+ * -Z so hold * R180 * part. Camera-space via .view. Hold is per-weapon
+ * (port_gun_hold): PP7 11/-24/-60, KF7 Rare ak47_stats 11/-19/-16.
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -3237,7 +3230,11 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
     if (!m || m->npart == 0)
         return 0;
     show_flash = port_gun_flash_frames() > 0;
-    mtx_local(hold, PORT_VIEWGUN_X, PORT_VIEWGUN_Y, PORT_VIEWGUN_Z, 0.f, 0.f, 0.f);
+    {
+        float hx, hy, hz;
+        port_gun_hold(&hx, &hy, &hz);
+        mtx_local(hold, hx, hy, hz, 0.f, 0.f, 0.f);
+    }
     mtx_local(r180, 0.f, 0.f, 0.f, 0.f, PI_F, 0.f);
     for (p = 0; p < m->npart && k < cap; p++) {
         const PortPart *pt = &m->part[p];

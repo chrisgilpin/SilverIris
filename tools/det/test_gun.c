@@ -595,6 +595,12 @@ static int test_kf7_ammo(void)
     ammo = port_ammoheldarr();
     if (ammo[PORT_AMMO_RIFLE] != 0)
         return fail("spawn rifle empty");
+    {
+        float hx, hy, hz;
+        port_gun_hold(&hx, &hy, &hz);
+        if (hx != PORT_PP7_HOLD_X || hy != PORT_PP7_HOLD_Y || hz != PORT_PP7_HOLD_Z)
+            return fail("PP7 hold");
+    }
 
     port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
     if (port_sim_tick(50) != 0)
@@ -619,6 +625,12 @@ static int test_kf7_ammo(void)
         return fail("KF7 mag from pickup");
     if (port_gun_reserve() != 0)
         return fail("KF7 reserve empty after load");
+    {
+        float hx, hy, hz;
+        port_gun_hold(&hx, &hy, &hz);
+        if (hx != PORT_KF7_HOLD_X || hy != PORT_KF7_HOLD_Y || hz != PORT_KF7_HOLD_Z)
+            return fail("KF7 Rare hold");
+    }
 
     nine = ammo[PORT_AMMO_9MM];
     mag = port_gun_mag();

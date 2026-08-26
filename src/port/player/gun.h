@@ -17,6 +17,14 @@
 #define PORT_PP7_DAMAGE 1
 #define PORT_KF7_MAG 30
 #define PORT_GUN_PICKUP_ADD 7
+/* Camera-space hold after 180° Y. PP7: G1-near-safe (Rare wppk is
+ * 11/-20.8/-33.5). KF7: Rare ak47_stats Pos 11/-19/-16. */
+#define PORT_PP7_HOLD_X 11.f
+#define PORT_PP7_HOLD_Y (-24.f)
+#define PORT_PP7_HOLD_Z (-60.f)
+#define PORT_KF7_HOLD_X 11.f
+#define PORT_KF7_HOLD_Y (-19.f)
+#define PORT_KF7_HOLD_Z (-16.f)
 #define PORT_Z_TRIG 0x2000u
 /* SKEL_FLASH cards stay visible this many ticks after a spent shot. */
 #define PORT_MUZZLE_FLASH_FRAMES 3
@@ -34,6 +42,7 @@ int32_t *port_ammoheldarr(void);
 int port_gun_weapon(void);
 int port_gun_ammo_type(void);
 int port_gun_mag_size(void);
+void port_gun_hold(float *x, float *y, float *z);
 int port_gun_mag(void);
 int port_gun_reserve(void);
 void port_gun_add_reserve(int n);

@@ -209,6 +209,17 @@ int32_t *port_ammoheldarr(void) { return G()->ammo; }
 int port_gun_weapon(void) { return G()->weapon; }
 int port_gun_ammo_type(void) { return weapon_ammo_type(G()->weapon); }
 int port_gun_mag_size(void) { return weapon_mag_size(G()->weapon); }
+
+void port_gun_hold(float *x, float *y, float *z)
+{
+    int kf7 = G()->weapon == PORT_WEAPON_KF7;
+    if (x)
+        *x = kf7 ? PORT_KF7_HOLD_X : PORT_PP7_HOLD_X;
+    if (y)
+        *y = kf7 ? PORT_KF7_HOLD_Y : PORT_PP7_HOLD_Y;
+    if (z)
+        *z = kf7 ? PORT_KF7_HOLD_Z : PORT_PP7_HOLD_Z;
+}
 int port_gun_mag(void) { return G()->mag; }
 int port_gun_reserve(void) { return G()->ammo[weapon_ammo_type(G()->weapon)]; }
 

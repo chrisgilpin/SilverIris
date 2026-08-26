@@ -105,7 +105,7 @@ Lobby `buildId` `siliris-kf7-mag-v4!!`.
 **Exit:** `gun-test` collect-184 then fire: weapon=KF7, mag moves on rifle,
 9mm reserve unchanged. Empty-PP7 path unchanged.
 
-### M11 — KF7 viewmodel hold is Rare `ak47_stats` Pos
+### M11 — KF7 viewmodel hold is Rare `ak47_stats` Pos (this push)
 
 Gak47Z uses Rare (11, −19, −16), not the PP7 hold (11, −24, −60). PP7 hold
 unchanged so the G1 greyscale hash stays. Dump `BoundingVolumeRadius` is
