@@ -481,6 +481,10 @@ static float g_ck_pickup_x, g_ck_pickup_y, g_ck_pickup_z;
 static int g_ck_drop_model = -1;
 static int g_ck_drop_hidden = 1;
 static float g_ck_drop_x, g_ck_drop_y, g_ck_drop_z;
+static int g_ck_ndrop;
+static int g_ck_dmodel[2];
+static int g_ck_dhidden[2];
+static float g_ck_dx[2], g_ck_dy[2], g_ck_dz[2];
 
 int port_prop_pickup_pad(void) { return g_ck_pickup_pad; }
 int port_prop_pickup_kind(void) { return g_ck_pickup_kind; }
@@ -495,17 +499,68 @@ int port_prop_pickup_xyz(float *x, float *y, float *z)
         *z = g_ck_pickup_z;
     return g_ck_pickup_pad < 0 ? -1 : 0;
 }
-int port_prop_drop_model(void) { return g_ck_drop_model; }
-int port_prop_drop_hidden(void) { return g_ck_drop_hidden; }
+int port_prop_drop_count(void)
+{
+    if (g_ck_ndrop > 0)
+        return g_ck_ndrop;
+    return g_ck_drop_model < 0 ? 0 : 1;
+}
+
+int port_prop_drop_model_at(int i)
+{
+    if (g_ck_ndrop > 0) {
+        if (i < 0 || i >= g_ck_ndrop)
+            return -1;
+        return g_ck_dmodel[i];
+    }
+    return i == 0 ? g_ck_drop_model : -1;
+}
+
+int port_prop_drop_hidden_at(int i)
+{
+    if (g_ck_ndrop > 0) {
+        if (i < 0 || i >= g_ck_ndrop)
+            return 1;
+        return g_ck_dhidden[i];
+    }
+    return i == 0 ? g_ck_drop_hidden : 1;
+}
+
+int port_prop_drop_xyz_at(int i, float *x, float *y, float *z)
+{
+    float sx = g_ck_drop_x, sy = g_ck_drop_y, sz = g_ck_drop_z;
+    if (g_ck_ndrop > 0) {
+        if (i < 0 || i >= g_ck_ndrop)
+            return -1;
+        sx = g_ck_dx[i];
+        sy = g_ck_dy[i];
+        sz = g_ck_dz[i];
+    } else if (i != 0 || g_ck_drop_model < 0)
+        return -1;
+    if (x)
+        *x = sx;
+    if (y)
+        *y = sy;
+    if (z)
+        *z = sz;
+    return 0;
+}
+
+int port_prop_drop_model(void)
+{
+    if (g_ck_ndrop > 0)
+        return g_ck_dmodel[g_ck_ndrop - 1];
+    return g_ck_drop_model;
+}
+int port_prop_drop_hidden(void)
+{
+    if (g_ck_ndrop > 0)
+        return g_ck_dhidden[g_ck_ndrop - 1];
+    return g_ck_drop_hidden;
+}
 int port_prop_drop_xyz(float *x, float *y, float *z)
 {
-    if (x)
-        *x = g_ck_drop_x;
-    if (y)
-        *y = g_ck_drop_y;
-    if (z)
-        *z = g_ck_drop_z;
-    return g_ck_drop_model < 0 ? -1 : 0;
+    return port_prop_drop_xyz_at(g_ck_ndrop > 0 ? g_ck_ndrop - 1 : 0, x, y, z);
 }
 
 static int test_crc_props(void)
@@ -567,12 +622,36 @@ static int test_crc_props(void)
     if (a.crc_props == c.crc_props)
         return fail("collected KF7 drop must change crc_props");
 
+    g_ck_ndrop = 2;
+    g_ck_dmodel[0] = 184;
+    g_ck_dhidden[0] = 0;
+    g_ck_dx[0] = 260.f;
+    g_ck_dy[0] = 50.f;
+    g_ck_dz[0] = 0.f;
+    g_ck_dmodel[1] = 189;
+    g_ck_dhidden[1] = 0;
+    g_ck_dx[1] = 300.f;
+    g_ck_dy[1] = 50.f;
+    g_ck_dz[1] = 40.f;
+    port_checksum(0, &b);
+    if (a.crc_props == b.crc_props)
+        return fail("two drops must change crc_props");
+    g_ck_dhidden[0] = 1;
+    port_checksum(0, &c);
+    if (b.crc_props == c.crc_props)
+        return fail("hiding first drop must change crc_props");
+    if (port_prop_drop_hidden_at(1) != 0)
+        return fail("second drop still on floor");
+    if (port_prop_drop_model_at(1) != 189)
+        return fail("second drop still MP5K");
+    g_ck_ndrop = 0;
+
     g_ck_pickup_pad = -1;
     g_ck_pickup_kind = 0;
     g_ck_pickup_hidden = 1;
     g_ck_drop_model = -1;
     g_ck_drop_hidden = 1;
-    printf("crc_props ok guard/pad215/kf7\n");
+    printf("crc_props ok guard/pad215/kf7/2drops\n");
     return 0;
 }
 

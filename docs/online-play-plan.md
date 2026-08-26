@@ -123,10 +123,10 @@ Lobby `buildId` `siliris-mp5k-v5!!!!!`.
 
 **Exit:** `gun-test` collect-189: weapon=MP5K, mag size 30, ammo type 9mm.
 
-### M13 — Every death-drop is tracked
+### M13 — Every death-drop is tracked (this push)
 
 `crc_props` hashes all on-floor assigned drops, not `g_drop_prop` last-wins.
-Two corpses both stay collectable.
+Two corpses both stay collectable. n≤1 keeps the last-wins checksum bytes.
 
 **Exit:** two drops in `gun-test`; hide one; crc changes; the other remains.
 
@@ -166,3 +166,33 @@ make -C native lockstep-test gun-test score-test 2p-corridor-test replay-pack
 cd web/shell && npm test
 make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 ```
+
+---
+
+## STATUS (2026-08-26)
+
+Stopped: remaining items need Chris (ROM visual, two-box live netplay, or legal).
+No optional playtest pause.
+
+**Shipped on `origin/main` (this session)**
+
+| Milestone | SHA | What |
+| --- | --- | --- |
+| M10 | `8713e7a` + `0e43d60` | KF7 fire/mag is `AMMO_RIFLE` MagSize 30, not leftover PP7 9mm. HUD labels KF7. |
+| M11 | `bfdc75f` | KF7 viewmodel hold is Rare `ak47_stats` Pos 11/−19/−16. PP7 hold unchanged. |
+| M12 | `b36ee4b` | MP5K death-drop 189 is a hold (Gmp5kZ, mag 30, Rare Pos 11/−26.4/−35). |
+| M13 | this push | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
+
+Lobby `buildId` `siliris-mp5k-v5!!!!!`. Netplay on at https://007.goodhouseinc.com.
+G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Blocked on Chris**
+
+- Aim decode `have≠0`: header already decodes; 16-joint Euler explodes the mesh (`skip=pose`). Needs a ROM visual of a standing aim. Do not fake an arm.
+- G1 walls ≠ stan tiles: visual clip-through. Needs a Facility pack look.
+- Combat AI beyond chase/LOS: full GE is `chrai`. Needs ROM AI lists.
+- Full matching engine in wasm: legal + huge. See `docs/legal-posture.md`.
+- KF7 near-white after collect (header radius 941.9339 vs PP7 293.60767): if Rare Z still fills the FB, needs a ROM look (G1 near=10).
+- Two-box live netplay look.
+
+Walk speed stays the pinned analog (~3 u/tick). Campaign is out of v1.

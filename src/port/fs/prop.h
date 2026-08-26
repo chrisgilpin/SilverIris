@@ -151,7 +151,12 @@ int port_prop_pickup_drawn(void);
 int port_prop_pickup_xyz(float *x, float *y, float *z);
 void port_prop_tick_pickup(void);
 void port_prop_choose_pickup(void);
-/* Death-drop of an assigned-to-chr weapon. -1/1 if none. */
+/* Death-drops of assigned-to-chr weapons. Last-wins helpers keep the
+ * single-drop record; count/at hash every drop. -1/1 if none. */
+int port_prop_drop_count(void);
+int port_prop_drop_model_at(int i);
+int port_prop_drop_hidden_at(int i);
+int port_prop_drop_xyz_at(int i, float *x, float *y, float *z);
 int port_prop_drop_model(void);
 int port_prop_drop_hidden(void);
 int port_prop_drop_drawn(void);

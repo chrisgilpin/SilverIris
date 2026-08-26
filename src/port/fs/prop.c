@@ -245,8 +245,20 @@ static int g_pickup_prop = -1;
 static int g_pickup_drawn;
 #define PORT_CHR_GUN_MAX 256
 static int g_chr_gun[PORT_CHR_GUN_MAX];
-static int g_drop_prop = -1;
+#define PORT_DROP_MAX 32
+static int g_drops[PORT_DROP_MAX];
+static int g_ndrop;
 static int g_drop_drawn;
+
+static int drop_index_of(int pi)
+{
+    int i;
+    for (i = 0; i < g_ndrop; i++) {
+        if (g_drops[i] == pi)
+            return i;
+    }
+    return -1;
+}
 static void maybe_spawn_death_drops(void);
 static char g_aim_info[96];
 static char g_die_info[96];
@@ -2768,7 +2780,8 @@ static int spawn_death_drop_at(PortProp *guard)
                guard->chrnum, guard->held_model);
         return -1;
     }
-    g_drop_prop = pi;
+    if (g_ndrop < PORT_DROP_MAX)
+        g_drops[g_ndrop++] = pi;
     {
         PortProp *pr = &g_prop[pi];
         printf("drop_spawn chr=%d model=%d world=%.1f,%.1f,%.1f local=%.1f,%.1f\n",
@@ -2840,7 +2853,8 @@ static int parse_setup(const uint8_t *st, size_t n)
     g_npcand = 0;
     g_pickup_prop = -1;
     g_pickup_drawn = 0;
-    g_drop_prop = -1;
+    g_ndrop = 0;
+    memset(g_drops, 0, sizeof g_drops);
     g_drop_drawn = 0;
     memset(g_pcand, 0, sizeof g_pcand);
     memset(g_chr_gun, 0, sizeof g_chr_gun);
@@ -2972,7 +2986,8 @@ void port_prop_unload(void)
     g_npcand = 0;
     g_pickup_prop = -1;
     g_pickup_drawn = 0;
-    g_drop_prop = -1;
+    g_ndrop = 0;
+    memset(g_drops, 0, sizeof g_drops);
     g_drop_drawn = 0;
     memset(g_pcand, 0, sizeof g_pcand);
     memset(g_chr_gun, 0, sizeof g_chr_gun);
@@ -3928,7 +3943,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             else {
                 if (pr->pickup_kind)
                     g_pickup_drawn = 1;
-                if (idx[i] == g_drop_prop)
+                if (drop_index_of(idx[i]) >= 0)
                     g_drop_drawn = 1;
                 k = emit_parts(out, cap, k, pr, pr->mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f, 0.f);
@@ -4025,7 +4040,7 @@ void port_prop_tick_pickup(void)
         pr->hidden = 1;
         if (i == g_pickup_prop)
             g_pickup_drawn = 0;
-        if (i == g_drop_prop)
+        if (drop_index_of(i) >= 0)
             g_drop_drawn = 0;
         if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
             port_player_add_armour(pr->pickup_amount);
@@ -4037,28 +4052,40 @@ void port_prop_tick_pickup(void)
     }
 }
 
-int port_prop_drop_model(void)
+int port_prop_drop_count(void) { return g_ndrop; }
+
+int port_prop_drop_model_at(int i)
 {
-    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+    int pi;
+    if (i < 0 || i >= g_ndrop)
         return -1;
-    return g_prop[g_drop_prop].model;
+    pi = g_drops[i];
+    if (pi < 0 || pi >= g_nprop)
+        return -1;
+    return g_prop[pi].model;
 }
 
-int port_prop_drop_hidden(void)
+int port_prop_drop_hidden_at(int i)
 {
-    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+    int pi;
+    if (i < 0 || i >= g_ndrop)
         return 1;
-    return g_prop[g_drop_prop].hidden;
+    pi = g_drops[i];
+    if (pi < 0 || pi >= g_nprop)
+        return 1;
+    return g_prop[pi].hidden;
 }
 
-int port_prop_drop_drawn(void) { return g_drop_drawn; }
-
-int port_prop_drop_xyz(float *x, float *y, float *z)
+int port_prop_drop_xyz_at(int i, float *x, float *y, float *z)
 {
     PortProp *pr;
-    if (g_drop_prop < 0 || g_drop_prop >= g_nprop)
+    int pi;
+    if (i < 0 || i >= g_ndrop)
         return -1;
-    pr = &g_prop[g_drop_prop];
+    pi = g_drops[i];
+    if (pi < 0 || pi >= g_nprop)
+        return -1;
+    pr = &g_prop[pi];
     if (x)
         *x = pr->pos[0];
     if (y)
@@ -4066,6 +4093,23 @@ int port_prop_drop_xyz(float *x, float *y, float *z)
     if (z)
         *z = pr->pos[2];
     return 0;
+}
+
+int port_prop_drop_model(void)
+{
+    return port_prop_drop_model_at(g_ndrop - 1);
+}
+
+int port_prop_drop_hidden(void)
+{
+    return port_prop_drop_hidden_at(g_ndrop - 1);
+}
+
+int port_prop_drop_drawn(void) { return g_drop_drawn; }
+
+int port_prop_drop_xyz(float *x, float *y, float *z)
+{
+    return port_prop_drop_xyz_at(g_ndrop - 1, x, y, z);
 }
 
 int port_prop_door_count(void)

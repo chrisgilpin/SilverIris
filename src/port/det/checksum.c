@@ -21,6 +21,10 @@ int port_prop_pickup_xyz(float *x, float *y, float *z);
 int port_prop_drop_model(void);
 int port_prop_drop_hidden(void);
 int port_prop_drop_xyz(float *x, float *y, float *z);
+int port_prop_drop_count(void);
+int port_prop_drop_model_at(int i);
+int port_prop_drop_hidden_at(int i);
+int port_prop_drop_xyz_at(int i, float *x, float *y, float *z);
 
 /* CRC32C Castagnoli (reflected poly 0x82F63B78). Never fileGenerateCRC. */
 
@@ -127,7 +131,7 @@ void port_checksum(uint32_t tick, SimChecksum *out)
 
     {
         /* doors + stan cylinders + setup-guard xz/alert/dead + pad-215 + KF7 drop */
-        uint8_t pbuf[4 + 128 * 8 + 4 + 128 * 12 + 4 + 128 * 16 + 80];
+        uint8_t pbuf[4 + 128 * 8 + 4 + 128 * 12 + 4 + 128 * 16 + 80 + 32 * 24];
         int nd = port_stan_door_count();
         int ng = port_stan_guard_count();
         int np = port_prop_guard_count();
@@ -205,6 +209,31 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         po += 4;
         wr_f32(pbuf + po, gz);
         po += 4;
+        {
+            int nd = port_prop_drop_count();
+            /* n<=1 keeps the last-wins bytes above bit-identical. */
+            if (nd > 1) {
+                int di;
+                if (nd > 32)
+                    nd = 32;
+                wr_i32(pbuf + po, (int32_t)nd);
+                po += 4;
+                for (di = 0; di < nd; di++) {
+                    wr_i32(pbuf + po, port_prop_drop_model_at(di));
+                    po += 4;
+                    wr_i32(pbuf + po, port_prop_drop_hidden_at(di));
+                    po += 4;
+                    gx = gy = gz = 0.f;
+                    (void)port_prop_drop_xyz_at(di, &gx, &gy, &gz);
+                    wr_f32(pbuf + po, gx);
+                    po += 4;
+                    wr_f32(pbuf + po, gy);
+                    po += 4;
+                    wr_f32(pbuf + po, gz);
+                    po += 4;
+                }
+            }
+        }
         out->crc_props = port_crc32c(pbuf, po);
     }
 

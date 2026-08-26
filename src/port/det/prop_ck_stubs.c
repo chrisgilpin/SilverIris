@@ -51,6 +51,32 @@ PORT_CK_WEAK int port_prop_pickup_xyz(float *x, float *y, float *z)
     return -1;
 }
 
+PORT_CK_WEAK int port_prop_drop_count(void) { return 0; }
+
+PORT_CK_WEAK int port_prop_drop_model_at(int i)
+{
+    (void)i;
+    return -1;
+}
+
+PORT_CK_WEAK int port_prop_drop_hidden_at(int i)
+{
+    (void)i;
+    return 1;
+}
+
+PORT_CK_WEAK int port_prop_drop_xyz_at(int i, float *x, float *y, float *z)
+{
+    (void)i;
+    if (x)
+        *x = 0.f;
+    if (y)
+        *y = 0.f;
+    if (z)
+        *z = 0.f;
+    return -1;
+}
+
 PORT_CK_WEAK int port_prop_drop_model(void) { return -1; }
 
 PORT_CK_WEAK int port_prop_drop_hidden(void) { return 1; }
