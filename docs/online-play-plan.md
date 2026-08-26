@@ -88,6 +88,59 @@ Lobby `buildId` `siliris-respawn-v3!!`.
 
 ---
 
+## M10+ (after M9)
+
+Smallest first. Each exit is a native harness — no Chrome, no Chris.
+Walk speed stays the pinned analog (~3 u/tick). Campaign is out of v1.
+
+### M10 — KF7 fire/mag is rifle, not leftover PP7 9mm (this push)
+
+Collecting chrkalash 184 equips KF7: `ak47_stats` `AMMO_RIFLE`, MagSize 30.
+Fire spends that mag. Reload takes from `ammo[RIFLE]`. Pickup +7 goes to
+rifle, not 9mm. Leftover PP7 mag unloads back to 9mm (not converted).
+Spawn/respawn still PP7 7/21 9mm. Hitscan damage stays 1.
+
+Lobby `buildId` `siliris-kf7-mag-v4!!`.
+
+**Exit:** `gun-test` collect-184 then fire: weapon=KF7, mag moves on rifle,
+9mm reserve unchanged. Empty-PP7 path unchanged.
+
+### M11 — KF7 viewmodel hold is Rare `ak47_stats` Pos
+
+Gak47Z uses Rare (11, −19, −16), not the PP7 hold (11, −24, −60). PP7 hold
+unchanged so the G1 greyscale hash stays. Dump `BoundingVolumeRadius` is
+941.9339 (ak47 header) vs PP7 293.60767 — that is the file, not a drawn AABB.
+
+**Exit:** `gun-test` KF7 hold xyz is 11/−19/−16; PP7 still 11/−24/−60.
+
+### M12 — MP5K death-drop is a hold
+
+chrmp5k 189 binds Gmp5kZ (`mp5k_stats` `AMMO_9MM`, MagSize 30, Pos 11/−26.4/−35).
+Collecting switches hold + mag size. +7 is still the dump amount, into the
+MP5K mag, not leftover PP7 mag 7.
+
+**Exit:** `gun-test` collect-189: weapon=MP5K, mag size 30, ammo type 9mm.
+
+### M13 — Every death-drop is tracked
+
+`crc_props` hashes all on-floor assigned drops, not `g_drop_prop` last-wins.
+Two corpses both stay collectable.
+
+**Exit:** two drops in `gun-test`; hide one; crc changes; the other remains.
+
+### Blocked on Chris (do not start here)
+
+- Aim decode `have≠0`: header already decodes; 16-joint Euler explodes the
+  mesh (`skip=pose`). Needs ROM visual of a standing aim. Do not fake an arm.
+- G1 walls ≠ stan tiles: visual clip-through. Needs a Facility pack look.
+- Combat AI beyond chase/LOS: full GE is `chrai`. Needs ROM AI lists.
+- Full matching engine in wasm: legal + huge. See `docs/legal-posture.md`.
+- KF7 near-white after collect: if Rare pos still fills the FB, needs a ROM
+  look (G1 near=10 vs header radius 941).
+- Two-box live netplay look.
+
+---
+
 ## Still true after M9
 
 - G1 walls ≠ stan tiles (some visual clip-through remains).

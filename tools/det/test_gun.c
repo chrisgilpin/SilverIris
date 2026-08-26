@@ -576,6 +576,89 @@ static int test_crc_props(void)
     return 0;
 }
 
+static int test_kf7_ammo(void)
+{
+    int32_t *ammo;
+    int mag0, res9, nine, mag, i;
+
+    port_stan_unload();
+    port_set_player_count(1);
+    port_player_spawn();
+    if (port_gun_weapon() != PORT_WEAPON_PP7)
+        return fail("spawn weapon");
+    if (port_gun_ammo_type() != PORT_AMMO_9MM)
+        return fail("spawn ammo type");
+    if (port_gun_mag_size() != PORT_PP7_MAG)
+        return fail("spawn mag size");
+    mag0 = port_gun_mag();
+    res9 = port_gun_reserve();
+    ammo = port_ammoheldarr();
+    if (ammo[PORT_AMMO_RIFLE] != 0)
+        return fail("spawn rifle empty");
+
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(50) != 0)
+        return fail("pre kf7 fire");
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(51) != 0)
+        return fail("pre kf7 idle");
+    if (port_gun_mag() != mag0 - 1)
+        return fail("pre kf7 mag");
+
+    port_gun_collect_model(PORT_GUN_MODEL_KF7);
+    if (port_gun_weapon() != PORT_WEAPON_KF7)
+        return fail("equip KF7");
+    if (port_gun_mag_size() != PORT_KF7_MAG)
+        return fail("KF7 mag size");
+    if (port_gun_ammo_type() != PORT_AMMO_RIFLE)
+        return fail("KF7 ammo type");
+    ammo = port_ammoheldarr();
+    if (ammo[PORT_AMMO_9MM] != res9 + (mag0 - 1))
+        return fail("9mm not converted");
+    if (port_gun_mag() != PORT_GUN_PICKUP_ADD)
+        return fail("KF7 mag from pickup");
+    if (port_gun_reserve() != 0)
+        return fail("KF7 reserve empty after load");
+
+    nine = ammo[PORT_AMMO_9MM];
+    mag = port_gun_mag();
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    if (port_sim_tick(52) != 0)
+        return fail("kf7 fire");
+    if (port_gun_mag() != mag - 1)
+        return fail("kf7 mag spend");
+    ammo = port_ammoheldarr();
+    if (ammo[PORT_AMMO_9MM] != nine)
+        return fail("kf7 fire must not touch 9mm");
+    if (port_gun_reserve() != 0)
+        return fail("kf7 reserve still 0");
+
+    for (i = 0; i < PORT_GUN_PICKUP_ADD - 1; i++) {
+        port_set_local_pad(0, 0, 0, 0);
+        port_sim_tick(60 + (uint32_t)i * 2);
+        port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        port_sim_tick(61 + (uint32_t)i * 2);
+    }
+    if (port_gun_mag() != 0)
+        return fail("kf7 empty mag");
+    port_set_local_pad(0, 0, 0, 0);
+    port_sim_tick(90);
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    port_sim_tick(91);
+    if (port_gun_mag() != 0)
+        return fail("kf7 dry reload");
+    if (port_gun_reserve() != 0)
+        return fail("kf7 dry reserve");
+
+    port_gun_reset_seat(0);
+    if (port_gun_weapon() != PORT_WEAPON_PP7)
+        return fail("reset PP7");
+    if (port_gun_mag() != PORT_PP7_MAG || port_gun_reserve() != PORT_PP7_RESERVE)
+        return fail("reset ammo");
+    printf("kf7 ammo ok mag_size=%d pickup=%d\n", PORT_KF7_MAG, PORT_GUN_PICKUP_ADD);
+    return 0;
+}
+
 int main(void)
 {
     SimChecksum a, b;
@@ -661,6 +744,8 @@ int main(void)
     if (test_pvp_hitscan() != 0)
         return 1;
     if (test_crc_props() != 0)
+        return 1;
+    if (test_kf7_ammo() != 0)
         return 1;
     return 0;
 }

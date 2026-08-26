@@ -3999,13 +3999,13 @@ void port_prop_tick_pickup(void)
             g_drop_drawn = 0;
         if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
             port_player_add_armour(pr->pickup_amount);
-        else
-            port_gun_add_reserve(pr->pickup_amount);
-        /* KF7 death-drop: switch FP bind to pack Gak47Z. Not chrkalash. */
-        if (i == g_drop_prop && pr->model == PORT_PROP_CHRKALASH) {
+        else if (pr->model == PORT_PROP_CHRKALASH) {
+            port_gun_collect_model(pr->model);
+            /* KF7 death-drop: switch FP bind to pack Gak47Z. Not chrkalash. */
             if (load_ak47())
                 g_viewgun_id = PORT_GUN_AK47_ID;
-        }
+        } else
+            port_gun_add_reserve(pr->pickup_amount);
     }
 }
 

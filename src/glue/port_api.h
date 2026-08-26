@@ -78,6 +78,7 @@ PORT_KEEP int port_api_vp_height(int seat);
 
 PORT_KEEP int port_api_gun_mag(void);
 PORT_KEEP int port_api_gun_reserve(void);
+PORT_KEEP int port_api_gun_weapon(void);
 PORT_KEEP int port_api_gun_hits(void);
 PORT_KEEP int port_api_gun_have_hit(void);
 PORT_KEEP float port_api_gun_hit_x(void);

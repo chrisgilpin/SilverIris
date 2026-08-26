@@ -2,6 +2,13 @@
 #define SILVERIRIS_IDO_H
 
 #include <stddef.h>
+#include <stdio.h>
+
+/* macOS _FORTIFY_SOURCE turns sprintf into __builtin___sprintf_chk.
+ * PR/os.h declares sprintf; the macro makes that declaration a type error. */
+#ifdef sprintf
+#undef sprintf
+#endif
 
 size_t strlen(const char *s);
 void debTryAdd(void *data, const char *name);

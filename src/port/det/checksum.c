@@ -57,7 +57,7 @@ static void wr_i32(uint8_t *p, int32_t v)
 
 void port_checksum(uint32_t tick, SimChecksum *out)
 {
-    uint8_t buf[16 + 4 * PORT_AMMO_SLOTS + 16 + 4 * PORT_MAX_PLAYERS * 40];
+    uint8_t buf[16 + 4 * PORT_AMMO_SLOTS + 16 + 4 * PORT_MAX_PLAYERS * 44];
     uint32_t o = 0;
     int i, s, saved, n;
     int32_t *ammo;
@@ -93,6 +93,8 @@ void port_checksum(uint32_t tick, SimChecksum *out)
             o += 4;
         }
         wr_i32(buf + o, (int32_t)port_gun_mag());
+        o += 4;
+        wr_i32(buf + o, (int32_t)port_gun_weapon());
         o += 4;
         wr_i32(buf + o, port_player_health() <= 0 ? 1 : 0); /* bonddead */
         o += 4;

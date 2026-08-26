@@ -28,7 +28,7 @@ export function defaultSignalUrl(): string {
 }
 
 /** 20 bytes. Bump when InputBlock / sim contract changes so mixed shells cannot join. */
-export const LOBBY_BUILD_ID = "siliris-respawn-v3!!";
+export const LOBBY_BUILD_ID = "siliris-kf7-mag-v4!!";
 
 function buildIdBytes(): Uint8Array {
   const b = new Uint8Array(20);

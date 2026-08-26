@@ -200,11 +200,15 @@ function drawHud(): void {
     hurtFlash = 12;
   lastHp = hp;
   ctx.fillStyle = hp <= 0 ? "#e07070" : hp < 8 || hurtFlash > 0 ? "#e07070" : "#e8e6e1";
-  ctx.fillText(
-    `PP7 ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}${hurtFlash > 0 && hp > 0 ? "  UNDER FIRE" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
-    8,
-    28,
-  );
+  {
+    const w = game.gunWeapon();
+    const wname = w === 1 ? "KF7" : "PP7";
+    ctx.fillText(
+      `${wname} ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}${hurtFlash > 0 && hp > 0 ? "  UNDER FIRE" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
+      8,
+      28,
+    );
+  }
   ctx.fillStyle = "#e8e6e1";
   {
     const los = game.guardLos();

@@ -243,6 +243,7 @@ PORT_KEEP int port_api_vp_height(int seat)
 
 PORT_KEEP int port_api_gun_mag(void) { return port_gun_mag(); }
 PORT_KEEP int port_api_gun_reserve(void) { return port_gun_reserve(); }
+PORT_KEEP int port_api_gun_weapon(void) { return port_gun_weapon(); }
 PORT_KEEP int port_api_gun_hits(void) { return port_gun_hits(); }
 
 PORT_KEEP int port_api_gun_have_hit(void)

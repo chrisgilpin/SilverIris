@@ -89,6 +89,7 @@ export type GameModule = {
   _port_api_set_look_delta: (seat: number, yaw: number, pitch: number) => void;
   _port_api_gun_mag: () => number;
   _port_api_gun_reserve: () => number;
+  _port_api_gun_weapon?: () => number;
   _port_api_gun_hits: () => number;
   _port_api_gun_have_hit: () => number;
   _port_api_gun_hit_x: () => number;
@@ -185,6 +186,7 @@ export type GameBridge = {
   setLookDelta(seat: number, yawDeg: number, pitchDeg: number): void;
   gunMag(): number;
   gunReserve(): number;
+  gunWeapon(): number;
   gunHits(): number;
   gunHaveHit(): boolean;
   gunHitX(): number;
@@ -498,6 +500,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     gunReserve(): number {
       return alive ? hudSlot(M, 1, () => M._port_api_gun_reserve()) : 0;
+    },
+    gunWeapon(): number {
+      return alive && M._port_api_gun_weapon ? M._port_api_gun_weapon() : 0;
     },
     gunHits(): number {
       return alive ? hudSlot(M, 2, () => M._port_api_gun_hits()) : 0;

@@ -11,17 +11,19 @@
 __attribute__((weak)) void port_prop_hear_player_shot(void) {}
 
 /*
- * PP7 slice of gunfire.c until that file compiles.
+ * PP7 / KF7 slice of gunfire.c until that file compiles.
  * wppk_stats: AmmoType AMMO_9MM, MagSize 7.
+ * ak47_stats: AmmoType AMMO_RIFLE, MagSize 30.
  * Fire: weapon_ammo_in_magazine -= 1 (gunfire.c) on Z_TRIG (CONT_G 0x2000)
  * rising edge. Hitscan is eye + look vs closed door slabs, stan tile
  * exits, and guard cylinders. A patrol or setup-guard hit kill+scores
  * (one-shot; setup body is then skipped — no ragdoll). Fake z=-50 only
- * if no stan is loaded.
+ * if no stan is loaded. Damage stays 1 (PORT_PP7_DAMAGE).
  */
 typedef struct {
     int32_t ammo[PORT_AMMO_SLOTS];
     int mag;
+    int weapon;
     uint16_t prev_buttons;
     int hits;
     float hit_x, hit_y, hit_z;
@@ -34,19 +36,34 @@ static PortGun g_gun[PORT_MAX_PLAYERS];
 
 static PortGun *G(void) { return &g_gun[port_cur_player()]; }
 
+static int weapon_ammo_type(int weapon)
+{
+    if (weapon == PORT_WEAPON_KF7)
+        return PORT_AMMO_RIFLE;
+    return PORT_AMMO_9MM;
+}
+
+static int weapon_mag_size(int weapon)
+{
+    if (weapon == PORT_WEAPON_KF7)
+        return PORT_KF7_MAG;
+    return PORT_PP7_MAG;
+}
+
 static void reload(void)
 {
     PortGun *g = G();
     int take;
-    int space = PORT_PP7_MAG - g->mag;
+    int at = weapon_ammo_type(g->weapon);
+    int space = weapon_mag_size(g->weapon) - g->mag;
     if (space <= 0)
         return;
-    take = g->ammo[PORT_AMMO_9MM];
+    take = g->ammo[at];
     if (take > space)
         take = space;
     if (take <= 0)
         return;
-    g->ammo[PORT_AMMO_9MM] -= take;
+    g->ammo[at] -= take;
     g->mag += take;
 }
 
@@ -146,6 +163,7 @@ void port_gun_reset_seat(int seat)
     if (seat < 0 || seat >= PORT_MAX_PLAYERS)
         return;
     memset(&g_gun[seat], 0, sizeof g_gun[seat]);
+    g_gun[seat].weapon = PORT_WEAPON_PP7;
     g_gun[seat].ammo[PORT_AMMO_9MM] = PORT_PP7_RESERVE;
     g_gun[seat].mag = PORT_PP7_MAG;
 }
@@ -188,8 +206,11 @@ void port_gun_tick(uint16_t buttons)
 int port_gun_flash_frames(void) { return G()->flash_frames; }
 
 int32_t *port_ammoheldarr(void) { return G()->ammo; }
+int port_gun_weapon(void) { return G()->weapon; }
+int port_gun_ammo_type(void) { return weapon_ammo_type(G()->weapon); }
+int port_gun_mag_size(void) { return weapon_mag_size(G()->weapon); }
 int port_gun_mag(void) { return G()->mag; }
-int port_gun_reserve(void) { return G()->ammo[PORT_AMMO_9MM]; }
+int port_gun_reserve(void) { return G()->ammo[weapon_ammo_type(G()->weapon)]; }
 
 void port_gun_add_reserve(int n)
 {
@@ -197,6 +218,22 @@ void port_gun_add_reserve(int n)
         return;
     G()->ammo[PORT_AMMO_9MM] += n;
 }
+
+void port_gun_collect_model(int model)
+{
+    PortGun *g = G();
+    int at;
+
+    if (model != PORT_GUN_MODEL_KF7)
+        return;
+    at = weapon_ammo_type(g->weapon);
+    g->ammo[at] += g->mag;
+    g->mag = 0;
+    g->weapon = PORT_WEAPON_KF7;
+    g->ammo[PORT_AMMO_RIFLE] += PORT_GUN_PICKUP_ADD;
+    reload();
+}
+
 int port_gun_hits(void) { return G()->hits; }
 
 int port_gun_last_hit(float *x, float *y, float *z)
