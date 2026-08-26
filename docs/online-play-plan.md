@@ -181,7 +181,7 @@ No optional playtest pause.
 | M10 | `8713e7a` + `0e43d60` | KF7 fire/mag is `AMMO_RIFLE` MagSize 30, not leftover PP7 9mm. HUD labels KF7. |
 | M11 | `bfdc75f` | KF7 viewmodel hold is Rare `ak47_stats` Pos 11/−19/−16. PP7 hold unchanged. |
 | M12 | `b36ee4b` | MP5K death-drop 189 is a hold (Gmp5kZ, mag 30, Rare Pos 11/−26.4/−35). |
-| M13 | this push | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
+| M13 | `3512d8c` | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
 
 Lobby `buildId` `siliris-mp5k-v5!!!!!`. Netplay on at https://007.goodhouseinc.com.
 G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
