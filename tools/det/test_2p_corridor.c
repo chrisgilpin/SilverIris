@@ -135,6 +135,44 @@ static int run_script(SimChecksum *last, TapeFrame *fr)
     return 0;
 }
 
+static int test_closed_door_blocks(void)
+{
+    float y;
+    uint32_t t;
+
+    if (setup_world() != 0)
+        return 1;
+    if (port_stan_eye_y(60.0f, 0.0f, &y) != 0)
+        return fail("clip eye");
+    port_set_player_count(1);
+    port_player_spawn();
+    port_player_set_pose(60.0f, y, 0.0f, 90.0f);
+    for (t = 0; t < 40; t++) {
+        port_set_local_pad(0, 0, (int8_t)-70, 0);
+        if (port_sim_tick(t) != 0)
+            return fail("clip tick");
+    }
+    if (port_player_x_at(0) > DOOR_X - 8.0f) {
+        fprintf(stderr, "walked through shut door x=%g\n",
+            (double)port_player_x_at(0));
+        return fail("closed door clip");
+    }
+    port_player_set_pose(60.0f, y, 0.0f, 0.0f);
+    for (t = 0; t < 30; t++) {
+        port_set_local_pad(0, 0, (int8_t)-70, 0);
+        port_sim_tick(40 + t);
+    }
+    if (port_player_z_at(0) < -42.0f) {
+        fprintf(stderr, "walked through tile edge z=%g\n",
+            (double)port_player_z_at(0));
+        return fail("tile-edge clip");
+    }
+    printf("clip ok door_x=%.1f edge_z=%.1f\n", (double)port_player_x_at(0),
+        (double)port_player_z_at(0));
+    port_player_clear_spawn_origin();
+    return 0;
+}
+
 static int test_empty_spawn(void)
 {
     port_player_clear_spawn_origin();
@@ -227,6 +265,8 @@ int main(int argc, char **argv)
     if (test_empty_spawn() != 0)
         return 1;
     if (test_narrow_spawn() != 0)
+        return 1;
+    if (test_closed_door_blocks() != 0)
         return 1;
 
     if (setup_world() != 0)

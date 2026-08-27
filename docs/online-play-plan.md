@@ -101,8 +101,8 @@ What is left is **playability** of that match, then items that are not v1.
 | M14 | this push | Click-to-fire when pointer-locked; readable center sight | none |
 | M15 | this push | PP7 viewmodel recedes (hold Z −110). Rare pos is −33.5; G1 near=10 filled the FB at −60 | none |
 | M16 | this push | Overlay the hittable 30u guard cylinder on the G1 blit (setup-guard xz, not the patrol dummy) | none |
-| M17 | next | Step clip: refuse a dest that `stan_ray_block` hits before the step (tile-exit / closed slab). Interior G1 walls inside a tile still clip | synthetic corridor test; ROM look for Facility |
-| M18 | later | Chr SETTEX / idle joints so lime-green T-pose is less wrong. Aim Euler still refused | pack tiles; aim still needs Chris ROM look |
+| M17 | this push | Step clip: unlinked-edge skin + `stan_ray_block` so the centre does not walk through a tile-exit or closed door. Interior G1 walls inside a tile still clip | none |
+| M18 | this push | Guard GROUP uses RST1 only — decoded 16-joint Euler exploded the mesh. Fit clamps exploded AABBs. Lime SETTEX miss remains | none |
 | M19 | Chris | Private Facility 2P tape, minutes, 0 DESYNC native↔wasm | local pack, not git |
 | M20 | Chris | Two-box live netplay look | you |
 
@@ -122,7 +122,7 @@ What is left is **playability** of that match, then items that are not v1.
 - KF7 near-white after collect (header radius 941 vs PP7 294)
 - Two-box live netplay
 
-Lobby `buildId` after this push: `siliris-aim-ux-v6!!!`.
+Lobby `buildId` after this push: `siliris-clip-v7!!!!!`.
 
 ---
 
@@ -209,7 +209,7 @@ make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 
 ## STATUS (2026-08-26)
 
-Next unblocked: M17 step clip. Aim pose / true G1-stan clip / two-box look still need Chris.
+Next unblocked: M19 private Facility tape (Chris). Interior G1 walls inside a tile still clip. Aim pose still skip=pose.
 
 **Shipped on `origin/main` (this session)**
 
@@ -221,9 +221,11 @@ Next unblocked: M17 step clip. Aim pose / true G1-stan clip / two-box look still
 | M13 | `3512d8c` | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
 | M14 | this push | Click-to-fire when pointer-locked; gold center sight. |
 | M15 | this push | PP7 hold Z −110 so G1 near=10 does not fill the FB. |
-| M16 | this push | Overlay hittable setup-guard cylinders on the G1 blit. |
+| M16 | `b8bb525` | Overlay hittable setup-guard cylinders on the G1 blit. |
+| M17 | this push | Tile-exit / closed-door step clip + 18u wall skin. |
+| M18 | this push | Guard RST1 bind (no exploding Euler). KF7 hold Z −110. |
 
-Lobby `buildId` `siliris-aim-ux-v6!!!`. Netplay on at https://007.goodhouseinc.com.
+Lobby `buildId` `siliris-clip-v7!!!!!`. Netplay on at https://007.goodhouseinc.com.
 G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
 
 **Blocked on Chris**

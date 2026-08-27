@@ -1309,11 +1309,51 @@ static int step_hits_wall(float owx, float owz, float cwx, float cwz)
     return 0;
 }
 
+static float dist_seg(float px, float pz, float ax, float az, float bx, float bz)
+{
+    float vx = bx - ax, vz = bz - az;
+    float wx = px - ax, wz = pz - az;
+    float vv = vx * vx + vz * vz;
+    float t, dx, dz;
+    t = (vv > 1e-8f) ? (wx * vx + wz * vz) / vv : 0.f;
+    if (t < 0.f)
+        t = 0.f;
+    if (t > 1.f)
+        t = 1.f;
+    dx = ax + t * vx - px;
+    dz = az + t * vz - pz;
+    return sqrtf(dx * dx + dz * dz);
+}
+
+/* Keep the centre off unlinked tile edges (visual walls sit on those). */
+#define PORT_WALL_SKIN 18.0f
+
+static int dest_too_close_to_wall(float wx, float wz)
+{
+    const StanTile *t;
+    int k, n;
+    if (!g_have_links)
+        return 0;
+    t = follow_clip ? tile_for_walk(wx, wz) : tile_at_world(wx, wz);
+    if (!t)
+        return 0;
+    for (k = 0; k < t->n; k++) {
+        n = (k + 1 == t->n) ? 0 : k + 1;
+        if (t->link[k] >> 4)
+            continue;
+        if (dist_seg(wx, wz, t->x[k], t->z[k], t->x[n], t->z[n]) < PORT_WALL_SKIN)
+            return 1;
+    }
+    return 0;
+}
+
 static int legal_step(float owx, float owz, float cwx, float cwz, int start_door)
 {
     if (!legal_world(cwx, cwz, start_door))
         return 0;
     if (step_hits_wall(owx, owz, cwx, cwz))
+        return 0;
+    if (dest_too_close_to_wall(cwx, cwz))
         return 0;
     return 1;
 }
@@ -1540,6 +1580,23 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
             *nx = cx;
             *nz = cz;
             return;
+        }
+    }
+
+    {
+        float sdx = cx - ox, sdz = cz - oz;
+        float slen = sqrtf(sdx * sdx + sdz * sdz);
+        float tblk = 0.f, eyb = 0.f;
+        if (slen > 0.25f && port_stan_eye_y(ox, oz, &eyb) == 0 &&
+            port_stan_ray_block(ox, eyb, oz, sdx / slen, 0.f, sdz / slen, &tblk) &&
+            tblk < slen + PORT_WALL_SKIN) {
+            float stop = tblk - PORT_WALL_SKIN;
+            if (stop < 0.f)
+                stop = 0.f;
+            cx = ox + sdx * (stop / slen);
+            cz = oz + sdz * (stop / slen);
+            *nx = cx;
+            *nz = cz;
         }
     }
 

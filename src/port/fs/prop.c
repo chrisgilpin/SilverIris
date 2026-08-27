@@ -626,11 +626,11 @@ static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use
         *rz = be_f32(base + data + 0x28);
         return;
     }
-    if (use_guard && g_pose_rest && joint < PORT_SKEL_GUARD_N) {
-        *rx = g_pose_rest[joint][0];
-        *ry = g_pose_rest[joint][1];
-        *rz = g_pose_rest[joint][2];
-    }
+    /* Decoded 16-joint Euler (idle/walk/aim/die) explodes the mesh —
+     * stretched head, collapsed torso, lime blobs. RST1 from the file
+     * is the standing bind. Do not fake an arm raise. */
+    (void)use_guard;
+    (void)joint;
 }
 
 static int scenery_type(int t)
@@ -847,8 +847,14 @@ static int bind_model_gdl(PortModel *m, int use_guard)
                 ymax = m->part[dp].oy;
         }
         if (ymax > ymin + 1.f) {
+            float h = ymax - ymin;
             m->fit_ymin = ymin;
-            m->fit_scale = PORT_CHR_STAND / (ymax - ymin);
+            /* Idle bind is ~1510u. Exploded Euler AABBs used to become
+             * a giant lime blob in the camera. */
+            if (h > 2500.f || h < 40.f)
+                m->fit_scale = PORT_CHR_STAND / 1510.f;
+            else
+                m->fit_scale = PORT_CHR_STAND / h;
             if (!strstr(g_idle_info, " fit=")) {
                 char base[96];
                 snprintf(base, sizeof base, "%s", g_idle_info);
