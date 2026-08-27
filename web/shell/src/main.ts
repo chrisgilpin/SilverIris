@@ -68,6 +68,7 @@ const STRAFE = 0x0020;
 
 let p1Binds = loadBinds();
 let rebindAction: BindAction | null = null;
+let mouseFire = false;
 let lastHp = 8;
 let hurtFlash = 0;
 const held = new Set<string>();
@@ -149,7 +150,7 @@ function padP1Move(): ReturnType<typeof emptyPad> {
     down: heldBind("down"),
     left: heldBind("left"),
     right: heldBind("right"),
-    fire: heldBind("fire"),
+    fire: heldBind("fire") || mouseFire,
   });
   const oneP = !game || game.playerCount() <= 1 || !!netLock;
   if (heldBind("lookUp") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
@@ -373,6 +374,8 @@ function paint(now: number): void {
       game.chrCount() > 0
         ? [{ x: game.chrX(), z: game.chrZ(), theta: game.chrTheta(), dead: game.chrAction() === 5 }]
         : [];
+    for (const g of game.setupGuards())
+      guard.push({ x: g.x, z: g.z, theta: 0, dead: g.dead, setup: true });
     const seats = netLock ? [mySeat] : Array.from({ length: n }, (_, i) => i);
     const hfov = netLock
       ? (horPlusHfovDeg(PORT_NATIVE_FOVY, canvas.width / canvas.height) * Math.PI) / 180
@@ -598,10 +601,18 @@ async function ingest(name: string, bytes: Uint8Array): Promise<void> {
   }
 }
 
-canvas.addEventListener("pointerdown", () => {
+canvas.addEventListener("pointerdown", (ev) => {
   onAudioGesture();
-  if (document.pointerLockElement !== canvas)
+  if (document.pointerLockElement !== canvas) {
     void canvas.requestPointerLock();
+    return;
+  }
+  if (ev.button === 0)
+    mouseFire = true;
+});
+window.addEventListener("pointerup", (ev) => {
+  if (ev.button === 0)
+    mouseFire = false;
 });
 document.addEventListener("mousemove", (ev) => {
   if (document.pointerLockElement !== canvas) return;

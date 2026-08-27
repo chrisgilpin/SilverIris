@@ -88,6 +88,44 @@ Lobby `buildId` `siliris-respawn-v3!!`.
 
 ---
 
+## Remaining until this project is “done”
+
+**v1 ship bar is already live** (M6 / P8): ROM gate + Facility/Complex 2P lockstep + local split-screen on https://007.goodhouseinc.com.
+
+What is left is **playability** of that match, then items that are not v1.
+
+### Playability (this project)
+
+| # | Status | What | Blocker |
+| --- | --- | --- | --- |
+| M14 | this push | Click-to-fire when pointer-locked; readable center sight | none |
+| M15 | this push | PP7 viewmodel recedes (hold Z −110). Rare pos is −33.5; G1 near=10 filled the FB at −60 | none |
+| M16 | this push | Overlay the hittable 30u guard cylinder on the G1 blit (setup-guard xz, not the patrol dummy) | none |
+| M17 | next | Step clip: refuse a dest that `stan_ray_block` hits before the step (tile-exit / closed slab). Interior G1 walls inside a tile still clip | synthetic corridor test; ROM look for Facility |
+| M18 | later | Chr SETTEX / idle joints so lime-green T-pose is less wrong. Aim Euler still refused | pack tiles; aim still needs Chris ROM look |
+| M19 | Chris | Private Facility 2P tape, minutes, 0 DESYNC native↔wasm | local pack, not git |
+| M20 | Chris | Two-box live netplay look | you |
+
+### Not v1 — follow-on, not a gate for “public 2P”
+
+- Campaign (Dam Agent, PR-11f / P9)
+- Full matching engine in wasm (legal + huge)
+- Full `chrai` combat AI
+- Aim-pose bind (`skip=pose` until a ROM still of standing aim)
+- 60 Hz lockstep, GGPO, JP/EU WASMs, WebGPU
+- Invented sprint (walk stays ~3 u/tick)
+
+### Blocked on Chris (do not fake)
+
+- Aim decode `have≠0`: 16-joint Euler explodes the mesh
+- G1 walls ≠ stan tiles (true visual clip): needs a Facility pack look after M17
+- KF7 near-white after collect (header radius 941 vs PP7 294)
+- Two-box live netplay
+
+Lobby `buildId` after this push: `siliris-aim-ux-v6!!!`.
+
+---
+
 ## M10+ (after M9)
 
 Smallest first. Each exit is a native harness — no Chrome, no Chris.
@@ -171,8 +209,7 @@ make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 
 ## STATUS (2026-08-26)
 
-Stopped: remaining items need Chris (ROM visual, two-box live netplay, or legal).
-No optional playtest pause.
+Next unblocked: M17 step clip. Aim pose / true G1-stan clip / two-box look still need Chris.
 
 **Shipped on `origin/main` (this session)**
 
@@ -182,8 +219,11 @@ No optional playtest pause.
 | M11 | `bfdc75f` | KF7 viewmodel hold is Rare `ak47_stats` Pos 11/−19/−16. PP7 hold unchanged. |
 | M12 | `b36ee4b` | MP5K death-drop 189 is a hold (Gmp5kZ, mag 30, Rare Pos 11/−26.4/−35). |
 | M13 | `3512d8c` | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
+| M14 | this push | Click-to-fire when pointer-locked; gold center sight. |
+| M15 | this push | PP7 hold Z −110 so G1 near=10 does not fill the FB. |
+| M16 | this push | Overlay hittable setup-guard cylinders on the G1 blit. |
 
-Lobby `buildId` `siliris-mp5k-v5!!!!!`. Netplay on at https://007.goodhouseinc.com.
+Lobby `buildId` `siliris-aim-ux-v6!!!`. Netplay on at https://007.goodhouseinc.com.
 G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
 
 **Blocked on Chris**

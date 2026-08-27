@@ -13,7 +13,7 @@ export function horPlusHfovDeg(fovyDeg: number, aspect: number): number {
 
 export type PortCam = { x: number; z: number; theta: number; phi?: number };
 export type PortHit = { x: number; y: number; z: number };
-export type PortChr = { x: number; z: number; theta: number; dead?: boolean; peer?: boolean };
+export type PortChr = { x: number; z: number; theta: number; dead?: boolean; peer?: boolean; setup?: boolean };
 export type PortViewBox = { x: number; y: number; w: number; h: number };
 export type StageDrawInfo = { gdlRaw: boolean; gdlC0: boolean };
 export type StageFb = { rgba: ArrayLike<number>; w: number; h: number };
@@ -244,8 +244,12 @@ function drawOverlayMarks(
     const head = projectWorld(chr.x, headY, chr.z, cam, w, h, hfov);
     if (!feet || !head) continue;
     const bw = Math.max(4, 220 / feet.dist);
-    ctx.fillStyle = chr.peer ? "#5aa0b8" : chr.dead ? "#4a3030" : "#a04030";
+    ctx.fillStyle = chr.peer ? "#5aa0b8" : chr.dead ? "#4a3030" : chr.setup ? "rgba(232,193,74,0.35)" : "#a04030";
     ctx.fillRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
+    if (chr.setup && !chr.dead) {
+      ctx.strokeStyle = "rgba(232,193,74,0.9)";
+      ctx.strokeRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
+    }
   }
   for (const hit of hits) {
     const p = projectWorld(hit.x, hit.y, hit.z, cam, w, h, hfov);
@@ -260,13 +264,19 @@ function drawOverlayMarks(
     ctx.stroke();
   }
 
-  ctx.strokeStyle = "rgba(232,230,225,0.85)";
+  ctx.strokeStyle = "rgba(232,193,74,0.95)";
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(w / 2 - 5, h / 2);
-  ctx.lineTo(w / 2 + 5, h / 2);
-  ctx.moveTo(w / 2, h / 2 - 5);
-  ctx.lineTo(w / 2, h / 2 + 5);
+  ctx.moveTo(w / 2 - 12, h / 2);
+  ctx.lineTo(w / 2 - 3, h / 2);
+  ctx.moveTo(w / 2 + 3, h / 2);
+  ctx.lineTo(w / 2 + 12, h / 2);
+  ctx.moveTo(w / 2, h / 2 - 12);
+  ctx.lineTo(w / 2, h / 2 - 3);
+  ctx.moveTo(w / 2, h / 2 + 3);
+  ctx.lineTo(w / 2, h / 2 + 12);
   ctx.stroke();
+  ctx.lineWidth = 1;
 
   /* G1 path draws GwppkZ / Gak47Z in camera space; keep the PORT trapezoid only
    * on the no-pack placeholder so the grey slab is not composited twice. */

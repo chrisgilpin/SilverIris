@@ -113,6 +113,10 @@ export type GameModule = {
   _port_api_health?: () => number;
   _port_api_guard_los?: () => number;
   _port_api_guard_shots?: () => number;
+  _port_api_setup_guards?: () => number;
+  _port_api_setup_guard_x?: (i: number) => number;
+  _port_api_setup_guard_z?: (i: number) => number;
+  _port_api_setup_guard_dead?: (i: number) => number;
   _port_api_stan_tiles?: () => number;
   _port_api_stan_on_tile?: () => number;
   _port_api_crc_objectives: () => number;
@@ -210,6 +214,7 @@ export type GameBridge = {
   armour(): number;
   guardLos(): number;
   guardShots(): number;
+  setupGuards(): { x: number; z: number; dead: boolean }[];
   stanTiles(): number;
   stanOnTile(): boolean;
   crcObjectives(): number;
@@ -573,6 +578,19 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     guardShots(): number {
       return alive && M._port_api_guard_shots ? M._port_api_guard_shots() | 0 : 0;
+    },
+    setupGuards(): { x: number; z: number; dead: boolean }[] {
+      if (!alive || !M._port_api_setup_guards) return [];
+      const n = Math.max(0, M._port_api_setup_guards() | 0);
+      const out: { x: number; z: number; dead: boolean }[] = [];
+      for (let i = 0; i < n; i++) {
+        out.push({
+          x: M._port_api_setup_guard_x ? M._port_api_setup_guard_x(i) : 0,
+          z: M._port_api_setup_guard_z ? M._port_api_setup_guard_z(i) : 0,
+          dead: !!(M._port_api_setup_guard_dead && M._port_api_setup_guard_dead(i)),
+        });
+      }
+      return out;
     },
     stanTiles(): number {
       return alive && M._port_api_stan_tiles ? M._port_api_stan_tiles() | 0 : 0;

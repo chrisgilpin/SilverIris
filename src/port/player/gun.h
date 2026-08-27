@@ -20,12 +20,12 @@
 #define PORT_KF7_MAG 30
 #define PORT_MP5K_MAG 30 /* mp5k_stats MagSize 0x1E */
 #define PORT_GUN_PICKUP_ADD 7
-/* Camera-space hold after 180° Y. PP7: G1-near-safe (Rare wppk is
- * 11/-20.8/-33.5). KF7: Rare ak47_stats Pos 11/-19/-16.
- * MP5K: Rare mp5k_stats Pos 11/-26.4/-35. */
+/* Camera-space hold after 180° Y. PP7: Rare wppk is 11/-20.8/-33.5;
+ * G1 near=10 filled the FB at -60, so Z is -110. KF7: Rare ak47_stats
+ * Pos 11/-19/-16. MP5K: Rare mp5k_stats Pos 11/-26.4/-35. */
 #define PORT_PP7_HOLD_X 11.f
 #define PORT_PP7_HOLD_Y (-24.f)
-#define PORT_PP7_HOLD_Z (-60.f)
+#define PORT_PP7_HOLD_Z (-110.f)
 #define PORT_KF7_HOLD_X 11.f
 #define PORT_KF7_HOLD_Y (-19.f)
 #define PORT_KF7_HOLD_Z (-16.f)

@@ -323,6 +323,32 @@ PORT_KEEP int port_api_guard_los(void) { return port_prop_guard_los(); }
 
 PORT_KEEP int port_api_guard_shots(void) { return port_prop_guard_shots(); }
 
+PORT_KEEP int port_api_setup_guards(void) { return port_prop_guard_count(); }
+
+PORT_KEEP float port_api_setup_guard_x(int i)
+{
+    float x = 0.f, z = 0.f;
+    if (port_prop_guard_xz(i, &x, &z) != 0)
+        return 0.f;
+    return x;
+}
+
+PORT_KEEP float port_api_setup_guard_z(int i)
+{
+    float x = 0.f, z = 0.f;
+    if (port_prop_guard_xz(i, &x, &z) != 0)
+        return 0.f;
+    return z;
+}
+
+PORT_KEEP int port_api_setup_guard_dead(int i)
+{
+    float x = 0.f, z = 0.f;
+    if (port_prop_guard_xz(i, &x, &z) != 0)
+        return 1;
+    return port_stan_guard_dead_at(x, z);
+}
+
 PORT_KEEP int32_t *port_api_hud_i32(void)
 {
     g_hud_i32[0] = (int32_t)port_gun_mag();
