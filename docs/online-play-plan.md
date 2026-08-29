@@ -215,9 +215,9 @@ Playtest (Facility, y=86.8, cur=71, PP7) on https://007.goodhouseinc.com: yellow
 
 | Item | SHA | What |
 | --- | --- | --- |
-| Debug overlay | this push | Live G1 canvas no longer composites yellow hit-cylinder boxes, hit crosses, or radar. Draw path: `web/shell/src/game/view.ts` `drawOverlayMarks` / `presentLiveView` → `drawPortOverlay`. Default is blit + center sight only. `?ff_debug=1` restores the overlay. Native G1 FB never stamped those prims. |
-| Idle rest | this push | `rest_for_group` applies ANIM_idle / walk via SKELETON(guard) JointID → mtxA. RST1 still wins on synthetic files. Exploded Euler AABB (`h>2500` or `h<40`) rebinds without rest (RST1/identity) and records `skip=aabb` — no capsule. Aim stays `skip=pose`. Fit still 185u. |
-| Run | this push | Hold-Shift sets lockstep `PORT_RUN` (CONT_R 0x0010), 1.9× analog. Default analog unchanged (~3 u/tick, dt=3). `crc_players` hashes pad buttons so the run bit is in the checksum. |
+| Debug overlay | `4cf2365` | Live G1 canvas no longer composites yellow hit-cylinder boxes, hit crosses, or radar. Draw path: `web/shell/src/game/view.ts` `drawOverlayMarks` / `presentLiveView` → `drawPortOverlay`. Default is blit + center sight only. `?ff_debug=1` restores the overlay. Native G1 FB never stamped those prims. |
+| Idle rest | `4cf2365` | `rest_for_group` applies ANIM_idle / walk via SKELETON(guard) JointID → mtxA. RST1 still wins on synthetic files. Exploded Euler AABB (`h>2500` or `h<40`) rebinds without rest (RST1/identity) and records `skip=aabb` — no capsule. Aim stays `skip=pose`. Fit still 185u. |
+| Run | `4cf2365` | Hold-Shift sets lockstep `PORT_RUN` (CONT_R 0x0010), 1.9× analog. Default analog unchanged (~3 u/tick, dt=3). `crc_players` hashes pad buttons so the run bit is in the checksum. |
 
 Lobby `buildId` `siliris-run-v8!!!!!!`. Netplay on at https://007.goodhouseinc.com.
 G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477` (unchanged; chr rest is pack-only).
