@@ -104,6 +104,7 @@ Query `?ff_name=0|1` overrides `localStorage` `ff_name`.
 | `ff_wsRelay` | off | Force `/ws` relay of `inp`/`ctl` (also auto-on after ICE fail) |
 | `ff_widescreen` | on | Hor+ camera on remote seats |
 | `ff_campaign` | off | Not v1. Leave it off. |
+| `ff_debug` | off | Yellow overlay: hittable-guard boxes, hit crosses, radar. Live canvas is G1 + center sight only. |
 
 
 ## Layout
@@ -153,7 +154,9 @@ Host creates a room; 2-4
 players join the same code, Ready, then host Start. Host picks Facility or
 Complex and a match length (time or first-to-N). Dead seats respawn after 2 s
 (or Z after 1 s). Click the picture to lock look; click again (or Z/Space)
-to fire. Aim is the gold + at screen center. Transport is a full-mesh
+to fire. Aim is the + at screen center. Hold **Shift** to run
+(~1.9× analog). Default WASD stays the pinned analog (~3 units/tick).
+`?ff_debug=1` turns the yellow hit-cylinder overlay back on. Transport is a full-mesh
 of `inp` + `ctl` DataChannels (6 channels per client at 4P). Delay is 2
 ticks on Internet STUN, or 1 with `?ff_lan=1`.
 

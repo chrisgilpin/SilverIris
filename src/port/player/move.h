@@ -15,6 +15,9 @@
 #define PORT_C_DOWN 0x0004u
 /* CONT_L: WASD A/D is strafe, not turn (mouse-look). */
 #define PORT_STRAFE 0x0020u
+/* CONT_R: hold-Shift run. Lockstep pad bit; ~1.9× analog. Default analog stays. */
+#define PORT_RUN 0x0010u
+#define PORT_RUN_MUL 1.9f
 #define PORT_PITCH_MAX 70.0f
 /* Quantized look on the pad: degrees = q / PORT_LOOK_Q. */
 #define PORT_LOOK_Q 10

@@ -10,6 +10,12 @@ describe("readFlags", () => {
     expect(f.widescreen).toBe(true);
     expect(f.campaign).toBe(false);
     expect(f.lan).toBe(false);
+    expect(f.debug).toBe(false);
+  });
+
+  it("honours ?ff_debug=1 for the yellow overlay", () => {
+    expect(readFlags("?ff_debug=1").debug).toBe(true);
+    expect(readFlags("").debug).toBe(false);
   });
 
   it("honours ?ff_netplay=1", () => {

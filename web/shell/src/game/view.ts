@@ -227,44 +227,8 @@ function drawPlaceholderMesh(
   }
 }
 
-function drawOverlayMarks(
-  ctx: CanvasRenderingContext2D,
-  cam: PortCam,
-  hits: readonly PortHit[],
-  chrs: readonly PortChr[],
-  w: number,
-  h: number,
-  hfov: number,
-  drawGun = false,
-): void {
-  ctx.lineWidth = 1;
-  for (const chr of chrs) {
-    const feet = projectWorld(chr.x, 0, chr.z, cam, w, h, hfov);
-    const headY = chr.dead ? 8 : 80;
-    const head = projectWorld(chr.x, headY, chr.z, cam, w, h, hfov);
-    if (!feet || !head) continue;
-    const bw = Math.max(4, 220 / feet.dist);
-    ctx.fillStyle = chr.peer ? "#5aa0b8" : chr.dead ? "#4a3030" : chr.setup ? "rgba(232,193,74,0.35)" : "#a04030";
-    ctx.fillRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
-    if (chr.setup && !chr.dead) {
-      ctx.strokeStyle = "rgba(232,193,74,0.9)";
-      ctx.strokeRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
-    }
-  }
-  for (const hit of hits) {
-    const p = projectWorld(hit.x, hit.y, hit.z, cam, w, h, hfov);
-    if (!p) continue;
-    const s = Math.max(2, 18 / p.dist);
-    ctx.strokeStyle = "#e8c14a";
-    ctx.beginPath();
-    ctx.moveTo(p.sx - s, p.sy);
-    ctx.lineTo(p.sx + s, p.sy);
-    ctx.moveTo(p.sx, p.sy - s);
-    ctx.lineTo(p.sx, p.sy + s);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = "rgba(232,193,74,0.95)";
+function drawSight(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.strokeStyle = "rgba(232,232,228,0.92)";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(w / 2 - 12, h / 2);
@@ -277,6 +241,49 @@ function drawOverlayMarks(
   ctx.lineTo(w / 2, h / 2 + 12);
   ctx.stroke();
   ctx.lineWidth = 1;
+}
+
+function drawOverlayMarks(
+  ctx: CanvasRenderingContext2D,
+  cam: PortCam,
+  hits: readonly PortHit[],
+  chrs: readonly PortChr[],
+  w: number,
+  h: number,
+  hfov: number,
+  drawGun = false,
+  debug = false,
+): void {
+  ctx.lineWidth = 1;
+  if (debug) {
+    for (const chr of chrs) {
+      const feet = projectWorld(chr.x, 0, chr.z, cam, w, h, hfov);
+      const headY = chr.dead ? 8 : 80;
+      const head = projectWorld(chr.x, headY, chr.z, cam, w, h, hfov);
+      if (!feet || !head) continue;
+      const bw = Math.max(4, 220 / feet.dist);
+      ctx.fillStyle = chr.peer ? "#5aa0b8" : chr.dead ? "#4a3030" : chr.setup ? "rgba(232,193,74,0.35)" : "#a04030";
+      ctx.fillRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
+      if (chr.setup && !chr.dead) {
+        ctx.strokeStyle = "rgba(232,193,74,0.9)";
+        ctx.strokeRect(head.sx - bw * 0.5, head.sy, bw, Math.max(4, feet.sy - head.sy));
+      }
+    }
+    for (const hit of hits) {
+      const p = projectWorld(hit.x, hit.y, hit.z, cam, w, h, hfov);
+      if (!p) continue;
+      const s = Math.max(2, 18 / p.dist);
+      ctx.strokeStyle = "#e8c14a";
+      ctx.beginPath();
+      ctx.moveTo(p.sx - s, p.sy);
+      ctx.lineTo(p.sx + s, p.sy);
+      ctx.moveTo(p.sx, p.sy - s);
+      ctx.lineTo(p.sx, p.sy + s);
+      ctx.stroke();
+    }
+  }
+
+  drawSight(ctx, w, h);
 
   /* G1 path draws GwppkZ / Gak47Z in camera space; keep the PORT trapezoid only
    * on the no-pack placeholder so the grey slab is not composited twice. */
@@ -292,10 +299,11 @@ function drawOverlayMarks(
     ctx.fillRect(gun.slideX, gun.slideY, gun.slideW, gun.slideH);
   }
 
-  if (h >= 100) drawRadar(ctx, cam, hits, chrs, h);
+  if (debug && h >= 100) drawRadar(ctx, cam, hits, chrs, h);
 }
 
-/** Player/guard markers, crosshair, gun, radar. No placeholder wall. */
+/** Player/guard markers, crosshair, gun, radar. No placeholder wall.
+ * debug=false (live default): center sight only — no yellow boxes/crosses. */
 export function drawPortOverlay(
   ctx: CanvasRenderingContext2D,
   cam: PortCam,
@@ -303,9 +311,10 @@ export function drawPortOverlay(
   chrs: readonly PortChr[] = [],
   box?: PortViewBox,
   hfov = PORT_VIEW_FOV,
+  debug = false,
 ): void {
   withViewBox(ctx, box, (w, h) => {
-    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, false);
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, false, debug);
   });
 }
 
@@ -316,10 +325,11 @@ export function drawPortView(
   chrs: readonly PortChr[] = [],
   box?: PortViewBox,
   hfov = PORT_VIEW_FOV,
+  debug = false,
 ): void {
   withViewBox(ctx, box, (w, h) => {
     drawPlaceholderMesh(ctx, cam, w, h, hfov);
-    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, true);
+    drawOverlayMarks(ctx, cam, hits, chrs, w, h, hfov, true, debug);
   });
 }
 
@@ -383,16 +393,18 @@ export function presentLiveView(
     chrs?: readonly PortChr[];
     box?: PortViewBox;
     hfov?: number;
+    debug?: boolean;
   },
 ): LivePresent {
   const hfov = opts.hfov ?? PORT_VIEW_FOV;
   const chrs = opts.chrs ?? [];
+  const debug = !!opts.debug;
   const drawable = stageHasDrawableRooms(opts) && !!opts.fb;
   if (drawable && opts.fb) {
     blitRgbaToCanvas(ctx, opts.fb.rgba, opts.fb.w, opts.fb.h, opts.box);
-    drawPortOverlay(ctx, opts.cam, opts.hits, chrs, opts.box, hfov);
+    drawPortOverlay(ctx, opts.cam, opts.hits, chrs, opts.box, hfov, debug);
     return "stage";
   }
-  drawPortView(ctx, opts.cam, opts.hits, chrs, opts.box, hfov);
+  drawPortView(ctx, opts.cam, opts.hits, chrs, opts.box, hfov, debug);
   return "placeholder";
 }

@@ -92,6 +92,43 @@ describe("overlay PP7 pitch", () => {
     });
     expect(rec.ops.some((o) => o.includes("#2a2a28") || o.includes("#3a3a38"))).toBe(false);
   });
+
+  it("does not stamp yellow debug prims on the live G1 canvas by default", () => {
+    const rec = mockCtx(320, 240);
+    const fb = new Uint8ClampedArray(320 * 240 * 4);
+    fb[3] = 255;
+    presentLiveView(rec.ctx, {
+      gdlRaw: true,
+      gdlC0: false,
+      fb: { rgba: fb, w: 320, h: 240 },
+      cam: { x: 0, z: 0, theta: 0 },
+      hits: [{ x: 0, y: 0, z: PORT_WALL_Z }],
+      chrs: [{ x: 0, z: PORT_WALL_Z, theta: 0, setup: true }],
+    });
+    const yellow = rec.ops.some(
+      (o) =>
+        o.includes("#e8c14a") ||
+        o.includes("232,193,74") ||
+        o.includes("rgba(232,193,74"),
+    );
+    expect(yellow).toBe(false);
+  });
+
+  it("draws yellow hit-cylinder overlay only with debug=true", () => {
+    const rec = mockCtx(320, 240);
+    const fb = new Uint8ClampedArray(320 * 240 * 4);
+    fb[3] = 255;
+    presentLiveView(rec.ctx, {
+      gdlRaw: true,
+      gdlC0: false,
+      fb: { rgba: fb, w: 320, h: 240 },
+      cam: { x: 0, z: 0, theta: 0 },
+      hits: [{ x: 0, y: 0, z: PORT_WALL_Z }],
+      chrs: [{ x: 0, z: PORT_WALL_Z, theta: 0, setup: true }],
+      debug: true,
+    });
+    expect(rec.ops.some((o) => o.includes("232,193,74") || o.includes("#e8c14a"))).toBe(true);
+  });
 });
 describe("stage G1 present", () => {
   it("only treats raw Fast3D or inflated C0 as drawable", () => {

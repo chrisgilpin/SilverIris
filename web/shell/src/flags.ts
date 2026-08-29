@@ -6,6 +6,7 @@
  *   wsRelay     -- force /ws inp+ctl relay. Also auto-on after ICE fail.
  *   widescreen  -- Hor+ camera. Default on.
  *   campaign    -- not v1. Default off.
+ *   debug       -- yellow overlay (hit cylinders, pads, radar). Default off.
  */
 
 export type FlagName =
@@ -14,7 +15,8 @@ export type FlagName =
   | "wsRelay"
   | "widescreen"
   | "lan"
-  | "campaign";
+  | "campaign"
+  | "debug";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   netplay: true,
@@ -23,6 +25,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   widescreen: true,
   lan: false,
   campaign: false,
+  debug: false,
 };
 
 function parseBool(raw: string | null): boolean | undefined {

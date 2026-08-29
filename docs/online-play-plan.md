@@ -34,7 +34,7 @@ Netplay still `?ff_netplay=1`. Hard-refresh after deploy (new wasm + `buildId`).
 
 Public-CI tape, no ROM: two seats on an on-tile corridor, walk, Z-unlatch a door, one PvP shot. Replay bit-identical. `make -C native 2p-corridor-test` writes `testdata/tapes/2p-corridor.tape`. Look stays 0 on disk pads.
 
-Walk speed stays the pinned analog (~3 units/tick, dt=3). That is hardware-comparable, not a sprint. Facility is thousands of units across; stan clip vs G1 walls can make it feel slower. Do not invent a run multiplier here.
+Walk speed stays the pinned analog (~3 units/tick, dt=3). That is hardware-comparable. Hold-Shift (lockstep `PORT_RUN` / CONT_R) is ~1.9× analog — not a default sprint and not a client-only multiplier.
 
 ## M3 — On-tile 2P spawn (done this push)
 
@@ -100,7 +100,7 @@ What is left is **playability** of that match, then items that are not v1.
 | --- | --- | --- | --- |
 | M14 | this push | Click-to-fire when pointer-locked; readable center sight | none |
 | M15 | this push | PP7 viewmodel recedes (hold Z −110). Rare pos is −33.5; G1 near=10 filled the FB at −60 | none |
-| M16 | this push | Overlay the hittable 30u guard cylinder on the G1 blit (setup-guard xz, not the patrol dummy) | none |
+| M16 | off by default | Overlay hittable 30u guard cylinder — live canvas off; `?ff_debug=1` restores it | none |
 | M17 | this push | Step clip: unlinked-edge skin + `stan_ray_block` so the centre does not walk through a tile-exit or closed door. Interior G1 walls inside a tile still clip | none |
 | M18 | this push | Guard GROUP uses RST1 only — decoded 16-joint Euler exploded the mesh. Fit clamps exploded AABBs. Lime SETTEX miss remains | none |
 | M19 | Chris | Private Facility 2P tape, minutes, 0 DESYNC native↔wasm | local pack, not git |
@@ -113,7 +113,7 @@ What is left is **playability** of that match, then items that are not v1.
 - Full `chrai` combat AI
 - Aim-pose bind (`skip=pose` until a ROM still of standing aim)
 - 60 Hz lockstep, GGPO, JP/EU WASMs, WebGPU
-- Invented sprint (walk stays ~3 u/tick)
+- Invented default sprint (walk stays ~3 u/tick; hold-Shift is the 1.9× lockstep run)
 
 ### Blocked on Chris (do not fake)
 
@@ -122,14 +122,14 @@ What is left is **playability** of that match, then items that are not v1.
 - KF7 near-white after collect (header radius 941 vs PP7 294)
 - Two-box live netplay
 
-Lobby `buildId` after this push: `siliris-clip-v7!!!!!`.
+Lobby `buildId` after this push: `siliris-run-v8!!!!!!`.
 
 ---
 
 ## M10+ (after M9)
 
 Smallest first. Each exit is a native harness — no Chrome, no Chris.
-Walk speed stays the pinned analog (~3 u/tick). Campaign is out of v1.
+Default walk stays the pinned analog (~3 u/tick). Hold-Shift is the 1.9× lockstep run. Campaign is out of v1.
 
 ### M10 — KF7 fire/mag is rifle, not leftover PP7 9mm (this push)
 
@@ -187,7 +187,7 @@ Two corpses both stay collectable. n≤1 keeps the last-wins checksum bytes.
 - Combat AI is chase / LOS, not full GE.
 - Full matching engine is not in wasm (PORT + G1 slices).
 - Hosting `game.wasm` is still a compiled derivative. See `docs/legal-posture.md`.
-- Walk speed stays the pinned analog (~3 units/tick).
+- Default walk stays the pinned analog (~3 units/tick). Hold-Shift is 1.9× analog (`PORT_RUN` on the lockstep pad).
 
 ## Hard rules (every milestone)
 
@@ -207,34 +207,28 @@ make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 
 ---
 
-## STATUS (2026-08-26)
+## STATUS (2026-08-28)
 
-Next unblocked: M19 private Facility tape (Chris). Interior G1 walls inside a tile still clip. Aim pose still skip=pose.
+Playtest (Facility, y=86.8, cur=71, PP7) on https://007.goodhouseinc.com: yellow debug overlay off, idle rest rebound via SKELETON(guard), hold-Shift run.
 
 **Shipped on `origin/main` (this session)**
 
-| Milestone | SHA | What |
+| Item | SHA | What |
 | --- | --- | --- |
-| M10 | `8713e7a` + `0e43d60` | KF7 fire/mag is `AMMO_RIFLE` MagSize 30, not leftover PP7 9mm. HUD labels KF7. |
-| M11 | `bfdc75f` | KF7 viewmodel hold is Rare `ak47_stats` Pos 11/−19/−16. PP7 hold unchanged. |
-| M12 | `b36ee4b` | MP5K death-drop 189 is a hold (Gmp5kZ, mag 30, Rare Pos 11/−26.4/−35). |
-| M13 | `3512d8c` | Every death-drop is tracked in `crc_props` (n≤1 last-wins bytes unchanged). |
-| M14 | this push | Click-to-fire when pointer-locked; gold center sight. |
-| M15 | this push | PP7 hold Z −110 so G1 near=10 does not fill the FB. |
-| M16 | `b8bb525` | Overlay hittable setup-guard cylinders on the G1 blit. |
-| M17 | this push | Tile-exit / closed-door step clip + 18u wall skin. |
-| M18 | this push | Guard RST1 bind (no exploding Euler). KF7 hold Z −110. |
+| Debug overlay | this push | Live G1 canvas no longer composites yellow hit-cylinder boxes, hit crosses, or radar. Draw path: `web/shell/src/game/view.ts` `drawOverlayMarks` / `presentLiveView` → `drawPortOverlay`. Default is blit + center sight only. `?ff_debug=1` restores the overlay. Native G1 FB never stamped those prims. |
+| Idle rest | this push | `rest_for_group` applies ANIM_idle / walk via SKELETON(guard) JointID → mtxA. RST1 still wins on synthetic files. Exploded Euler AABB (`h>2500` or `h<40`) rebinds without rest (RST1/identity) and records `skip=aabb` — no capsule. Aim stays `skip=pose`. Fit still 185u. |
+| Run | this push | Hold-Shift sets lockstep `PORT_RUN` (CONT_R 0x0010), 1.9× analog. Default analog unchanged (~3 u/tick, dt=3). `crc_players` hashes pad buttons so the run bit is in the checksum. |
 
-Lobby `buildId` `siliris-clip-v7!!!!!`. Netplay on at https://007.goodhouseinc.com.
-G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+Lobby `buildId` `siliris-run-v8!!!!!!`. Netplay on at https://007.goodhouseinc.com.
+G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477` (unchanged; chr rest is pack-only).
 
-**Blocked on Chris**
+**Remaining holes**
 
-- Aim decode `have≠0`: header already decodes; 16-joint Euler explodes the mesh (`skip=pose`). Needs a ROM visual of a standing aim. Do not fake an arm.
-- G1 walls ≠ stan tiles: visual clip-through. Needs a Facility pack look.
-- Combat AI beyond chase/LOS: full GE is `chrai`. Needs ROM AI lists.
-- Full matching engine in wasm: legal + huge. See `docs/legal-posture.md`.
-- KF7 near-white after collect (header radius 941.9339 vs PP7 293.60767): if Rare Z still fills the FB, needs a ROM look (G1 near=10).
-- Two-box live netplay look.
+- Aim decode `have≠0`: 16-joint Euler still explodes (`skip=pose`). Needs a ROM still of standing aim. Do not fake an arm.
+- G1 walls ≠ stan tiles: some visual clip-through.
+- If Facility C*Z idle Euler AABBs explode, HUD `idle_info` shows `skip=aabb` and the body is RST1/identity at 185u (T-pose-ish), not a standing Rare idle. Needs a pack look of room-71 idle/walker.
+- Combat AI is chase / LOS, not full `chrai`.
+- KF7 near-white after collect (header radius 941 vs PP7 294).
+- Two-box live netplay look. M19 private Facility tape (Chris).
 
-Walk speed stays the pinned analog (~3 u/tick). Campaign is out of v1.
+Default walk stays the pinned analog (~3 u/tick). Hold-Shift is 1.9× analog. Campaign is out of v1.

@@ -108,6 +108,13 @@ void port_checksum(uint32_t tick, SimChecksum *out)
         o += 4;
         wr_i32(buf + o, (int32_t)port_player_dead_ticks());
         o += 4;
+        {
+            int8_t px = 0, py = 0;
+            uint16_t pb = 0;
+            port_get_local_pad(&px, &py, &pb);
+            wr_i32(buf + o, (int32_t)pb);
+            o += 4;
+        }
     }
     port_set_cur_player(saved);
     out->crc_players = port_crc32c(buf, o);

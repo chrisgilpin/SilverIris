@@ -177,6 +177,37 @@ int main(void)
             return fail("strafe must not turn");
     }
 
+    /* PORT_RUN on the pad: farther than analog, crc includes the bit. */
+    port_begin_match(1, 1);
+    port_lockstep_begin(1, 1);
+    port_lockstep_submit(0, 0, 0, 0, 0, 0);
+    port_lockstep_run();
+    for (i = 1; i < 20; i++) {
+        port_lockstep_submit((uint32_t)i, 0, 0, (int8_t)-70, 0, 0);
+        port_lockstep_run();
+    }
+    {
+        float z_walk = port_player_z_at(0);
+        SimChecksum walk_ck;
+        port_checksum(20, &walk_ck);
+        port_begin_match(1, 1);
+        port_lockstep_begin(1, 1);
+        port_lockstep_submit(0, 0, 0, 0, 0, 0);
+        port_lockstep_run();
+        for (i = 1; i < 20; i++) {
+            port_lockstep_submit((uint32_t)i, 0, 0, (int8_t)-70, PORT_RUN, 0);
+            port_lockstep_run();
+        }
+        port_checksum(20, &b);
+        if (!(port_player_z_at(0) < z_walk * 1.75f)) {
+            fprintf(stderr, "run z=%g walk z=%g\n", (double)port_player_z_at(0),
+                (double)z_walk);
+            return fail("run farther");
+        }
+        if (b.crc_players == walk_ck.crc_players)
+            return fail("run bit must change crc_players");
+    }
+
     printf("lockstep ok delay=1 p0z=%g crc=%08x look=5\n", (double)z0, a.crc_players);
     return 0;
 }

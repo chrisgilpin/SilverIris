@@ -65,6 +65,7 @@ let lookPitchAcc = 0;
 const C_UP = 0x0008;
 const C_DOWN = 0x0004;
 const STRAFE = 0x0020;
+const RUN = 0x0010; /* CONT_R / hold-Shift. Lockstep pad bit. */
 
 let p1Binds = loadBinds();
 let rebindAction: BindAction | null = null;
@@ -124,11 +125,14 @@ function padFromGamepad(gp: Gamepad): ReturnType<typeof emptyPad> {
   const ax = gp.axes[0] ?? 0;
   const ay = gp.axes[1] ?? 0;
   const fire = !!(gp.buttons[0]?.pressed || gp.buttons[6]?.pressed || gp.buttons[7]?.pressed);
+  const run = !!(gp.buttons[4]?.pressed || gp.buttons[10]?.pressed);
+  let buttons = fire ? 0x2000 : 0;
+  if (run) buttons |= RUN;
   return {
     ...emptyPad(),
     x: Math.max(-70, Math.min(70, Math.round(ax * 70))),
     y: Math.max(-70, Math.min(70, Math.round(ay * 70))),
-    buttons: fire ? 0x2000 : 0,
+    buttons,
   };
 }
 
@@ -157,6 +161,9 @@ function padP1Move(): ReturnType<typeof emptyPad> {
   if (heldBind("lookDown") || (oneP && held.has("ArrowDown"))) pad.buttons |= C_DOWN;
   if (typeof document !== "undefined" && document.pointerLockElement)
     pad.buttons |= STRAFE;
+  /* ShiftLeft always; ShiftRight only when it is not local-P2 fire. */
+  if (held.has("ShiftLeft") || (oneP && held.has("ShiftRight")))
+    pad.buttons |= RUN;
   return pad;
 }
 
@@ -415,6 +422,7 @@ function paint(now: number): void {
         chrs: overlay,
         box: { x: 0, y: 0, w: canvas.width, h: canvas.height },
         hfov,
+        debug: flags.debug,
       });
     }
     for (const seat of seats) {
@@ -444,6 +452,7 @@ function paint(now: number): void {
           guard.concat(peers),
           box,
           hfov,
+          flags.debug,
         );
       }
       ctx.fillStyle = "rgba(18,20,24,0.72)";
@@ -663,7 +672,8 @@ window.addEventListener("keydown", (ev) => {
     ev.code === "ArrowDown" ||
     ev.code === "ArrowLeft" ||
     ev.code === "ArrowRight" ||
-    ev.code === "ShiftRight"
+    ev.code === "ShiftRight" ||
+    ev.code === "ShiftLeft"
   ) {
     ev.preventDefault();
     held.add(ev.code);

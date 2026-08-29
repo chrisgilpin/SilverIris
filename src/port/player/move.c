@@ -521,6 +521,10 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     walk = clampf(walk, -1.0f, 1.0f);
     turn = clampf(turn, -1.0f, 1.0f);
     fwd = walk * FWD_BOOST;
+    /* Default analog stays ~3 u/tick (dt=3). Hold PORT_RUN (Shift) is
+     * 1.9× that — not a client-only sprint. Bit is on the lockstep pad. */
+    if (buttons & PORT_RUN)
+        fwd *= PORT_RUN_MUL;
 
     p->theta += (float)p->pad_look_yaw / (float)PORT_LOOK_Q;
     if ((buttons & PORT_STRAFE) == 0)
@@ -544,7 +548,7 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
         float ox = p->x, oz = p->z, nx, nz, ny;
         float side = 0.0f;
         if (buttons & PORT_STRAFE)
-            side = turn * FWD_BOOST;
+            side = turn * FWD_BOOST * ((buttons & PORT_RUN) ? PORT_RUN_MUL : 1.0f);
         p->x += fwd * -sinf(rad) * dt + side * cosf(rad) * dt;
         p->z += fwd * cosf(rad) * dt + side * sinf(rad) * dt;
         if (port_stan_ready()) {

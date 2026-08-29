@@ -626,11 +626,14 @@ static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use
         *rz = be_f32(base + data + 0x28);
         return;
     }
-    /* Decoded 16-joint Euler (idle/walk/aim/die) explodes the mesh —
-     * stretched head, collapsed torso, lime blobs. RST1 from the file
-     * is the standing bind. Do not fake an arm raise. */
-    (void)use_guard;
-    (void)joint;
+    /* ANIM_idle / ANIM_walking via SKELETON(guard) JointID → mtxA.
+     * Aim stays skip=pose (16-joint Euler explodes). An exploded idle
+     * AABB is rejected in bind_model_gdl and rebound without rest. */
+    if (use_guard && g_pose_rest && joint < PORT_SKEL_GUARD_N) {
+        *rx = g_pose_rest[joint][0];
+        *ry = g_pose_rest[joint][1];
+        *rz = g_pose_rest[joint][2];
+    }
 }
 
 static int scenery_type(int t)
@@ -806,9 +809,45 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
     return m->npart ? 0 : -1;
 }
 
+static int chr_part_span(const PortModel *m, float *ymin, float *ymax)
+{
+    int dp;
+    float lo = 1e9f, hi = -1e9f;
+    if (!m || m->npart < 1)
+        return 0;
+    for (dp = 0; dp < m->npart; dp++) {
+        if (m->part[dp].oy < lo)
+            lo = m->part[dp].oy;
+        if (m->part[dp].oy > hi)
+            hi = m->part[dp].oy;
+    }
+    if (hi <= lo + 1.f)
+        return 0;
+    *ymin = lo;
+    *ymax = hi;
+    return 1;
+}
+
+static void fit_chr_stand(PortModel *m, float ymin, float ymax, const char *how)
+{
+    float h = ymax - ymin;
+    m->fit_ymin = ymin;
+    /* Idle bind is ~1510u (480 spine + ~900 legs). Fit to 185. */
+    if (h > 2500.f || h < 40.f)
+        m->fit_scale = PORT_CHR_STAND / 1510.f;
+    else
+        m->fit_scale = PORT_CHR_STAND / h;
+    if (!strstr(g_idle_info, " fit=")) {
+        char base[96];
+        snprintf(base, sizeof base, "%s", g_idle_info);
+        snprintf(g_idle_info, sizeof g_idle_info, "%s fit=%.3f h=%.0f %s",
+                 base, m->fit_scale, h, how ? how : "rest=skel");
+    }
+}
+
 static int bind_model_gdl(PortModel *m, int use_guard)
 {
-    uint32_t root;
+    uint32_t root, used;
 
     m->npart = 0;
     m->have_head = 0;
@@ -831,35 +870,33 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         root = 0;
     else
         root = (uint32_t)m->nswitch * 4u + (uint32_t)m->ntex * TEXREC_BYTES;
+    used = root;
     if (walk_parts(m, root, use_guard) != 0 && root != 0) {
         m->npart = 0;
         m->have_head = 0;
         m->head_rx = m->head_ry = m->head_rz = 0.f;
         walk_parts(m, 0, use_guard);
+        used = 0;
     }
-    if (use_guard && g_pose_rest && m->npart) {
-        int dp;
-        float ymin = 1e9f, ymax = -1e9f;
-        for (dp = 0; dp < m->npart; dp++) {
-            if (m->part[dp].oy < ymin)
-                ymin = m->part[dp].oy;
-            if (m->part[dp].oy > ymax)
-                ymax = m->part[dp].oy;
-        }
-        if (ymax > ymin + 1.f) {
+    if (use_guard && m->npart) {
+        float ymin = 0.f, ymax = 0.f;
+        if (chr_part_span(m, &ymin, &ymax)) {
             float h = ymax - ymin;
-            m->fit_ymin = ymin;
-            /* Idle bind is ~1510u. Exploded Euler AABBs used to become
-             * a giant lime blob in the camera. */
-            if (h > 2500.f || h < 40.f)
-                m->fit_scale = PORT_CHR_STAND / 1510.f;
-            else
-                m->fit_scale = PORT_CHR_STAND / h;
-            if (!strstr(g_idle_info, " fit=")) {
-                char base[96];
-                snprintf(base, sizeof base, "%s", g_idle_info);
-                snprintf(g_idle_info, sizeof g_idle_info, "%s fit=%.3f h=%.0f",
-                         base, m->fit_scale, ymax - ymin);
+            /* Exploded 16-joint Euler (stretched head / collapsed torso):
+             * drop rest and keep RST1 / identity so the C*Z mesh still
+             * stands at 185u. Do not invent a capsule. Aim stays skip=pose. */
+            if (g_pose_rest && (h > 2500.f || h < 40.f)) {
+                const float (*save)[3] = g_pose_rest;
+                g_pose_rest = NULL;
+                m->npart = 0;
+                m->have_head = 0;
+                m->head_rx = m->head_ry = m->head_rz = 0.f;
+                walk_parts(m, used, use_guard);
+                g_pose_rest = save;
+                if (chr_part_span(m, &ymin, &ymax))
+                    fit_chr_stand(m, ymin, ymax, "skip=aabb");
+            } else {
+                fit_chr_stand(m, ymin, ymax, g_pose_rest ? "rest=skel" : "rest=rst1");
             }
         }
     }

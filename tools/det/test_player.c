@@ -1446,6 +1446,23 @@ int main(void)
         return 1;
     }
     printf("player walk ok z1=%g z200=%g clock=%d\n", (double)z1, (double)z200, g_ClockTimer);
+
+    /* Hold-Shift run is 1.9× analog. Default analog must stay ~3 u/tick. */
+    {
+        float z_run;
+        port_player_spawn();
+        port_set_local_pad(0, 0, (int8_t)-70, (uint16_t)PORT_RUN);
+        if (port_sim_tick(0) != 0)
+            return fail("run tick");
+        z_run = port_player_z();
+        if (!(z_run < z1 * 1.75f && z_run > z1 * 2.05f)) {
+            fprintf(stderr, "run z=%g walk z=%g ratio=%g want ~1.9\n",
+                (double)z_run, (double)z1, (double)(z_run / z1));
+            return fail("run mul");
+        }
+        printf("player run ok z_run=%g ratio=%.2f\n", (double)z_run,
+            (double)(z_run / z1));
+    }
     if (test_stan_scale_chris_unit() != 0)
         return 1;
     if (test_intro_spawn_y_hallway_unit() != 0)
