@@ -125,7 +125,7 @@ int port_prop_guard_xyz(int i, float *x, float *y, float *z);
  * Spawn is GwppkZ (PP7). Collecting a KF7 death-drop (chrkalash 184)
  * switches to pack Gak47Z if that blob bound. Never PchrkalashZ.
  * Collecting MP5K (chrmp5k 189) switches to pack Gmp5kZ.
- * Hold is port_gun_hold (Rare Pos; PP7 is G1-near-safe).
+ * Hold is port_gun_hold (Rare Pos). Mesh is IDO_POINT_ONE (0.1).
  * SKEL_FLASH cards are omitted unless port_gun_flash_frames() > 0.
  * 0 if the pack has no gun file or bind failed. Does not bump drawn.
  */

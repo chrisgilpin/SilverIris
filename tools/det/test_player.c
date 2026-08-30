@@ -648,7 +648,7 @@ static int test_stan_eye_and_clip(void)
     }
     if (z1 > 50.01f)
         return fail("wall z");
-    /* Unconstrained 80 ticks would be ~240. */
+    /* Unconstrained 80 ticks would be ~1080 with PORT_WALK_MUL. */
     if (z1 > 55.0f)
         return fail("wall almost through");
     printf("stan_eye y=%.1f floor=50 eye=175 tiles=%d\n", (double)port_player_y(),
@@ -1426,8 +1426,9 @@ int main(void)
     if (port_sim_tick(0) != 0)
         return fail("tick 0");
     z1 = port_player_z();
-    if (!(z1 < -2.5f && z1 > -4.0f)) {
-        fprintf(stderr, "1-tick z=%g want ~-3\n", (double)z1);
+    /* analog/70 * 1.08 * PORT_WALK_MUL * dt ≈ 14.6; deadzone 5 → ~13.5. */
+    if (!(z1 < -12.0f && z1 > -16.0f)) {
+        fprintf(stderr, "1-tick z=%g want ~-14.5\n", (double)z1);
         return 1;
     }
 
@@ -1436,8 +1437,8 @@ int main(void)
             return fail("walk tick");
     }
     z200 = port_player_z();
-    /* 200 ticks × dt=3. |z| ~600; dt=1 would be ~200. */
-    if (!(z200 < -500.0f)) {
+    /* 200 ticks × dt=3. |z| ~2700 with PORT_WALK_MUL. */
+    if (!(z200 < -2000.0f)) {
         fprintf(stderr, "10s z=%g — too slow (dt not 3?)\n", (double)z200);
         return 1;
     }
@@ -1447,7 +1448,7 @@ int main(void)
     }
     printf("player walk ok z1=%g z200=%g clock=%d\n", (double)z1, (double)z200, g_ClockTimer);
 
-    /* Hold-Shift run is 1.9× analog. Default analog must stay ~3 u/tick. */
+    /* Hold-Shift run is 1.9× analog. Walk is PORT_WALK_MUL * analog*dt. */
     {
         float z_run;
         port_player_spawn();

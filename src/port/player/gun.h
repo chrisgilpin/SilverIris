@@ -20,15 +20,16 @@
 #define PORT_KF7_MAG 30
 #define PORT_MP5K_MAG 30 /* mp5k_stats MagSize 0x1E */
 #define PORT_GUN_PICKUP_ADD 7
-/* Camera-space hold after 180° Y. PP7: Rare wppk is 11/-20.8/-33.5;
- * G1 near=10 filled the FB at -60, so Z is -110. KF7 Rare pos is
- * 11/-19/-16 (header radius 941) — same G1 near fill; Z is -110. */
+/* Camera-space hold after 180° Y. Rare gunfire.c: PosXYZ then
+ * matrix_scalar_multiply(IDO_POINT_ONE) on the 3x3 (translation stays).
+ * Without that 0.1 the GwppkZ / Gak47Z mesh fills the near plane. */
+#define PORT_GUN_MODEL_SCALE 0.10000001f
 #define PORT_PP7_HOLD_X 11.f
-#define PORT_PP7_HOLD_Y (-24.f)
-#define PORT_PP7_HOLD_Z (-110.f)
+#define PORT_PP7_HOLD_Y (-20.8f)
+#define PORT_PP7_HOLD_Z (-33.5f)
 #define PORT_KF7_HOLD_X 11.f
 #define PORT_KF7_HOLD_Y (-19.f)
-#define PORT_KF7_HOLD_Z (-110.f)
+#define PORT_KF7_HOLD_Z (-16.f)
 #define PORT_MP5K_HOLD_X 11.f
 #define PORT_MP5K_HOLD_Y (-26.4f)
 #define PORT_MP5K_HOLD_Z (-35.f)

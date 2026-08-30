@@ -15,9 +15,14 @@
 #define PORT_C_DOWN 0x0004u
 /* CONT_L: WASD A/D is strafe, not turn (mouse-look). */
 #define PORT_STRAFE 0x0020u
-/* CONT_R: hold-Shift run. Lockstep pad bit; ~1.9× analog. Default analog stays. */
+/* CONT_R: hold-Shift run. Lockstep pad bit. Rare speedboost caps at 1.25
+ * after 3s of full analog; keyboard Shift is a dedicated sprint. */
 #define PORT_RUN 0x0010u
 #define PORT_RUN_MUL 1.9f
+/* Analog/70 * 1.08 * dt is not MoveBond. On-foot displacement is the
+ * walk-anim root translate (bondheadmatrices[0].m[3] * dt). A cycle is
+ * ~one body length (185u) over frames 9.5–27, which is ~4.5× analog*dt. */
+#define PORT_WALK_MUL 4.5f
 #define PORT_PITCH_MAX 70.0f
 /* Quantized look on the pad: degrees = q / PORT_LOOK_Q. */
 #define PORT_LOOK_Q 10

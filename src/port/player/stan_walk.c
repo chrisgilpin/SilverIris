@@ -1325,8 +1325,9 @@ static float dist_seg(float px, float pz, float ax, float az, float bx, float bz
     return sqrtf(dx * dx + dz * dz);
 }
 
-/* Keep the centre off unlinked tile edges (visual walls sit on those). */
-#define PORT_WALL_SKIN 18.0f
+/* MoveBond collision_radius is 30. Visual G1 walls sit on unlinked
+ * tile edges; 18 let the near plane eat those walls. */
+#define PORT_WALL_SKIN 30.0f
 
 static int dest_too_close_to_wall(float wx, float wz)
 {

@@ -3298,8 +3298,8 @@ int port_prop_viewgun_id(void) { return g_viewgun_id; }
 /*
  * Static first-person pack gun (GwppkZ, Gak47Z after KF7, Gmp5kZ after MP5K).
  * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
- * -Z so hold * R180 * part. Camera-space via .view. Hold is per-weapon
- * (port_gun_hold).
+ * -Z so hold * R180 * S(0.1) * part. Camera-space via .view. Hold is
+ * Rare PosXYZ; scale is IDO_POINT_ONE (gunfire.c gunmtx).
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -3335,7 +3335,10 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
             continue;
         if (viewgun_is_flash(p, pt) && !show_flash)
             continue;
-        mtx_local(part, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
+        /* Rare: gunmtx = T(Pos) * R * S(0.1) * node. Scale node
+         * translation here so G1's T*R*S matches that product. */
+        mtx_local(part, pt->ox * PORT_GUN_MODEL_SCALE, pt->oy * PORT_GUN_MODEL_SCALE,
+                  pt->oz * PORT_GUN_MODEL_SCALE, pt->rx, pt->ry, pt->rz);
         mtx_mul4(tmp, r180, part);
         mtx_mul4(world, hold, tmp);
         mtx_euler(world, &rx, &ry, &rz);
@@ -3352,6 +3355,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
+        out[k].scale = PORT_GUN_MODEL_SCALE;
         out[k].seg5 = (uintptr_t)m->file;
         out[k].seg4 = pt->vtx4;
         out[k].view = 1;
