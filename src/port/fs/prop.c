@@ -3159,6 +3159,28 @@ int port_prop_load(int level_id)
     return PORT_PROP_OK;
 }
 
+void port_prop_scale_world(float s)
+{
+    int i;
+    if (!(s > 0.f) || s == 1.f)
+        return;
+    for (i = 0; i < g_nprop; i++) {
+        g_prop[i].pos[0] *= s;
+        g_prop[i].pos[1] *= s;
+        g_prop[i].pos[2] *= s;
+    }
+    for (i = 0; i < g_nintro; i++) {
+        g_intro_xyz[i][0] *= s;
+        g_intro_xyz[i][1] *= s;
+        g_intro_xyz[i][2] *= s;
+    }
+    if (g_have_intro) {
+        g_intro_pos[0] *= s;
+        g_intro_pos[1] *= s;
+        g_intro_pos[2] *= s;
+    }
+}
+
 int port_prop_count(void) { return g_nprop; }
 
 int port_prop_models(void) { return g_nmdl; }

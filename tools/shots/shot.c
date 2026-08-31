@@ -1680,16 +1680,21 @@ static void place(float x, float z, float th)
     port_player_set_pose(x, ey, z, th);
 }
 
-/* Chris 2026-08-31 live poses. Collision body vs draw-only visual xz. */
-#define PLAY_CORNER_X 117.6f
-#define PLAY_CORNER_Z (-2447.0f)
+/* Chris 2026-08-31 live poses, converted into retail (s16/levelscale)
+ * local: world_old - r1*inv. Same stan tiles as the unscaled-local shots. */
+#define PLAY_CORNER_X 76.5f
+#define PLAY_CORNER_Z (-2096.0f)
 #define PLAY_CORNER_TH 244.0f
-#define PLAY_STAIR_X (-530.7f)
-#define PLAY_STAIR_Z (-2580.3f)
+#define PLAY_STAIR_X (-571.8f)
+#define PLAY_STAIR_Z (-2229.3f)
 #define PLAY_STAIR_TH 80.0f
-#define PLAY_WALL_X (-687.0f)
-#define PLAY_WALL_Z (-2713.9f)
+#define PLAY_WALL_X (-728.1f)
+#define PLAY_WALL_Z (-2362.9f)
 #define PLAY_WALL_TH 271.0f
+#define PLAY_BATH_X (-533.0f)
+#define PLAY_BATH_Z (-1887.5f)
+#define PLAY_HALL_EYE_LO 15.f
+#define PLAY_HALL_EYE_HI 50.f
 
 static void playtest_forward(float th, float step, float *dx, float *dz)
 {
@@ -1724,6 +1729,7 @@ static void playtest_pose(const char *tag, float x, float z, float th)
            (double)(vx - x), (double)(vz - z), (double)(nx - x), (double)(nz - z),
            (double)ny, (double)tblk);
     port_stan_debug_at(x, z);
+    port_stage_dump_walls_at(x, ey, z);
     port_stan_link_reach(x, z);
     /* 8-way clip_step one tick: see if a rising floor exists. */
     {
@@ -1750,9 +1756,10 @@ static int playtest_chris(const char *out_dir)
     spawn_x = port_api_player_x();
     spawn_z = port_api_player_z();
     spawn_y = port_api_player_y();
-    printf("playtest spawn xz=%.1f,%.1f y=%.1f cur=%d\n",
+    printf("playtest spawn xz=%.1f,%.1f y=%.1f cur=%d inv=%.6f\n",
            (double)spawn_x, (double)spawn_z, (double)spawn_y,
-           port_api_current_room());
+           port_api_current_room(), (double)port_stage_bg_inv());
+    port_stan_debug_at(spawn_x, spawn_z);
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
 
@@ -1876,10 +1883,11 @@ static int playtest_chris(const char *out_dir)
     printf("playtest spawn_back y=%.1f cur=%d\n", (double)port_api_player_y(),
            port_api_current_room());
     {
-        float bx = -491.9f, bz = -2238.5f, by = 0.f, nx, nz, ny;
+        float bx = PLAY_BATH_X, bz = PLAY_BATH_Z, by = 0.f, nx, nz, ny;
         place(bx, bz, 0.f);
-        if (port_stan_eye_y(bx, bz, &by) != 0 || by < 70.f || by > 110.f) {
-            fprintf(stderr, "playtest bathroom eye=%.1f (want ~86.8)\n", (double)by);
+        if (port_stan_eye_y(bx, bz, &by) != 0 || by < PLAY_HALL_EYE_LO ||
+            by > PLAY_HALL_EYE_HI) {
+            fprintf(stderr, "playtest bathroom eye=%.1f (want hall ~29)\n", (double)by);
             return -1;
         }
         nx = bx + 8.f;
@@ -1887,7 +1895,7 @@ static int playtest_chris(const char *out_dir)
         ny = by;
         port_stan_clip_step(bx, bz, &nx, &nz, &ny);
         printf("playtest bathroom eye=%.1f clip_y=%.1f\n", (double)by, (double)ny);
-        if (ny < 70.f || ny > 110.f) {
+        if (ny < PLAY_HALL_EYE_LO || ny > PLAY_HALL_EYE_HI) {
             fprintf(stderr, "playtest bathroom hopped y=%.1f\n", (double)ny);
             return -1;
         }

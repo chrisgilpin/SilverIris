@@ -11,6 +11,8 @@
 
 void port_prop_unload(void);
 int port_prop_load(int level_id);
+/* Rare prop.c: pad->pos *= get_room_data_float2() (1/levelscale). */
+void port_prop_scale_world(float s);
 int port_prop_count(void);
 int port_prop_models(void);
 int port_prop_drawn(void);

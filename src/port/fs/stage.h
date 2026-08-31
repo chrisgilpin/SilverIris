@@ -25,8 +25,10 @@ const char *port_stage_last_error(void);
 int port_stage_level_id(void);
 int port_stage_room_count(void);
 int port_stage_bg_rooms(void);
-/* Bg room 1 origin (world). 0 if present. */
+/* Bg room 1 origin (world). Retail C0 is already * 1/levelscale. 0 if present. */
 int port_stage_room1(float pos[3]);
+/* 1/levelscale for retail C0 Facility/Complex, else 1. */
+float port_stage_bg_inv(void);
 int port_stage_gdl_raw(void);
 int port_stage_gdl_c0(void);
 int port_stage_gdl_vtx(void);
@@ -43,6 +45,8 @@ int port_stage_current_room(void);
 int port_stage_room_at_local(float lx, float ly, float lz);
 /* 0 if room has a primary GDL. Writes command count and Rare room pos. */
 int port_stage_room_gdl(int room, uint32_t *ngfx, float pos[3]);
+/* Dump G1 room-vert vs stan spaces at player xz (harness / diagnose). */
+void port_stage_dump_walls_at(float lx, float ly, float lz);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
 int port_stage_rooms_walked(void);
