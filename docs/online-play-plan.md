@@ -316,3 +316,16 @@ Shots (not committed): `.local/shots/play_spawn.png`, `play_hall_a.png`, `play_h
 
 - Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 stair landing `46c48d9`)
+
+`play_stairs_end` after the 2391 overlap hop was 88% black (mean luma 19): dest sat 1.5u from 2391's unlinked wall (world x=-717), camera inside G1. Dump: 2391 has two wall edges; Rare 2390 same-floor link is 2367 (all edges linked, landing corridor). After `enter_rise`, pick a same-room same-floor tile off unlinked edges and snap to its centroid. Hall no-hop (`PORT_RISE_MAX` 350 + from-tile skip) kept. `e21097d` inv / walk 4.5× / skin 30 kept.
+
+Harness: spawn/WASD/A→B stay y=29.1 r71 c0=1; stairs still climb; `play_stairs_end` mean luma 60 (dark 5244, was 52821) — tiled landing, door, ceiling, not a wall interior. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
