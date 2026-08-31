@@ -407,3 +407,23 @@ Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
 **Remaining holes**
 
 - Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 extra idle `e3a2eff`)
+
+`c012341` made the r11 ribbed door solid but emptied the spawn hall: living
+G_DL/Euler containment plus a 400u range cap hid extra idle (`drawn=70`).
+Extra idle is never skip-drawn. It now sits at `-350,-2320` (past Z_TRIG,
+inside spawn 270 / PLAY_SHOOT FOV). Closed-leaf skip and a 380u cap apply
+only to other living pads, so guard 36 (469u) still cannot paint through
+the r11 leaf.
+
+Harness: `play_spawn` / `play_hall_a` / `play_shoot_before` standing extra
+idle (`rest=skel`); `play_clip_door` leaf solid; extra idle still dies
+(kills=1). Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
