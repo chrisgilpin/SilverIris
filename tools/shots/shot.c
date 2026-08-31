@@ -2490,6 +2490,18 @@ int main(int argc, char **argv)
         printf("idle_look from=%.1f,%.1f to=%.1f,%.1f th=%.1f dist=%.1f %s\n",
                (double)look_x, (double)look_z, (double)lx, (double)lz,
                (double)look_th, (double)dist, info);
+        {
+            float hx = 0.f, hy = 0.f, hz = 0.f;
+            int have = port_prop_guard_have_head(ig);
+            (void)port_prop_guard_head_off(ig, &hx, &hy, &hz);
+            printf("idle_look head have=%d off=%.1f,%.1f,%.1f\n", have,
+                   (double)hx, (double)hy, (double)hz);
+            if (!have || hy <= 0.f) {
+                fprintf(stderr, "idle_look head missing have=%d hy=%.1f\n",
+                        have, (double)hy);
+                goto done;
+            }
+        }
         port_player_set_pose(look_x, look_y, look_z, look_th);
         if (shot_one(out_dir, "idle_look") != 0)
             goto done;

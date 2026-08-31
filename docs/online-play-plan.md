@@ -251,7 +251,21 @@ Harness: `shot --playtest` — stairs_end eye=405.9 room=12; bathroom clip_y=86.
 
 **Remaining holes**
 
-- Heads often missing (opcode 23 / HeadID attach). Next.
 - G1 walls still inside some stan tiles (corner black void).
 - Chr SETTEX grey. KF7 near-white after collect.
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 HEADS)
+
+Jim/Sally attach on `hasHead==0` guards (dump `chrModelFileRecord` + `random_male_heads[0]=HEAD_Male_Jim`). Neck is opcode 23 / `Switches[4]`. Body `fit_scale` copied onto Chead*Z so the placeholder is not unscaled at the feet. Synthetic HeadID=0 does not attach a body as a head.
+
+Harness: Facility `idle_look` `have=1 off=5.8,520.1,-36.7` — standing body with a head on the neck. Spawn first frame closed stall room 71. Aim `skip=pose`.
+
+**Remaining holes**
+
+- G1 walls still inside some stan tiles (corner black void).
+- Chr SETTEX grey vs brick.
+- KF7 near-white after collect.
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.

@@ -83,3 +83,19 @@ static const PortPropCat k_chr_cat[] = {
 };
 #define PORT_CHR_CAT_N 80
 #define PORT_CHR_HEAD_START 42
+/* Dump-verified chrModelFileRecord isMale / hasHead. hasHead=1 means the
+ * C*Z already contains a head — do not attach Chead*Z. */
+static const uint8_t k_chr_is_male[PORT_CHR_CAT_N] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
+    0, 0, 1, 1, 1, 1, 1, 0
+};
+static const uint8_t k_chr_has_head[PORT_CHR_CAT_N] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1
+};
+#define PORT_CHR_HEAD_JIM 57
+#define PORT_CHR_HEAD_SALLY 70

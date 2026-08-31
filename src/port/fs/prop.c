@@ -14,7 +14,7 @@
 #include <string.h>
 
 #define PORT_MAX_PROPS 256
-#define PORT_MAX_MODELS 80
+#define PORT_MAX_MODELS 128
 #define PORT_MODEL_PARTS 32
 #define PORT_MODEL_SEG 5
 #define PORT_MODEL_BASE 0x05000000u
@@ -269,6 +269,7 @@ static int g_viewgun_id = PORT_GUN_WPPK_ID;
 static PortModel *load_wppk(void);
 static PortModel *load_ak47(void);
 static PortModel *load_mp5k(void);
+static PortModel *load_chr(int body);
 static const PortPropCat k_wppk_gun = { PORT_GUN_WPPK_ID, PORT_GUN_WPPK_NSW,
                                        PORT_GUN_WPPK_NTEX, 1.f, "wppk" };
 static const PortPropCat k_ak47_gun = { PORT_GUN_AK47_ID, PORT_GUN_AK47_NSW,
@@ -656,6 +657,54 @@ static const PortPropCat *chr_by_id(int id)
     return &k_chr_cat[id];
 }
 
+/* expand_09_characters: hasHead==0 then HeadID>=0 else Jim/Sally.
+ * HeadID in 0..41 is not a Chead*Z (synthetic tests use 0). */
+static int resolve_head_id(int body, int head)
+{
+    if (body < 0 || body >= PORT_CHR_HEAD_START)
+        return -1;
+    if (k_chr_has_head[body])
+        return -1;
+    if (head >= PORT_CHR_HEAD_START && head < PORT_CHR_CAT_N)
+        return head;
+    if (head >= 0 && head < PORT_CHR_HEAD_START)
+        return -1;
+    return k_chr_is_male[body] ? PORT_CHR_HEAD_JIM : PORT_CHR_HEAD_SALLY;
+}
+
+static void bind_head_off(PortProp *pr, const PortModel *body)
+{
+    if (!pr || !body || !body->have_head)
+        return;
+    pr->head_off[0] = body->head_off[0];
+    pr->head_off[1] = body->head_off[1];
+    pr->head_off[2] = body->head_off[2];
+    pr->head_rx = body->head_rx;
+    pr->head_ry = body->head_ry;
+    pr->head_rz = body->head_rz;
+    if (pr->head) {
+        pr->head->fit_scale = body->fit_scale;
+        pr->head->fit_ymin = body->fit_ymin;
+    }
+}
+
+static void attach_chr_head(PortProp *pr, int body, int head)
+{
+    int hid;
+    PortModel *h;
+    if (!pr)
+        return;
+    hid = resolve_head_id(body, head);
+    if (hid < 0)
+        return;
+    h = load_chr(hid);
+    if (!h || !h->npart)
+        return;
+    pr->head = h;
+    if (pr->mdl)
+        bind_head_off(pr, pr->mdl);
+}
+
 static uint32_t file_off(uint32_t p, size_t n)
 {
     uint32_t off;
@@ -742,9 +791,13 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
     int qh = 0, qt = 0, i;
     const uint8_t *base = m->file;
     size_t n = m->file_len;
+    uint32_t sw4 = 0;
 
     if (root + NODE_BYTES > n)
         return -1;
+    /* MODELFILEHEADER Switches[4] is the HeadPlaceholder (opcode 23). */
+    if (m->nswitch > 4 && n >= 20)
+        sw4 = file_off(be32(base + 16), n);
     q[qt] = root;
     mtx_ident4(qm[qt]);
     qt++;
@@ -779,7 +832,7 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
         mtx_euler(childm, &rx, &ry, &rz);
         if ((op == 4 || op == 22 || op == 24) && data)
             add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz);
-        if (op == 23 && !m->have_head) {
+        if (!m->have_head && (op == 23 || (sw4 && off == sw4))) {
             m->head_off[0] = ox;
             m->head_off[1] = oy;
             m->head_off[2] = oz;
@@ -1145,14 +1198,7 @@ static void assign_walkers(void)
             g_prop[prev_walk].scale =
                 (icat ? icat->scale : 1.f) *
                 (im->fit_scale != 0.f ? im->fit_scale : 1.f);
-            if (im->have_head) {
-                g_prop[prev_walk].head_off[0] = im->head_off[0];
-                g_prop[prev_walk].head_off[1] = im->head_off[1] - im->fit_ymin;
-                g_prop[prev_walk].head_off[2] = im->head_off[2];
-                g_prop[prev_walk].head_rx = im->head_rx;
-                g_prop[prev_walk].head_ry = im->head_ry;
-                g_prop[prev_walk].head_rz = im->head_rz;
-            }
+            bind_head_off(&g_prop[prev_walk], im);
         }
     }
     if (g_have_spawn_xz && (best >= 0 || next >= 0))
@@ -1167,14 +1213,7 @@ static void assign_walkers(void)
     g_prop[next].mdl = wm;
     g_prop[next].scale =
         (cat ? cat->scale : 1.f) * (wm->fit_scale != 0.f ? wm->fit_scale : 1.f);
-    if (wm->have_head) {
-        g_prop[next].head_off[0] = wm->head_off[0];
-        g_prop[next].head_off[1] = wm->head_off[1] - wm->fit_ymin;
-        g_prop[next].head_off[2] = wm->head_off[2];
-        g_prop[next].head_rx = wm->head_rx;
-        g_prop[next].head_ry = wm->head_ry;
-        g_prop[next].head_rz = wm->head_rz;
-    }
+    bind_head_off(&g_prop[next], wm);
     g_walkers = 1;
     g_walk_prop = next;
     if (wm) {
@@ -1559,14 +1598,7 @@ static void apply_chr_fit(int pi, PortModel *m)
     g_prop[pi].mdl = m;
     g_prop[pi].scale =
         (cat ? cat->scale : 1.f) * (m->fit_scale != 0.f ? m->fit_scale : 1.f);
-    if (m->have_head) {
-        g_prop[pi].head_off[0] = m->head_off[0];
-        g_prop[pi].head_off[1] = m->head_off[1] - m->fit_ymin;
-        g_prop[pi].head_off[2] = m->head_off[2];
-        g_prop[pi].head_rx = m->head_rx;
-        g_prop[pi].head_ry = m->head_ry;
-        g_prop[pi].head_rz = m->head_rz;
-    }
+    bind_head_off(&g_prop[pi], m);
 }
 
 /* Walk models are unique-per-body (PORT_WALK_ID_BASE + body), shared by every
@@ -2201,6 +2233,29 @@ float port_prop_guard_fit_scale(int want)
     if (pi < 0 || !g_prop[pi].mdl)
         return 0.f;
     return g_prop[pi].mdl->fit_scale;
+}
+
+int port_prop_guard_have_head(int want)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0)
+        return 0;
+    return g_prop[pi].head && g_prop[pi].head->npart &&
+           (g_prop[pi].mdl && g_prop[pi].mdl->have_head);
+}
+
+int port_prop_guard_head_off(int want, float *x, float *y, float *z)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0 || !g_prop[pi].mdl || !g_prop[pi].mdl->have_head)
+        return -1;
+    if (x)
+        *x = g_prop[pi].head_off[0];
+    if (y)
+        *y = g_prop[pi].head_off[1];
+    if (z)
+        *z = g_prop[pi].head_off[2];
+    return 0;
 }
 
 static uint32_t rest_crc32(const float rest[PORT_SKEL_GUARD_N][3])
@@ -2994,16 +3049,8 @@ static int parse_setup(const uint8_t *st, size_t n)
                               (cat ? cat->scale : 1.f) *
                                   (mdl->fit_scale != 0.f ? mdl->fit_scale : 1.f));
                 pr->mdl = mdl;
-                if (mdl->have_head) {
-                    pr->head_off[0] = mdl->head_off[0];
-                    pr->head_off[1] = mdl->head_off[1] - mdl->fit_ymin;
-                    pr->head_off[2] = mdl->head_off[2];
-                    pr->head_rx = mdl->head_rx;
-                    pr->head_ry = mdl->head_ry;
-                    pr->head_rz = mdl->head_rz;
-                }
-                if (head >= PORT_CHR_HEAD_START)
-                    pr->head = load_chr(head);
+                bind_head_off(pr, mdl);
+                attach_chr_head(pr, body, head);
                 pr->chrnum = chrnum;
                 g_nprop++;
             }
@@ -3758,11 +3805,15 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
         mdl = dm;
         if (dm->have_head) {
             hx = dm->head_off[0];
-            hy = dm->head_off[1] - dm->fit_ymin;
+            hy = dm->head_off[1];
             hz = dm->head_off[2];
             hrx = dm->head_rx;
             hry = dm->head_ry;
             hrz = dm->head_rz;
+            if (pr->head) {
+                pr->head->fit_scale = dm->fit_scale;
+                pr->head->fit_ymin = dm->fit_ymin;
+            }
         }
     }
     k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
