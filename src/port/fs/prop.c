@@ -1453,17 +1453,18 @@ static int in_walk_kill_lane(float lx, float lz)
 
 static void place_idle_off_spawn_look(float sx, float sz, const float r1[3])
 {
-    /* West of the walk strip, on the north open band, or further north.
-     * Not the south-looking lane the walk cam uses. */
+    /* Stand in the tiled hall where spawn 270 / PLAY_SHOOT see a body,
+     * past Z_TRIG 200 so spawn does not shoot the idle instead of the
+     * door. |dz| < 0.4*fwd keeps the pad inside fovy 60. */
     static const float pref[][2] = {
-        { -420.f, -2480.f },
-        { -500.f, -2480.f },
-        { -420.f, -2400.f },
-        { -500.f, -2400.f },
-        { -380.f, -2400.f },
-        { -460.f, -2400.f },
-        { -540.f, -2480.f },
+        { -350.f, -2320.f },
+        { -380.f, -2320.f },
+        { -350.f, -2280.f },
+        { -400.f, -2320.f },
+        { -380.f, -2280.f },
         { -420.f, -2320.f },
+        { -350.f, -2240.f },
+        { -420.f, -2400.f },
     };
     float lx, lz, dx, dz, fwd;
     int i, pass;
@@ -1477,20 +1478,42 @@ static void place_idle_off_spawn_look(float sx, float sz, const float r1[3])
     dx = lx - sx;
     dz = lz - sz;
     fwd = -dx;
-    /* Already off the look ray (and not overlapping Bond). */
-    if (!spawn_look_slab(lx, lz, sx, sz) &&
-        !(fwd > 0.f && dz * dz < (PORT_GUARD_RADIUS + 8.f) * (PORT_GUARD_RADIUS + 8.f)))
+    /* Already a hall stand past use-range, inside the spawn 270 cone. */
+    if (fwd > 200.f && fwd < 500.f && dz * dz < (0.4f * fwd) * (0.4f * fwd) &&
+        port_stan_on_tile(lx, lz))
         return;
     for (pass = 0; pass < 2; pass++) {
         for (i = 0; i < (int)(sizeof pref / sizeof pref[0]); i++) {
-            if (tile_taken(pref[i][0], pref[i][1], r1, g_idle_prop))
+            float px = pref[i][0], pz = pref[i][1];
+            float pdx = px - sx, pdz = pz - sz, pfwd = -pdx;
+            if (tile_taken(px, pz, r1, g_idle_prop))
                 continue;
-            if (in_walk_kill_lane(pref[i][0], pref[i][1]))
+            if (in_walk_kill_lane(px, pz))
                 continue;
-            if (pass == 0 && !floor_open(pref[i][0], pref[i][1]))
+            if (pfwd < 200.f || pfwd > 500.f)
                 continue;
-            if (try_sit_guard(g_idle_prop, pref[i][0], pref[i][1], sx, sz, r1))
+            if (pdz * pdz > (0.4f * pfwd) * (0.4f * pfwd))
+                continue;
+            if (pass == 0 && !floor_open(px, pz))
+                continue;
+            /* Facility spawn eye is 29.1 (floor+175). sit_guard_tile
+             * rejects ey<50 (upper-lab band). */
+            if (!port_stan_on_tile(px, pz))
+                continue;
+            {
+                float ey = 0.f;
+                if (port_stan_eye_y(px, pz, &ey) != 0)
+                    continue;
+                if (!(ey == ey) || ey < 15.f || ey > 160.f)
+                    continue;
+                g_prop[g_idle_prop].pos[0] = px + r1[0];
+                g_prop[g_idle_prop].pos[1] = (ey - PORT_EYE_HEIGHT) + r1[1];
+                g_prop[g_idle_prop].pos[2] = pz + r1[2];
+                port_stan_move_guard(lx + r1[0], lz + r1[2],
+                                     g_prop[g_idle_prop].pos[0],
+                                     g_prop[g_idle_prop].pos[2]);
                 return;
+            }
         }
     }
 }
@@ -3293,12 +3316,6 @@ int port_prop_walk_xz(float *x, float *z)
 #define PORT_VIS_RMIN 115.0f
 #define PORT_VIS_RMAX 150.0f
 #define PORT_VIS_VTX_CAP 4000.0f
-/* skip=pose G_VTX above this world extent (after fit) is vis-filtered but
- * G1 still rasterizes it — a pad 469u away painted a full body through
- * the clip-door leaf. Drop those parts so draw matches vis AABB. */
-#define PORT_LIVE_VTX_MAX 180.0f
-#define PORT_LIVE_ORIG_XZ 70.0f
-#define PORT_LIVE_ORIG_Y 220.0f
 
 typedef void (*VisPtFn)(float x, float y, float z, void *ud);
 
@@ -3363,94 +3380,6 @@ static void vis_gdl_pts(const uint8_t *dl, uint32_t ncmd, const PortModel *mdl,
             vis_emit_pt(ox + sc * px, oy + sc * py, oz + sc * pz, fn, ud);
         }
     }
-}
-
-static int gdl_exploded(const uint8_t *dl, uint32_t ncmd, const PortModel *mdl,
-                        const PortPart *pt, float sc)
-{
-    uint32_t i, k;
-    float lim;
-
-    if (!dl || ncmd == 0 || !mdl || !mdl->file)
-        return 0;
-    if (sc < 1e-6f)
-        sc = 1.f;
-    lim = PORT_LIVE_VTX_MAX / sc;
-    if (lim > PORT_VIS_VTX_CAP)
-        lim = PORT_VIS_VTX_CAP;
-    for (i = 0; i < ncmd; i++) {
-        const uint8_t *op = dl + i * 8u;
-        uint32_t w1, seg, off, n, vbytes;
-        const uint8_t *vb = NULL;
-        size_t remain = 0;
-        if (op[0] != 0x04u)
-            continue;
-        n = ((uint32_t)op[1] >> 4) + 1u;
-        if (n > 32u)
-            n = 32u;
-        w1 = be32(op + 4);
-        seg = w1 >> 24;
-        off = w1 & 0x00FFFFFFu;
-        if (seg == 5u || seg == 0u) {
-            if (off < mdl->file_len) {
-                vb = mdl->file + off;
-                remain = mdl->file_len - off;
-            }
-        } else if (seg == 4u && pt && pt->vtx4) {
-            vb = (const uint8_t *)pt->vtx4;
-            remain = (pt->nvtx ? pt->nvtx : 32u) * 16u;
-        } else if (off < mdl->file_len) {
-            vb = mdl->file + off;
-            remain = mdl->file_len - off;
-        }
-        if (!vb)
-            continue;
-        vbytes = n * 16u;
-        if (vbytes > remain)
-            n = (uint32_t)(remain / 16u);
-        for (k = 0; k < n; k++) {
-            float vx, vy, vz;
-            const uint8_t *s = vb + k * 16u;
-            vx = (float)(int16_t)be16(s);
-            vy = (float)(int16_t)be16(s + 2);
-            vz = (float)(int16_t)be16(s + 4);
-            if (fabsf(vx) > lim || fabsf(vy) > lim || fabsf(vz) > lim)
-                return 1;
-        }
-    }
-    return 0;
-}
-
-static int part_exploded(const PortModel *mdl, const PortPart *pt, float sc)
-{
-    uint32_t i, nv;
-    float lim;
-    const uint8_t *vb;
-
-    if (gdl_exploded(pt->pri, pt->pri_n, mdl, pt, sc) ||
-        gdl_exploded(pt->sec, pt->sec_n, mdl, pt, sc))
-        return 1;
-    vb = pt->vtx4 ? (const uint8_t *)pt->vtx4 : NULL;
-    nv = pt->nvtx;
-    if (!vb || nv == 0)
-        return 0;
-    if (nv > 256u)
-        nv = 256u;
-    if (sc < 1e-6f)
-        sc = 1.f;
-    lim = PORT_LIVE_VTX_MAX / sc;
-    if (lim > PORT_VIS_VTX_CAP)
-        lim = PORT_VIS_VTX_CAP;
-    for (i = 0; i < nv; i++) {
-        float vx, vy, vz;
-        const uint8_t *s = vb + i * 16u;
-        vx = (float)(int16_t)be16(s);
-        vy = (float)(int16_t)be16(s + 2);
-        vz = (float)(int16_t)be16(s + 4);
-        if (fabsf(vx) > lim || fabsf(vy) > lim || fabsf(vz) > lim)
-            return 1;
-    }
-    return 0;
 }
 
 static void vis_model_pts(const PortProp *pr, const PortModel *mdl, const float r1[3],
@@ -4167,22 +4096,6 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
                 ly = 0.f;
             if (ly > 40.f)
                 ly = 40.f;
-        } else if (pr->type == PDEF_GUARD) {
-            float sc = (pr->scale != 0.f) ? pr->scale : 1.f;
-            if (part_exploded(mdl, pt, sc))
-                continue;
-            if (lx > PORT_LIVE_ORIG_XZ)
-                lx = PORT_LIVE_ORIG_XZ;
-            if (lx < -PORT_LIVE_ORIG_XZ)
-                lx = -PORT_LIVE_ORIG_XZ;
-            if (lz > PORT_LIVE_ORIG_XZ)
-                lz = PORT_LIVE_ORIG_XZ;
-            if (lz < -PORT_LIVE_ORIG_XZ)
-                lz = -PORT_LIVE_ORIG_XZ;
-            if (ly < 0.f)
-                ly = 0.f;
-            if (ly > PORT_LIVE_ORIG_Y)
-                ly = PORT_LIVE_ORIG_Y;
         }
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
@@ -4199,13 +4112,6 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
-        if (pr->type == PDEF_GUARD) {
-            /* vis applies T*R_yaw*R_pose to verts; G1 rebuilds R from
-             * extracted Euler and skip=pose joints explode a pad-469u
-             * body onto the clip-door leaf. Keep translation, drop Euler. */
-            out[k].rx = out[k].ry = out[k].rz = 0.f;
-            out[k].no_mtx = 1;
-        }
         k++;
     }
     return k;
@@ -4364,17 +4270,17 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;
             pdz += gdz;
-            /* G1 painter: a body whose pad is behind a closed leaf still
-             * stamps on the ribbing. Skip only when the cam-to-pad segment
-             * hits the door rectangle (extra idle in the same hall does not). */
-            if (port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx, padz))
-                return k;
-            /* skip=pose Euler rebuild drew a pad-469u body through the
-             * clip-door leaf. Extra idle in the spawn hall is <300u. */
-            {
-                float dx = padx - port_player_x();
-                float dz = padz - port_player_z();
-                if (dx * dx + dz * dz > 400.f * 400.f)
+            /* Closed G1 door leaf. Never skip the spawn-hall extra idle. */
+            if (!(g_idle_prop >= 0 && pr == &g_prop[g_idle_prop])) {
+                float dx, dz;
+                if (port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx,
+                                              padz))
+                    return k;
+                /* Guard 36 pad -360,-1680 (469u) skip=pose-painted through
+                 * the r11 leaf. Extra idle is exempt and sits ~260u. */
+                dx = padx - port_player_x();
+                dz = padz - port_player_z();
+                if (dx * dx + dz * dz > 380.f * 380.f)
                     return k;
             }
         }

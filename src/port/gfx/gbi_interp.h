@@ -33,10 +33,6 @@ typedef struct {
     float rx, ry, rz; /* radians; Rare XYZ Euler rest/joint, identity=0 */
     uintptr_t seg4; /* node vertex bank (G_VTX 0x04); 0 = leave unbound */
     int view; /* 1 = camera-space viewmodel; ox/oy/oz after look pitch */
-    /* 1 = ignore G_MTX/G_POPMTX/G_DL in this DL. skip=pose already baked
-     * T*R_yaw*R_pose into ox/rx/ry/rz; child DLs are rest-pose verts vis
-     * never walks. */
-    int no_mtx;
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

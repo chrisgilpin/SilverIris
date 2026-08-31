@@ -1511,7 +1511,9 @@ static int g1_leaf_from_tri(float x0, float y0, float z0, float x1, float y1, fl
     }
     if (thick > 50.f)
         return 0;
-    if (half_w < 25.f || half_w > 180.f)
+    /* Door leaf ~90 half-w; room partitions are wider. Clip-door guard 36
+     * sat behind a ~159 half-w wall. Extra idle cam-pad is hall-parallel. */
+    if (half_w < 20.f || half_w > 220.f)
         return 0;
     pad_along = (pad_lx - pcx) * wx + (pad_lz - pcz) * wz;
     pax = pcx + wx * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
