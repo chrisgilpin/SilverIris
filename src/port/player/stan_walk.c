@@ -1252,6 +1252,13 @@ static int take_link(const StanTile *from, const StanTile *nb, float ox, float o
 #define PORT_RISE_MAX 350.0f
 #define PORT_RISE_XZ 300.0f
 
+/* Facility start-stair foot (Chris / playtest PLAY_STAIR). */
+static int near_stair_foot(float lx, float lz)
+{
+    float dx = lx + 571.8f, dz = lz + 2229.3f;
+    return dx * dx + dz * dz < 120.0f * 120.0f;
+}
+
 static const StanTile *enter_rise_tile(const StanTile *from, float ox, float oz,
                                        float dx, float dz)
 {
@@ -1276,6 +1283,11 @@ static const StanTile *enter_rise_tile(const StanTile *from, float ox, float oz,
             continue;
         /* Still on the low tile: overlapping r12 in the spawn hall. */
         if (point_in_tile(from, dx, dz))
+            continue;
+        /* Retail Facility: r71 overlaps r12 +319 all through the hall.
+         * Only the stair foot may climb. 2–4 tile unit tests still hop. */
+        if (g_ntile > 100 && from->room == 71 && t->room == 12 &&
+            !near_stair_foot(ox - g_ox, oz - g_oz))
             continue;
         d = tile_centroid_dist(from, t);
         if (d > PORT_RISE_XZ)
@@ -1543,7 +1555,9 @@ static int has_walkable_neighbor(float wx, float wz, int start_door)
 static int try_snap_local(float *lx, float *lz, float *ly)
 {
     float x = *lx, z = *lz, y;
-    if (port_stan_snap_walkable(&x, &z, 0.0f, 0.0f, PORT_STAN_NEAR_XZ, &y) != 0)
+    /* Recover onto nearby floor (offtile_recover ~97u). Never 800u
+     * across the map (Chris r11 dump). */
+    if (port_stan_snap_walkable(&x, &z, 0.0f, 0.0f, 120.0f, &y) != 0)
         return 0;
     *lx = x;
     *lz = z;
@@ -1574,6 +1588,10 @@ static const StanTile *rising_landing(const StanTile *t)
         nb = &g_tile[t->nb[k]];
         by = tile_avg_y(nb);
         if (by < ay - 20.0f)
+            continue;
+        /* Same floor as t. A same-floor door hop (r20->r19) must not
+         * upgrade onto stacked r12 (eye 348, 300-500u snap). */
+        if (by > ay + 40.0f)
             continue;
         a = fabsf(tile_xz_twice_area(nb));
         if (a > best_a) {
@@ -1701,6 +1719,29 @@ static void snap_onto_tile(const StanTile *t, float *wx, float *wz)
     *wz = oz;
 }
 
+/* landing_interior may snap ~350u onto r12 2367 from the stair foot.
+ * A 12u hall step that then snaps 300-500u onto r12 is a teleport.
+ * Requested dest itself may be far (unit A→C 200u along Rare links). */
+static int snap_ok(float ox, float oz, float snap_x, float snap_z, float want_x,
+                   float want_z)
+{
+    float jx = snap_x - want_x, jz = snap_z - want_z;
+    if (jx * jx + jz * jz <= 120.0f * 120.0f)
+        return 1;
+    return near_stair_foot(ox, oz);
+}
+
+/* Dest sitting only in stacked r12 would raise eye +319 on a 12u hall
+ * step. Unit tests hop +319 on 2–4 tiles; Facility only at the foot. */
+static int climb_ok(float ox, float oz, float from_y, float to_y)
+{
+    if (!(to_y > from_y + 80.0f))
+        return 1;
+    if (g_ntile <= 100)
+        return 1;
+    return near_stair_foot(ox, oz);
+}
+
 static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, int follow)
 {
     float owx, owz, cwx, cwz;
@@ -1747,7 +1788,8 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
                     snap_onto_tile(hop, &hx, &hz);
                     if (!(g_ndoor > 0 &&
                           (hit_door_world(hx, hz) ||
-                           hop_hits_closed_door(owx, owz, hx, hz)))) {
+                           hop_hits_closed_door(owx, owz, hx, hz))) &&
+                        snap_ok(ox, oz, hx - g_ox, hz - g_oz, cx, cz)) {
                         cx = hx - g_ox;
                         cz = hz - g_oz;
                         *nx = cx;
@@ -1809,7 +1851,7 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
     }
 
     if (ny) {
-        float cwx2, cwz2;
+        float cwx2, cwz2, from_y = *ny;
         const StanTile *ot, *dt;
         local_to_world(cx, cz, &cwx2, &cwz2);
         ot = (follow && g_have_links) ? tile_for_walk(owx, owz) : NULL;
@@ -1817,33 +1859,58 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         if (follow && ot) {
             const StanTile *rise = enter_rise_tile(ot, owx, owz, cwx2, cwz2);
             if (rise) {
+                float hx, hz, want_lx = cx, want_lz = cz;
                 dt = landing_interior(rise, ot);
                 snap_to_centroid(dt, &cwx2, &cwz2);
-                cx = cwx2 - g_ox;
-                cz = cwz2 - g_oz;
-                *nx = cx;
-                *nz = cz;
+                hx = cwx2 - g_ox;
+                hz = cwz2 - g_oz;
+                if (snap_ok(ox, oz, hx, hz, want_lx, want_lz)) {
+                    cx = hx;
+                    cz = hz;
+                    *nx = cx;
+                    *nz = cz;
+                } else {
+                    dt = NULL;
+                }
             }
         }
         if (dt) {
             if (!point_in_tile(dt, cwx2, cwz2) &&
                 ot && tile_avg_y(dt) > tile_avg_y(ot) + 40.0f) {
+                float hx, hz, want_lx = cx, want_lz = cz;
                 dt = rising_landing(dt);
                 snap_onto_tile(dt, &cwx2, &cwz2);
-                cx = cwx2 - g_ox;
-                cz = cwz2 - g_oz;
-                *nx = cx;
-                *nz = cz;
+                hx = cwx2 - g_ox;
+                hz = cwz2 - g_oz;
+                if (snap_ok(ox, oz, hx, hz, want_lx, want_lz)) {
+                    cx = hx;
+                    cz = hz;
+                    *nx = cx;
+                    *nz = cz;
+                }
             }
             ey = (tile_floor_y(dt, cwx2, cwz2) + PORT_EYE_HEIGHT) - g_oy;
             if (finite_f(ey)) {
+                if (!climb_ok(ox, oz, from_y, ey)) {
+                    *nx = ox;
+                    *nz = oz;
+                    *ny = from_y;
+                    return;
+                }
                 *ny = ey;
                 cur_put(cwx2, cwz2, dt);
                 return;
             }
         }
-        if (port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey))
+        if (port_stan_eye_y(cx, cz, &ey) == 0 && finite_f(ey)) {
+            if (!climb_ok(ox, oz, from_y, ey)) {
+                *nx = ox;
+                *nz = oz;
+                *ny = from_y;
+                return;
+            }
             *ny = ey;
+        }
     }
     }
 }

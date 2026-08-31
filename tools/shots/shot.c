@@ -2025,6 +2025,163 @@ static int playtest_chris(const char *out_dir)
         }
     }
 
+    /* Chris 2026-08-31 live clip-door: r11 y=29.1. Teleport vs walk. */
+#define PLAY_CLIP_X (-651.1f)
+#define PLAY_CLIP_Z (-1311.4f)
+#define PLAY_CLIP_TH 24.0f
+    {
+        float ey = 29.1f, nx, nz, ny, ddx, ddz, slen;
+        int on, room;
+        place(PLAY_CLIP_X, PLAY_CLIP_Z, PLAY_CLIP_TH);
+        port_player_set_pitch(3.f);
+        (void)port_stan_eye_y(PLAY_CLIP_X, PLAY_CLIP_Z, &ey);
+        on = port_stan_on_tile(PLAY_CLIP_X, PLAY_CLIP_Z);
+        room = port_stan_tile_room_at_eye(PLAY_CLIP_X, PLAY_CLIP_Z, ey);
+        printf("clipdoor pose local=%.1f,%.1f eye=%.1f on=%d room=%d cur=%d\n",
+               (double)PLAY_CLIP_X, (double)PLAY_CLIP_Z, (double)ey, on, room,
+               port_stage_current_room());
+        port_stan_debug_at(PLAY_CLIP_X, PLAY_CLIP_Z);
+        playtest_forward(PLAY_CLIP_TH, 12.f, &ddx, &ddz);
+        nx = PLAY_CLIP_X + ddx;
+        nz = PLAY_CLIP_Z + ddz;
+        ny = ey;
+        port_stan_clip_step(PLAY_CLIP_X, PLAY_CLIP_Z, &nx, &nz, &ny);
+        slen = sqrtf((nx - PLAY_CLIP_X) * (nx - PLAY_CLIP_X) +
+                     (nz - PLAY_CLIP_Z) * (nz - PLAY_CLIP_Z));
+        printf("clipdoor step d=%.1f,%.1f y=%.1f->%.1f jump=%.1f\n",
+               (double)(nx - PLAY_CLIP_X), (double)(nz - PLAY_CLIP_Z), (double)ey,
+               (double)ny, (double)slen);
+        if (shot_one(out_dir, "play_clip_door") != 0)
+            return -1;
+    }
+    {
+        float wx = spawn_x, wz = spawn_z, wy = spawn_y;
+        float tx = PLAY_CLIP_X - spawn_x, tz = PLAY_CLIP_Z - spawn_z;
+        float tlen = sqrtf(tx * tx + tz * tz);
+        float maxj = 0.f, maxdy = 0.f;
+        int s, leaps = 0;
+        if (tlen < 1.f)
+            tlen = 1.f;
+        tx = tx / tlen * 12.f;
+        tz = tz / tlen * 12.f;
+        place(wx, wz, 270.f);
+        for (s = 0; s < 200; s++) {
+            float nx = wx + tx, nz = wz + tz, ny = wy, j, dy;
+            port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+            j = sqrtf((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz));
+            dy = ny - wy;
+            if (j > maxj)
+                maxj = j;
+            if (fabsf(dy) > fabsf(maxdy))
+                maxdy = dy;
+            if (j > 40.f || (fabsf(dy) > 40.f && !(wy < 80.f && ny > 200.f))) {
+                printf("clipdoor leap step=%d from=%.1f,%.1f y=%.1f to=%.1f,%.1f y=%.1f j=%.1f dy=%.1f room=%d\n",
+                       s, (double)wx, (double)wz, (double)wy, (double)nx, (double)nz,
+                       (double)ny, (double)j, (double)dy, port_stan_tile_room(nx, nz));
+                leaps++;
+            }
+            if (j < 0.25f && s > 4)
+                break;
+            wx = nx;
+            wz = nz;
+            wy = ny;
+        }
+        printf("clipdoor walk steps=%d end=%.1f,%.1f y=%.1f room=%d maxj=%.1f maxdy=%.1f leaps=%d\n",
+               s, (double)wx, (double)wz, (double)wy, port_stan_tile_room(wx, wz),
+               (double)maxj, (double)maxdy, leaps);
+        if (leaps > 0 && maxj > 80.f) {
+            fprintf(stderr, "clipdoor teleport maxj=%.1f leaps=%d\n", (double)maxj, leaps);
+            return -1;
+        }
+    }
+    /* r12 landing (ca673cf) toward Chris clip-door: must not drop through
+     * stacked r11 (eye 348 -> 29) or snap 800u. */
+    {
+        float wx = -244.0f, wz = -2098.7f, wy = 348.2f;
+        float tx = PLAY_CLIP_X - wx, tz = PLAY_CLIP_Z - wz;
+        float tlen = sqrtf(tx * tx + tz * tz);
+        float maxj = 0.f, maxdy = 0.f, mindy = 0.f;
+        int s, drops = 0;
+        if (tlen < 1.f)
+            tlen = 1.f;
+        tx = tx / tlen * 12.f;
+        tz = tz / tlen * 12.f;
+        place(wx, wz, 24.f);
+        (void)port_stan_eye_y(wx, wz, &wy);
+        printf("clipdoor from_landing xz=%.1f,%.1f y=%.1f room=%d\n",
+               (double)wx, (double)wz, (double)wy, port_stan_tile_room(wx, wz));
+        for (s = 0; s < 160; s++) {
+            float nx = wx + tx, nz = wz + tz, ny = wy, j, dy;
+            port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+            j = sqrtf((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz));
+            dy = ny - wy;
+            if (j > maxj)
+                maxj = j;
+            if (dy > maxdy)
+                maxdy = dy;
+            if (dy < mindy)
+                mindy = dy;
+            if (j > 40.f || dy < -40.f) {
+                printf("clipdoor drop step=%d from=%.1f,%.1f y=%.1f to=%.1f,%.1f y=%.1f j=%.1f dy=%.1f room=%d\n",
+                       s, (double)wx, (double)wz, (double)wy, (double)nx, (double)nz,
+                       (double)ny, (double)j, (double)dy,
+                       port_stan_tile_room_at_eye(nx, nz, ny));
+                drops++;
+            }
+            if (j < 0.25f && s > 4)
+                break;
+            wx = nx;
+            wz = nz;
+            wy = ny;
+        }
+        printf("clipdoor landing_walk steps=%d end=%.1f,%.1f y=%.1f room=%d maxj=%.1f maxdy=%.1f mindy=%.1f drops=%d\n",
+               s, (double)wx, (double)wz, (double)wy,
+               port_stan_tile_room_at_eye(wx, wz, wy), (double)maxj, (double)maxdy,
+               (double)mindy, drops);
+    }
+    /* Hunt clip_step teleports: 36 headings from spawn, 80 steps. */
+    {
+        int h, found = 0;
+        for (h = 0; h < 36; h++) {
+            float th = (float)h * 10.f, fdx, fdz;
+            float wx = spawn_x, wz = spawn_z, wy = spawn_y;
+            int s;
+            playtest_forward(th, 12.f, &fdx, &fdz);
+            place(wx, wz, th);
+            for (s = 0; s < 80; s++) {
+                float nx = wx + fdx, nz = wz + fdz, ny = wy, j, dy;
+                port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+                j = sqrtf((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz));
+                dy = ny - wy;
+                if (j > 120.f || dy < -80.f || dy > 80.f) {
+                    float sdx = wx + 571.8f, sdz = wz + 2229.3f;
+                    int stair = (dy > 80.f && sdx * sdx + sdz * sdz < 120.f * 120.f);
+                    if (!stair) {
+                        printf("clipdoor hunt th=%.0f step=%d from=%.1f,%.1f y=%.1f to=%.1f,%.1f y=%.1f j=%.1f dy=%.1f r0=%d r1=%d\n",
+                               (double)th, s, (double)wx, (double)wz, (double)wy,
+                               (double)nx, (double)nz, (double)ny, (double)j,
+                               (double)dy, port_stan_tile_room(wx, wz),
+                               port_stan_tile_room_at_eye(nx, nz, ny));
+                        if (found == 0)
+                            port_stan_debug_at(wx, wz);
+                        found++;
+                    }
+                }
+                if (j < 0.25f)
+                    break;
+                wx = nx;
+                wz = nz;
+                wy = ny;
+            }
+        }
+        printf("clipdoor hunt teleports=%d\n", found);
+        if (found) {
+            fprintf(stderr, "clipdoor hunt teleports=%d (want 0 except stair foot)\n",
+                    found);
+            return -1;
+        }
+    }
+
     playtest_pose("corner", PLAY_CORNER_X, PLAY_CORNER_Z, PLAY_CORNER_TH);
     port_player_set_pitch(-3.f);
     if (shot_one(out_dir, "play_corner") != 0)
