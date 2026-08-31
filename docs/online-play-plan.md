@@ -383,3 +383,27 @@ Harness: `play_shoot_before` standing extra idle; `play_shoot_after` torso on th
 
 - Guards through closed G1 doors (`play_clip_door` / Chris r11 — skip=pose mesh vs pad).
 - Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 door clip `c012341`)
+
+Chris `play_clip_door` at x=-651.1 z=-1311.4 y=29.12 θ=24° cur=11: a skip=pose
+guard mesh (pad -360.6,-1680.1, 469u along the look) painted through the closed
+brown ribbed leaf. Vis AABB was compact on that pad; G1 applied skip=pose Euler
+plus in-DL G_MTX and drew the body on the door. Extra idle in the spawn hall
+was not behind that leaf (cam-pad ray miss).
+
+Living chr DLs now ignore G_MTX/G_POPMTX/G_DL (pose is already T*R_yaw) and
+drop extracted Euler so draw stays on the pad. Pads behind a closed G1 door
+rectangle are not drawn (extra idle is not). Living chrs farther than 400u are
+not drawn (spawn-hall extra idle is <300u). Die rest clamp unchanged.
+
+Harness: `play_clip_door` door leaf solid, no limb through the ribbing;
+`play_hall_walk` no arm through the stall door; extra idle still dies
+(kills=1); hunt teleports=0. Native player/gun/lockstep/2p-corridor/g1 green.
+Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
