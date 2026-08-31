@@ -1223,6 +1223,50 @@ static int take_link(const StanTile *from, const StanTile *nb, float ox, float o
     return 1;
 }
 
+/*
+ * Facility start stairs: r12 landing 2391 overlaps r71 ground 152 with
+ * no Rare up-link (landing 2390 links down to r11). Dest xz enters the
+ * high polygon; origin is not inside it. Bathroom stacked xz already
+ * contains the high tile at the origin — skip so clip stays low.
+ * Rise cap 400u avgY: r12 landing is +319, r13 catwalk is +650.
+ */
+#define PORT_RISE_MIN 80.0f
+#define PORT_RISE_MAX 400.0f
+#define PORT_RISE_XZ 300.0f
+
+static const StanTile *enter_rise_tile(const StanTile *from, float ox, float oz,
+                                       float dx, float dz)
+{
+    const StanTile *best = NULL;
+    float from_ay, best_ay = 1.0e30f;
+    int i;
+
+    if (!from || !g_have_links)
+        return NULL;
+    from_ay = tile_avg_y(from);
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *t = &g_tile[i];
+        float ay, d;
+        if (t == from || t->n < 3)
+            continue;
+        ay = tile_avg_y(t);
+        if (ay < from_ay + PORT_RISE_MIN || ay > from_ay + PORT_RISE_MAX)
+            continue;
+        if (!point_in_tile(t, dx, dz))
+            continue;
+        if (point_in_tile(t, ox, oz))
+            continue;
+        d = tile_centroid_dist(from, t);
+        if (d > PORT_RISE_XZ)
+            continue;
+        if (ay < best_ay) {
+            best_ay = ay;
+            best = t;
+        }
+    }
+    return best;
+}
+
 static const StanTile *walk_tiles(const StanTile *start, float ox, float oz,
                                   float dx, float dz)
 {
@@ -1661,6 +1705,11 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         local_to_world(cx, cz, &cwx2, &cwz2);
         ot = (follow && g_have_links) ? tile_for_walk(owx, owz) : NULL;
         dt = (follow && g_have_links && ot) ? walk_tiles(ot, owx, owz, cwx2, cwz2) : NULL;
+        if (follow && ot) {
+            const StanTile *rise = enter_rise_tile(ot, owx, owz, cwx2, cwz2);
+            if (rise)
+                dt = rise;
+        }
         if (dt) {
             if (!point_in_tile(dt, cwx2, cwz2) &&
                 ot && tile_avg_y(dt) > tile_avg_y(ot) + 40.0f) {

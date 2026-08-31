@@ -1680,6 +1680,221 @@ static void place(float x, float z, float th)
     port_player_set_pose(x, ey, z, th);
 }
 
+/* Chris 2026-08-31 live poses. Collision body vs draw-only visual xz. */
+#define PLAY_CORNER_X 117.6f
+#define PLAY_CORNER_Z (-2447.0f)
+#define PLAY_CORNER_TH 244.0f
+#define PLAY_STAIR_X (-530.7f)
+#define PLAY_STAIR_Z (-2580.3f)
+#define PLAY_STAIR_TH 80.0f
+#define PLAY_WALL_X (-687.0f)
+#define PLAY_WALL_Z (-2713.9f)
+#define PLAY_WALL_TH 271.0f
+
+static void playtest_forward(float th, float step, float *dx, float *dz)
+{
+    float rad = th * (3.14159265f / 180.0f);
+    /* Camera look (sin θ, −cos θ). W is N64 stick-up (negative Y) along look. */
+    *dx = sinf(rad) * step;
+    *dz = -cosf(rad) * step;
+}
+
+static void playtest_pose(const char *tag, float x, float z, float th)
+{
+    float ey = 86.8f, vx, vz, nx, nz, ny, fdx, fdz, tblk = 0.f;
+    int on, room, i;
+
+    place(x, z, th);
+    port_player_set_pitch(0.f);
+    (void)port_stan_eye_y(x, z, &ey);
+    on = port_stan_on_tile(x, z);
+    room = port_stan_tile_room_at_eye(x, z, ey);
+    vx = x;
+    vz = z;
+    port_stan_visual_xz(x, z, &vx, &vz);
+    playtest_forward(th, 12.f, &fdx, &fdz);
+    nx = x + fdx;
+    nz = z + fdz;
+    ny = ey;
+    port_stan_clip_step(x, z, &nx, &nz, &ny);
+    (void)port_stan_ray_block(x, ey, z, fdx / 12.f, 0.f, fdz / 12.f, &tblk);
+    printf("playtest %s pose=%.1f,%.1f th=%.1f eye=%.1f on=%d room=%d "
+           "visual_d=%.1f,%.1f clip=%.1f,%.1f eye1=%.1f ray_t=%.1f\n",
+           tag, (double)x, (double)z, (double)th, (double)ey, on, room,
+           (double)(vx - x), (double)(vz - z), (double)(nx - x), (double)(nz - z),
+           (double)ny, (double)tblk);
+    port_stan_debug_at(x, z);
+    port_stan_link_reach(x, z);
+    /* 8-way clip_step one tick: see if a rising floor exists. */
+    {
+        static const float kdx[8] = { 12.f, 12.f, 0.f, -12.f, -12.f, -12.f, 0.f, 12.f };
+        static const float kdz[8] = { 0.f, 12.f, 12.f, 12.f, 0.f, -12.f, -12.f, -12.f };
+        for (i = 0; i < 8; i++) {
+            float cx = x + kdx[i], cz = z + kdz[i], cy = ey;
+            port_stan_clip_step(x, z, &cx, &cz, &cy);
+            if (cx == x && cz == z)
+                continue;
+            printf("playtest %s step8 d=%.0f,%.0f -> %.1f,%.1f eye=%.1f room=%d\n",
+                   tag, (double)kdx[i], (double)kdz[i], (double)cx, (double)cz,
+                   (double)cy, port_stan_tile_room(cx, cz));
+        }
+    }
+}
+
+static int playtest_chris(const char *out_dir)
+{
+    float x, z, ny, fdx, fdz;
+    int step, high = 0;
+    float spawn_x, spawn_z, spawn_y;
+
+    spawn_x = port_api_player_x();
+    spawn_z = port_api_player_z();
+    spawn_y = port_api_player_y();
+    printf("playtest spawn xz=%.1f,%.1f y=%.1f cur=%d\n",
+           (double)spawn_x, (double)spawn_z, (double)spawn_y,
+           port_api_current_room());
+    if (shot_one(out_dir, "play_spawn") != 0)
+        return -1;
+
+    playtest_pose("corner", PLAY_CORNER_X, PLAY_CORNER_Z, PLAY_CORNER_TH);
+    port_player_set_pitch(-3.f);
+    if (shot_one(out_dir, "play_corner") != 0)
+        return -1;
+
+    playtest_pose("wall", PLAY_WALL_X, PLAY_WALL_Z, PLAY_WALL_TH);
+    port_player_set_pitch(-35.f);
+    if (shot_one(out_dir, "play_wall") != 0)
+        return -1;
+    /* Walk collision body into the wall until clip_step stops. */
+    {
+        float wx = PLAY_WALL_X, wz = PLAY_WALL_Z, wy = 86.8f;
+        float vx, vz;
+        int blocked = 0;
+        place(wx, wz, PLAY_WALL_TH);
+        (void)port_stan_eye_y(wx, wz, &wy);
+        playtest_forward(PLAY_WALL_TH, 8.f, &fdx, &fdz);
+        for (step = 0; step < 40; step++) {
+            float nx = wx + fdx, nz = wz + fdz, ey = wy;
+            port_stan_clip_step(wx, wz, &nx, &nz, &ey);
+            if ((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz) < 0.25f) {
+                blocked = 1;
+                break;
+            }
+            wx = nx;
+            wz = nz;
+            wy = ey;
+        }
+        vx = wx;
+        vz = wz;
+        port_stan_visual_xz(wx, wz, &vx, &vz);
+        printf("playtest wall_close step=%d blocked=%d body=%.1f,%.1f eye=%.1f "
+               "visual=%.1f,%.1f dvis=%.1f\n",
+               step, blocked, (double)wx, (double)wz, (double)wy, (double)vx,
+               (double)vz, (double)sqrtf((vx - wx) * (vx - wx) + (vz - wz) * (vz - wz)));
+        port_player_set_pose(wx, wy, wz, PLAY_WALL_TH);
+        port_player_set_pitch(-35.f);
+        if (shot_one(out_dir, "play_wall_close") != 0)
+            return -1;
+        port_player_set_pose(vx, wy, vz, PLAY_WALL_TH);
+        port_player_set_pitch(-35.f);
+        if (shot_one(out_dir, "play_wall_visual") != 0)
+            return -1;
+    }
+
+    playtest_pose("stairs", PLAY_STAIR_X, PLAY_STAIR_Z, PLAY_STAIR_TH);
+    port_player_set_pitch(4.f);
+    if (shot_one(out_dir, "play_stairs") != 0)
+        return -1;
+    /* Walk forward + greedy-up from Chris's stair foot. */
+    x = PLAY_STAIR_X;
+    z = PLAY_STAIR_Z;
+    ny = 86.8f;
+    place(x, z, PLAY_STAIR_TH);
+    (void)port_stan_eye_y(x, z, &ny);
+    playtest_forward(PLAY_STAIR_TH, 8.f, &fdx, &fdz);
+    for (step = 0; step < 80; step++) {
+        static const float kdx[8] = { 8.f, 8.f, 0.f, -8.f, -8.f, -8.f, 0.f, 8.f };
+        static const float kdz[8] = { 0.f, 8.f, 8.f, 8.f, 0.f, -8.f, -8.f, -8.f };
+        float best_s = -1.0e30f, bx = x, bz = z, by = ny;
+        int d, moved = 0;
+        float nx = x + fdx, nz = z + fdz, ty = ny;
+        port_stan_clip_step(x, z, &nx, &nz, &ty);
+        if (!(nx == x && nz == z) && ty >= ny - 1.f) {
+            best_s = ty - ny + 10.f;
+            bx = nx;
+            bz = nz;
+            by = ty;
+            moved = 1;
+        }
+        for (d = 0; d < 8; d++) {
+            float cx = x + kdx[d], cz = z + kdz[d], cy = ny, s;
+            port_stan_clip_step(x, z, &cx, &cz, &cy);
+            if (cx == x && cz == z)
+                continue;
+            if (ny > 200.f && cy < 200.f)
+                continue;
+            s = (cy - ny) * 1000.f - ((cx - (x + fdx)) * (cx - (x + fdx)) +
+                                      (cz - (z + fdz)) * (cz - (z + fdz))) * 0.01f;
+            if (s > best_s) {
+                best_s = s;
+                bx = cx;
+                bz = cz;
+                by = cy;
+                moved = 1;
+            }
+        }
+        if (!moved) {
+            printf("playtest stairs stuck step=%d xz=%.1f,%.1f eye=%.1f room=%d\n",
+                   step, (double)x, (double)z, (double)ny, port_stan_tile_room(x, z));
+            break;
+        }
+        x = bx;
+        z = bz;
+        ny = by;
+        if (step < 8 || step % 10 == 0 || ny > 200.f)
+            printf("playtest stairs[%d] xz=%.1f,%.1f eye=%.1f room=%d\n",
+                   step, (double)x, (double)z, (double)ny, port_stan_tile_room(x, z));
+        if (ny > 200.f) {
+            high = 1;
+            if (step > 4)
+                break;
+        }
+    }
+    printf("playtest stairs_end xz=%.1f,%.1f eye=%.1f room=%d high=%d\n",
+           (double)x, (double)z, (double)ny, port_stan_tile_room(x, z), high);
+    port_player_set_pose(x, ny, z, PLAY_STAIR_TH);
+    port_player_set_pitch(4.f);
+    if (shot_one(out_dir, "play_stairs_end") != 0)
+        return -1;
+    if (!high || ny < 200.f) {
+        fprintf(stderr, "playtest stairs stayed y=%.1f (want landing ~405)\n",
+                (double)ny);
+        return -1;
+    }
+
+    place(spawn_x, spawn_z, 0.f);
+    printf("playtest spawn_back y=%.1f cur=%d\n", (double)port_api_player_y(),
+           port_api_current_room());
+    {
+        float bx = -491.9f, bz = -2238.5f, by = 0.f, nx, nz, ny;
+        place(bx, bz, 0.f);
+        if (port_stan_eye_y(bx, bz, &by) != 0 || by < 70.f || by > 110.f) {
+            fprintf(stderr, "playtest bathroom eye=%.1f (want ~86.8)\n", (double)by);
+            return -1;
+        }
+        nx = bx + 8.f;
+        nz = bz;
+        ny = by;
+        port_stan_clip_step(bx, bz, &nx, &nz, &ny);
+        printf("playtest bathroom eye=%.1f clip_y=%.1f\n", (double)by, (double)ny);
+        if (ny < 70.f || ny > 110.f) {
+            fprintf(stderr, "playtest bathroom hopped y=%.1f\n", (double)ny);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 /* On-mesh stacked xz: nearest_eye_y must match tile_at_world, not a
  * high walkway centroid. Low Facility floors sit near 86.8. */
 static int probe_eye_band(const char *tag, float x, float z, float lo, float hi)
@@ -1955,6 +2170,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--pickups") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--playtest") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
             usage();
             return 0;
@@ -2006,6 +2223,18 @@ int main(int argc, char **argv)
                     pickups = 1;
             if (pickups) {
                 int prc = pickup_proof(out_dir);
+                port_api_shutdown();
+                free(pack);
+                return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int play = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--playtest") == 0)
+                    play = 1;
+            if (play) {
+                int prc = playtest_chris(out_dir);
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;

@@ -232,3 +232,26 @@ G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477` 
 - Two-box live netplay look. M19 private Facility tape (Chris).
 
 Walk is `PORT_WALK_MUL` 4.5 × analog×dt (~13.5 u/tick). Hold-Shift is 1.9× that. Campaign is out of v1.
+
+---
+
+## STATUS (2026-08-31 playtest)
+
+Chris poses on live `95fc845`: corner `117.6,-2447` θ244; stairs `-530.7,-2580.3` y=86.8 θ80; wall `-687,-2713.9` θ271. Spawn stall room 71. Netplay on. Lobby still `siliris-run-v9!!!!!!` (no lockstep pad change).
+
+**Shipped this slice**
+
+| Item | What |
+| --- | --- |
+| Start-stair climb | `enter_rise_tile`: dest xz that **enters** a higher overlapping tile (r12 landing 2391 over r71 152, +319 avgY, centroid <300u) hops onto that landing. Origin already inside the high polygon (bathroom `-491.9,-2238.5`) stays low. Rise cap 400u avgY so r13 catwalk (+650) is not a hop. `clip_step` / `PORT_WALL_SKIN` 30, walk 4.5×, visual xz 46 kept. |
+| Wall “cannot get closer” | `4d2bcf8` visual xz is **not** the cause at this pose (`visual_d=0`, `ray_t=29.5`). Collision already sits on Rare skin 30 from the tile-exit. Camera = body. Did not shrink radius 30. |
+| Corner void | visual xz pulls 8.8u off the unlinked edge; G1 wall still sits inside the stan tile. Remaining G1≠stan clip. Did not raise `PORT_DRAW_SKIN` (that would widen camera/body gap at stan edges). |
+
+Harness: `shot --playtest` — stairs_end eye=405.9 room=12; bathroom clip_y=86.8; spawn first frame stall. Native `player-test` `lockstep-test` `2p-corridor-test` `g1-test` green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Heads often missing (opcode 23 / HeadID attach). Next.
+- G1 walls still inside some stan tiles (corner black void).
+- Chr SETTEX grey. KF7 near-white after collect.
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
