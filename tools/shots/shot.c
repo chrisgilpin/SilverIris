@@ -1996,8 +1996,26 @@ static int playtest_chris(const char *out_dir)
     port_player_set_pitch(4.f);
     if (shot_one(out_dir, "play_stairs_end") != 0)
         return -1;
+    {
+        const uint8_t *fb = g1_fb_rgba();
+        unsigned long s = 0;
+        int pi;
+        unsigned mean;
+        for (pi = 0; pi < 320 * 240; pi++)
+            s += (unsigned)fb[pi * 4] + fb[pi * 4 + 1] + fb[pi * 4 + 2];
+        mean = (unsigned)(s / (320ul * 240ul * 3ul));
+        printf("stairs_end after_draw cur=%d walked=%d c0=%d vtx=%d nz=%u mean=%u\n",
+               port_stage_current_room(), port_stage_rooms_walked(),
+               port_stage_gdl_c0(), port_stage_gdl_vtx(),
+               (unsigned)g1_fb_nonzero(), mean);
+        if (mean < 40u) {
+            fprintf(stderr, "stairs_end mean luma %u (inside geo, want ~70)\n",
+                    mean);
+            return -1;
+        }
+    }
     if (!high || ny < 200.f) {
-        fprintf(stderr, "playtest stairs stayed y=%.1f (want landing ~405)\n",
+        fprintf(stderr, "playtest stairs stayed y=%.1f (want landing ~348)\n",
                 (double)ny);
         return -1;
     }

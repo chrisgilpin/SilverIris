@@ -1571,6 +1571,78 @@ static const StanTile *rising_landing(const StanTile *t)
     return best;
 }
 
+static float min_unlinked_edge(const StanTile *t, float wx, float wz)
+{
+    float best = 1.0e30f;
+    int k, n;
+    if (!t)
+        return best;
+    for (k = 0; k < t->n; k++) {
+        float d;
+        n = (k + 1 == t->n) ? 0 : k + 1;
+        if (t->link[k] >> 4)
+            continue;
+        d = dist_seg(wx, wz, t->x[k], t->z[k], t->x[n], t->z[n]);
+        if (d < best)
+            best = d;
+    }
+    return best;
+}
+
+/*
+ * Overlap hop lands on r12 2391 (two unlinked walls, 1.5u from the
+ * edge — camera inside G1). Rare 2390 links same-floor to 2367, the
+ * landing corridor. Pick a same-room same-floor tile near the rise
+ * whose centroid is off unlinked edges and not over the from-tile.
+ */
+static const StanTile *landing_interior(const StanTile *t, const StanTile *from)
+{
+    const StanTile *best = t;
+    float ay, tcx, tcz, best_s;
+    int i;
+
+    if (!t)
+        return NULL;
+    ay = tile_avg_y(t);
+    tile_centroid(t, &tcx, &tcz);
+    best_s = min_unlinked_edge(t, tcx, tcz);
+    if (from && point_in_tile(from, tcx, tcz))
+        best_s -= 400.0f;
+    for (i = 0; i < g_ntile; i++) {
+        const StanTile *nb = &g_tile[i];
+        float nay, ncx, ncz, dx, dz, d, s;
+        if (nb == t || nb->room != t->room || nb->n < 3)
+            continue;
+        nay = tile_avg_y(nb);
+        if (nay < ay - 40.0f || nay > ay + 40.0f)
+            continue;
+        tile_centroid(nb, &ncx, &ncz);
+        dx = ncx - tcx;
+        dz = ncz - tcz;
+        d = sqrtf(dx * dx + dz * dz);
+        if (d > PORT_RISE_XZ)
+            continue;
+        s = min_unlinked_edge(nb, ncx, ncz);
+        if (from && point_in_tile(from, ncx, ncz))
+            s -= 400.0f;
+        if (s > best_s) {
+            best_s = s;
+            best = nb;
+        }
+    }
+    return best;
+}
+
+static void snap_to_centroid(const StanTile *t, float *wx, float *wz)
+{
+    float cx, cz;
+    if (!t || !wx || !wz)
+        return;
+    tile_centroid(t, &cx, &cz);
+    *wx = cx;
+    *wz = cz;
+}
+
 static void snap_onto_tile(const StanTile *t, float *wx, float *wz)
 {
     float cx = 0.0f, cz = 0.0f, ox, oz, vx, vz, len;
@@ -1715,8 +1787,14 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         dt = (follow && g_have_links && ot) ? walk_tiles(ot, owx, owz, cwx2, cwz2) : NULL;
         if (follow && ot) {
             const StanTile *rise = enter_rise_tile(ot, owx, owz, cwx2, cwz2);
-            if (rise)
-                dt = rise;
+            if (rise) {
+                dt = landing_interior(rise, ot);
+                snap_to_centroid(dt, &cwx2, &cwz2);
+                cx = cwx2 - g_ox;
+                cz = cwz2 - g_oz;
+                *nx = cx;
+                *nz = cz;
+            }
         }
         if (dt) {
             if (!point_in_tile(dt, cwx2, cwz2) &&
