@@ -257,7 +257,7 @@ Harness: `shot --playtest` — stairs_end eye=405.9 room=12; bathroom clip_y=86.
 
 ---
 
-## STATUS (2026-08-31 HEADS)
+## STATUS (2026-08-31 HEADS `ad755e6`)
 
 Jim/Sally attach on `hasHead==0` guards (dump `chrModelFileRecord` + `random_male_heads[0]=HEAD_Male_Jim`). Neck is opcode 23 / `Switches[4]`. Body `fit_scale` copied onto Chead*Z so the placeholder is not unscaled at the feet. Synthetic HeadID=0 does not attach a body as a head.
 
