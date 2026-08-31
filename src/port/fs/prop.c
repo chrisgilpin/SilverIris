@@ -3293,6 +3293,12 @@ int port_prop_walk_xz(float *x, float *z)
 #define PORT_VIS_RMIN 115.0f
 #define PORT_VIS_RMAX 150.0f
 #define PORT_VIS_VTX_CAP 4000.0f
+/* skip=pose G_VTX above this world extent (after fit) is vis-filtered but
+ * G1 still rasterizes it — a pad 469u away painted a full body through
+ * the clip-door leaf. Drop those parts so draw matches vis AABB. */
+#define PORT_LIVE_VTX_MAX 180.0f
+#define PORT_LIVE_ORIG_XZ 70.0f
+#define PORT_LIVE_ORIG_Y 220.0f
 
 typedef void (*VisPtFn)(float x, float y, float z, void *ud);
 
@@ -3357,6 +3363,94 @@ static void vis_gdl_pts(const uint8_t *dl, uint32_t ncmd, const PortModel *mdl,
             vis_emit_pt(ox + sc * px, oy + sc * py, oz + sc * pz, fn, ud);
         }
     }
+}
+
+static int gdl_exploded(const uint8_t *dl, uint32_t ncmd, const PortModel *mdl,
+                        const PortPart *pt, float sc)
+{
+    uint32_t i, k;
+    float lim;
+
+    if (!dl || ncmd == 0 || !mdl || !mdl->file)
+        return 0;
+    if (sc < 1e-6f)
+        sc = 1.f;
+    lim = PORT_LIVE_VTX_MAX / sc;
+    if (lim > PORT_VIS_VTX_CAP)
+        lim = PORT_VIS_VTX_CAP;
+    for (i = 0; i < ncmd; i++) {
+        const uint8_t *op = dl + i * 8u;
+        uint32_t w1, seg, off, n, vbytes;
+        const uint8_t *vb = NULL;
+        size_t remain = 0;
+        if (op[0] != 0x04u)
+            continue;
+        n = ((uint32_t)op[1] >> 4) + 1u;
+        if (n > 32u)
+            n = 32u;
+        w1 = be32(op + 4);
+        seg = w1 >> 24;
+        off = w1 & 0x00FFFFFFu;
+        if (seg == 5u || seg == 0u) {
+            if (off < mdl->file_len) {
+                vb = mdl->file + off;
+                remain = mdl->file_len - off;
+            }
+        } else if (seg == 4u && pt && pt->vtx4) {
+            vb = (const uint8_t *)pt->vtx4;
+            remain = (pt->nvtx ? pt->nvtx : 32u) * 16u;
+        } else if (off < mdl->file_len) {
+            vb = mdl->file + off;
+            remain = mdl->file_len - off;
+        }
+        if (!vb)
+            continue;
+        vbytes = n * 16u;
+        if (vbytes > remain)
+            n = (uint32_t)(remain / 16u);
+        for (k = 0; k < n; k++) {
+            float vx, vy, vz;
+            const uint8_t *s = vb + k * 16u;
+            vx = (float)(int16_t)be16(s);
+            vy = (float)(int16_t)be16(s + 2);
+            vz = (float)(int16_t)be16(s + 4);
+            if (fabsf(vx) > lim || fabsf(vy) > lim || fabsf(vz) > lim)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+static int part_exploded(const PortModel *mdl, const PortPart *pt, float sc)
+{
+    uint32_t i, nv;
+    float lim;
+    const uint8_t *vb;
+
+    if (gdl_exploded(pt->pri, pt->pri_n, mdl, pt, sc) ||
+        gdl_exploded(pt->sec, pt->sec_n, mdl, pt, sc))
+        return 1;
+    vb = pt->vtx4 ? (const uint8_t *)pt->vtx4 : NULL;
+    nv = pt->nvtx;
+    if (!vb || nv == 0)
+        return 0;
+    if (nv > 256u)
+        nv = 256u;
+    if (sc < 1e-6f)
+        sc = 1.f;
+    lim = PORT_LIVE_VTX_MAX / sc;
+    if (lim > PORT_VIS_VTX_CAP)
+        lim = PORT_VIS_VTX_CAP;
+    for (i = 0; i < nv; i++) {
+        float vx, vy, vz;
+        const uint8_t *s = vb + i * 16u;
+        vx = (float)(int16_t)be16(s);
+        vy = (float)(int16_t)be16(s + 2);
+        vz = (float)(int16_t)be16(s + 4);
+        if (fabsf(vx) > lim || fabsf(vy) > lim || fabsf(vz) > lim)
+            return 1;
+    }
+    return 0;
 }
 
 static void vis_model_pts(const PortProp *pr, const PortModel *mdl, const float r1[3],
@@ -3440,6 +3534,11 @@ typedef struct {
     float y0, y1;
 } VisRad;
 
+typedef struct {
+    int n;
+    float x0, z0, x1, z1;
+} VisBox;
+
 static void vis_sum_pt(float x, float y, float z, void *ud)
 {
     VisSum *s = (VisSum *)ud;
@@ -3451,6 +3550,45 @@ static void vis_sum_pt(float x, float y, float z, void *ud)
     if (s->n == 0 || y > s->y1)
         s->y1 = y;
     s->n++;
+}
+
+static void vis_box_pt(float x, float y, float z, void *ud)
+{
+    VisBox *b = (VisBox *)ud;
+    (void)y;
+    if (b->n == 0 || x < b->x0)
+        b->x0 = x;
+    if (b->n == 0 || z < b->z0)
+        b->z0 = z;
+    if (b->n == 0 || x > b->x1)
+        b->x1 = x;
+    if (b->n == 0 || z > b->z1)
+        b->z1 = z;
+    b->n++;
+}
+
+static int guard_visual_aabb_pr(const PortProp *pr, float *x0, float *z0, float *x1,
+                                float *z1)
+{
+    float r1[3];
+    VisBox box;
+    if (!pr || pr->type != PDEF_GUARD || !pr->mdl)
+        return -1;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    memset(&box, 0, sizeof box);
+    vis_guard_pts(pr, r1, vis_box_pt, &box);
+    if (box.n < 1)
+        return -1;
+    if (x0)
+        *x0 = box.x0;
+    if (z0)
+        *z0 = box.z0;
+    if (x1)
+        *x1 = box.x1;
+    if (z1)
+        *z1 = box.z1;
+    return 0;
 }
 
 static void vis_rad_pt(float x, float y, float z, void *ud)
@@ -3492,12 +3630,32 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
     hh = PORT_CHR_STAND + 80.f;
     {
         float ey = 0.f;
+        float pdx = 0.f, pdz = 0.f;
         /* skip=pose joint Y is not stand height. Rare shot hits the
          * body on the stan floor the G1 feet sit on. */
         if (port_stan_eye_y(rad.cx, rad.cz, &ey) == 0)
             sum.y0 = ey - PORT_EYE_HEIGHT;
         else
             sum.y0 = 0.f;
+        /* Same leaf push as emit so body shots match the drawn mesh. */
+        if (!port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2])) {
+            float r1[3], padx, padz, x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
+            port_stan_push_cyl_off_doors(g_prop[pi].pos[0], g_prop[pi].pos[2], 160.f,
+                                         &pdx, &pdz);
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            padx = g_prop[pi].pos[0] - r1[0];
+            padz = g_prop[pi].pos[2] - r1[2];
+            if (guard_visual_aabb_pr(&g_prop[pi], &x0, &z0, &x1, &z1) == 0)
+                port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
+                                       x1, z1, &gdx, &gdz);
+            pdx += gdx;
+            pdz += gdz;
+        }
+        rad.cx += pdx;
+        rad.cz += pdz;
+        if (port_stan_eye_y(rad.cx, rad.cz, &ey) == 0)
+            sum.y0 = ey - PORT_EYE_HEIGHT;
     }
     if (lx)
         *lx = rad.cx;
@@ -3516,6 +3674,14 @@ int port_prop_guard_visual_cyl(int want, float *lx, float *lz, float *radius, fl
                                float *h)
 {
     return guard_visual_cyl_pi(guard_prop_at(want), lx, lz, radius, y0, h);
+}
+
+int port_prop_guard_visual_aabb(int want, float *x0, float *z0, float *x1, float *z1)
+{
+    int pi = guard_prop_at(want);
+    if (pi < 0)
+        return -1;
+    return guard_visual_aabb_pr(&g_prop[pi], x0, z0, x1, z1);
 }
 
 static int vis_cyl_ray(float ox, float oy, float oz, float dx, float dy, float dz,
@@ -4001,6 +4167,22 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
                 ly = 0.f;
             if (ly > 40.f)
                 ly = 40.f;
+        } else if (pr->type == PDEF_GUARD) {
+            float sc = (pr->scale != 0.f) ? pr->scale : 1.f;
+            if (part_exploded(mdl, pt, sc))
+                continue;
+            if (lx > PORT_LIVE_ORIG_XZ)
+                lx = PORT_LIVE_ORIG_XZ;
+            if (lx < -PORT_LIVE_ORIG_XZ)
+                lx = -PORT_LIVE_ORIG_XZ;
+            if (lz > PORT_LIVE_ORIG_XZ)
+                lz = PORT_LIVE_ORIG_XZ;
+            if (lz < -PORT_LIVE_ORIG_XZ)
+                lz = -PORT_LIVE_ORIG_XZ;
+            if (ly < 0.f)
+                ly = 0.f;
+            if (ly > PORT_LIVE_ORIG_Y)
+                ly = PORT_LIVE_ORIG_Y;
         }
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
@@ -4010,7 +4192,6 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].ox = pr->pos[0] - room1[0] + lx + wdx;
         out[k].oy = pr->pos[1] - room1[1] + ly + wdy;
         out[k].oz = pr->pos[2] - room1[2] + lz + wdz;
-
         out[k].yaw = 0.f;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
@@ -4018,6 +4199,13 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
+        if (pr->type == PDEF_GUARD) {
+            /* vis applies T*R_yaw*R_pose to verts; G1 rebuilds R from
+             * extracted Euler and skip=pose joints explode a pad-469u
+             * body onto the clip-door leaf. Keep translation, drop Euler. */
+            out[k].rx = out[k].ry = out[k].rz = 0.f;
+            out[k].no_mtx = 1;
+        }
         k++;
     }
     return k;
@@ -4164,11 +4352,38 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             }
         }
     }
-    k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                   0.f, 0.f);
-    if (pr->head && pr->head->npart)
-        k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry, hrz, 0.f,
-                       0.f, 0.f, 0.f);
+    {
+        float pdx = 0.f, pdz = 0.f;
+        if (!dead) {
+            float padx = pr->pos[0] - room1[0];
+            float padz = pr->pos[2] - room1[2];
+            float x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
+            port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], 160.f, &pdx, &pdz);
+            if (guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
+                port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
+                                       x1, z1, &gdx, &gdz);
+            pdx += gdx;
+            pdz += gdz;
+            /* G1 painter: a body whose pad is behind a closed leaf still
+             * stamps on the ribbing. Skip only when the cam-to-pad segment
+             * hits the door rectangle (extra idle in the same hall does not). */
+            if (port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx, padz))
+                return k;
+            /* skip=pose Euler rebuild drew a pad-469u body through the
+             * clip-door leaf. Extra idle in the spawn hall is <300u. */
+            {
+                float dx = padx - port_player_x();
+                float dz = padz - port_player_z();
+                if (dx * dx + dz * dz > 400.f * 400.f)
+                    return k;
+            }
+        }
+        k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                       pdx, 0.f, pdz);
+        if (pr->head && pr->head->npart)
+            k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry, hrz,
+                           0.f, pdx, 0.f, pdz);
+    }
     return k;
 }
 

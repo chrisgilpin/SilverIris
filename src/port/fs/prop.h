@@ -129,6 +129,8 @@ int port_prop_guard_xyz(int i, float *x, float *y, float *z);
  * radius, y0..y0+h. -1 if no parts. Pad cylinder stays PORT_GUARD_RADIUS. */
 int port_prop_guard_visual_cyl(int i, float *lx, float *lz, float *radius,
                                float *y0, float *h);
+/* skip=pose vertex AABB in player-local xz. -1 if no parts. */
+int port_prop_guard_visual_aabb(int i, float *x0, float *z0, float *x1, float *z1);
 /* Hitscan vs living setup-chr visual cylinders (player-local ray). 1 on
  * hit; port_prop_chr_hit_xz is the prop world xz to mark. */
 int port_prop_chr_ray_hit(float local_x, float local_y, float local_z,

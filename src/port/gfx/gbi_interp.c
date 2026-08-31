@@ -30,6 +30,7 @@ static float g_cam_eye[3];
 static float g_cam_theta;
 static float g_cam_pitch;
 static int g_cam_on;
+static int g_no_mtx;
 #define G1_PI 3.1415927f
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
@@ -310,6 +311,8 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_MTX) {
+        if (g_no_mtx)
+            return 0;
         if (be) {
             const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
             apply_matrix(w0, mtx_from_be(p));
@@ -356,6 +359,8 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_POPMTX) {
+        if (g_no_mtx)
+            return 0;
         if (g_mvsp > 0) {
             g_mvsp--;
             mtx_copy(g_mv, g_mvstack[g_mvsp]);
@@ -427,8 +432,17 @@ static void walk_be(const uint8_t *start, uint32_t n_gfx)
         steps++;
 
         if (cmd == (uint8_t)G_DL) {
-            uint32_t push = (w0 >> 16) & 0xFF;
-            const uint8_t *child = (const uint8_t *)resolve_addr(w1, 0);
+            uint32_t push;
+            const uint8_t *child;
+            if (g_no_mtx) {
+                /* skip=pose already has T*R_yaw*R_pose. Child DLs carry
+                 * rest MTX/verts vis_gdl_pts never walks — they painted a
+                 * pad-469u guard through the clip-door leaf. */
+                ip += 8;
+                continue;
+            }
+            push = (w0 >> 16) & 0xFF;
+            child = (const uint8_t *)resolve_addr(w1, 0);
             if (!child) {
                 ip += 8;
                 continue;
@@ -685,9 +699,11 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             mtx_copy(g_mv, tmp);
             rebuild_mvp();
         }
+        g_no_mtx = rooms[i].no_mtx;
         walk_be(rooms[i].pri, rooms[i].pri_n);
         if (rooms[i].sec && rooms[i].sec_n)
             walk_be(rooms[i].sec, rooms[i].sec_n);
+        g_no_mtx = 0;
         walked++;
     }
     g_cam_eye[0] = eye[0];

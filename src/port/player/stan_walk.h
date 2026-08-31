@@ -72,6 +72,10 @@ void port_stan_tick_doors(void);
 float port_stan_door_frac_at(float world_x, float world_z);
 /* Fitted / Rare-quad half-width. Pad doors keep the 90 default. */
 float port_stan_door_half_w_at(float world_x, float world_z);
+/* Push a skip=pose body cylinder off closed door slabs onto the pad's
+ * side of the leaf. Writes world xz delta. 1 if moved. */
+int port_stan_push_cyl_off_doors(float world_x, float world_z, float radius,
+                                 float *pdx, float *pdz);
 
 /* Room-local xz. Returns 0 and writes floor+eye (room-local) if a tile owns xz. */
 int port_stan_eye_y(float local_x, float local_z, float *y_out);

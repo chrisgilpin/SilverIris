@@ -61,6 +61,21 @@ PORT_CK_WEAK int port_prop_guard_visual_cyl(int i, float *lx, float *lz, float *
     return -1;
 }
 
+PORT_CK_WEAK int port_prop_guard_visual_aabb(int i, float *x0, float *z0, float *x1,
+                                             float *z1)
+{
+    (void)i;
+    if (x0)
+        *x0 = 0.f;
+    if (z0)
+        *z0 = 0.f;
+    if (x1)
+        *x1 = 0.f;
+    if (z1)
+        *z1 = 0.f;
+    return -1;
+}
+
 PORT_CK_WEAK int port_prop_guard_yaw(int i, float *yaw, int *alerted)
 {
     (void)i;

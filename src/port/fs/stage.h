@@ -47,6 +47,18 @@ int port_stage_room_at_local(float lx, float ly, float lz);
 int port_stage_room_gdl(int room, uint32_t *ngfx, float pos[3]);
 /* Dump G1 room-vert vs stan spaces at player xz (harness / diagnose). */
 void port_stage_dump_walls_at(float lx, float ly, float lz);
+/* Push a skip=pose visual AABB off in-room G1 door leaves onto the pad's
+ * walkable side. Leaves are vertical, door-sized, and walkable on both
+ * sides (corridor walls are not). Writes local xz delta. 1 if moved. */
+int port_stage_g1_chr_push(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
+                           float x0, float z0, float x1, float z1, float *pdx,
+                           float *pdz);
+/* 1 if the camera-to-pad segment hits a closed G1 door rectangle (pad is
+ * behind the leaf). Extra idle in the same hall does not hit. */
+int port_stage_g1_leaf_blocks(float cam_lx, float cam_lz, float pad_lx, float pad_lz);
+/* Harness: print AABB vs nearby G1 door leaves (straddle / ray-rect). */
+void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
+                               float x0, float z0, float x1, float z1);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
 int port_stage_rooms_walked(void);

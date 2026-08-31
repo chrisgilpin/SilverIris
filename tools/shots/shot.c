@@ -1747,6 +1747,35 @@ static void playtest_pose(const char *tag, float x, float z, float th)
     }
 }
 
+static void dump_guard_leaf(const char *tag, int gi)
+{
+    float gx = 0.f, gz = 0.f, cx = 0.f, cz = 0.f, vr = 0.f, y0 = 0.f, vh = 0.f;
+    float x0 = 0.f, z0 = 0.f, x1 = 0.f, z1 = 0.f;
+    float r1[3], padx, padz;
+
+    if (gi < 0 || port_prop_guard_xz(gi, &gx, &gz) != 0) {
+        printf("%s gi=%d no pad\n", tag, gi);
+        return;
+    }
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    padx = gx - r1[0];
+    padz = gz - r1[2];
+    (void)port_prop_guard_visual_cyl(gi, &cx, &cz, &vr, &y0, &vh);
+    if (port_prop_guard_visual_aabb(gi, &x0, &z0, &x1, &z1) != 0) {
+        printf("%s gi=%d pad=%.1f,%.1f vis=%.1f,%.1f r=%.1f aabb fail\n", tag, gi,
+               (double)padx, (double)padz, (double)cx, (double)cz, (double)vr);
+        return;
+    }
+    printf("%s gi=%d pad=%.1f,%.1f vis=%.1f,%.1f r=%.1f aabb=%.1f,%.1f..%.1f,%.1f "
+           "dead=%d block=%d\n",
+           tag, gi, (double)padx, (double)padz, (double)cx, (double)cz, (double)vr,
+           (double)x0, (double)z0, (double)x1, (double)z1,
+           port_stan_guard_dead_at(gx, gz),
+           port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx, padz));
+    port_stage_dump_chr_vs_g1(port_player_x(), port_player_z(), padx, padz, x0, z0, x1, z1);
+}
+
 static int playtest_chris(const char *out_dir)
 {
     float x, z, ny, fdx, fdz;
@@ -1798,6 +1827,7 @@ static int playtest_chris(const char *out_dir)
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_hall_walk") != 0)
             return -1;
+        dump_guard_leaf("hallwalk idle", port_prop_idle_guard());
         printf("walkhall wasd xz=%.1f,%.1f y=%.1f cur=%d walked=%d c0=%d vtx=%d\n",
                (double)wx, (double)wz, (double)wy, port_stage_current_room(),
                port_stage_rooms_walked(), port_stage_gdl_c0(),
@@ -1946,6 +1976,7 @@ static int playtest_chris(const char *out_dir)
             printf("shoot ray vis origin=%.1f,%.1f hit_t=%.1f guard=%d\n",
                    (double)vx, (double)vz, (double)tvis, port_stan_ray_hit_guard());
         }
+        dump_guard_leaf("shoot idle", port_prop_idle_guard());
         {
             int ig = port_prop_idle_guard();
             float cx = 0.f, cz = 0.f, vr = 0.f, y0 = 0.f, vh = 0.f, tchr = 0.f;
@@ -2041,6 +2072,43 @@ static int playtest_chris(const char *out_dir)
                (double)PLAY_CLIP_X, (double)PLAY_CLIP_Z, (double)ey, on, room,
                port_stage_current_room());
         {
+            float r1[3];
+            int o, no, di, nd;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            no = port_stage_opening_count();
+            for (o = 0; o < no; o++) {
+                float pos[3], yaw = 0.f, width = 0.f, lx, lz, ddx, ddz, d;
+                int ra = 0, rb = 0;
+                if (port_stage_opening(o, pos, &yaw, &width, &ra, &rb) != 0)
+                    continue;
+                lx = pos[0] - r1[0];
+                lz = pos[2] - r1[2];
+                ddx = lx - PLAY_CLIP_X;
+                ddz = lz - PLAY_CLIP_Z;
+                d = sqrtf(ddx * ddx + ddz * ddz);
+                if (d > 300.f)
+                    continue;
+                printf("clipdoor open[%d] local=%.1f,%.1f d=%.1f yaw=%.0f w=%.0f ra=%d rb=%d frac=%.2f\n",
+                       o, (double)lx, (double)lz, (double)d, (double)yaw, (double)width, ra,
+                       rb, (double)port_stan_door_frac_at(pos[0], pos[2]));
+            }
+            nd = port_prop_door_count();
+            for (di = 0; di < nd; di++) {
+                float dx, dz, lx, lz, ddx, ddz, d;
+                if (port_prop_door_xz(di, &dx, &dz, &lx, &lz) != 0)
+                    continue;
+                ddx = (dx - r1[0]) - PLAY_CLIP_X;
+                ddz = (dz - r1[2]) - PLAY_CLIP_Z;
+                d = sqrtf(ddx * ddx + ddz * ddz);
+                if (d > 300.f)
+                    continue;
+                printf("clipdoor propdoor[%d] local=%.1f,%.1f d=%.1f frac=%.2f\n",
+                       di, (double)(dx - r1[0]), (double)(dz - r1[2]), (double)d,
+                       (double)port_stan_door_frac_at(dx, dz));
+            }
+        }
+        {
             float r1[3], ldx, ldy, ldz;
             int gi, ng;
             r1[0] = r1[1] = r1[2] = 0.f;
@@ -2056,15 +2124,20 @@ static int playtest_chris(const char *out_dir)
                 dx = lx - PLAY_CLIP_X;
                 dz = lz - PLAY_CLIP_Z;
                 d = sqrtf(dx * dx + dz * dz);
-                if (d > 400.f)
+                if (d > 800.f)
                     continue;
                 along = dx * ldx + dz * ldz;
                 (void)port_stan_ray_block(PLAY_CLIP_X, ey, PLAY_CLIP_Z,
                                           dx / (d > 1.f ? d : 1.f), 0.f,
                                           dz / (d > 1.f ? d : 1.f), &tblk);
-                printf("clipdoor guard[%d] local=%.1f,%.1f d=%.1f along=%.1f block_t=%.1f dead=%d\n",
-                       gi, (double)lx, (double)lz, (double)d, (double)along,
-                       (double)tblk, port_stan_guard_dead_at(gx, gz));
+                {
+                    char tag[32];
+                    snprintf(tag, sizeof tag, "clipdoor guard[%d]", gi);
+                    dump_guard_leaf(tag, gi);
+                    printf("clipdoor guard[%d] local=%.1f,%.1f d=%.1f along=%.1f block_t=%.1f dead=%d\n",
+                           gi, (double)lx, (double)lz, (double)d, (double)along,
+                           (double)tblk, port_stan_guard_dead_at(gx, gz));
+                }
                 (void)gy;
             }
         }

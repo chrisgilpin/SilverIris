@@ -326,6 +326,78 @@ float port_stan_door_half_w_at(float world_x, float world_z)
     return PORT_DOOR_HALF_W;
 }
 
+int port_stan_push_cyl_off_doors(float world_x, float world_z, float radius,
+                                 float *pdx, float *pdz)
+{
+    float ox = world_x, oz = world_z;
+    float dx = 0.f, dz = 0.f;
+    int iter;
+    const float skin = 8.f;
+    const float cap = 180.f;
+
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    if (radius < 1.f)
+        return 0;
+    for (iter = 0; iter < 6; iter++) {
+        int i, hit = 0;
+        float best_need = 0.f, bnx = 0.f, bnz = 0.f;
+        float cx = ox + dx, cz = oz + dz;
+        for (i = 0; i < g_ndoor; i++) {
+            const StanDoor *d = &g_door[i];
+            float rx, rz, along, across, need, clear, pad_along, side;
+            if (d->open || d->frac > 0.f)
+                continue;
+            rx = cx - d->x;
+            rz = cz - d->z;
+            along = rx * d->nx + rz * d->nz;
+            across = rx * d->tx + rz * d->tz;
+            if (across < 0.f)
+                across = -across;
+            if (across > d->half_w + radius)
+                continue;
+            clear = PORT_DOOR_HALF_T + radius + skin;
+            if (along < 0.f) {
+                if (-along >= clear)
+                    continue;
+            } else if (along >= clear)
+                continue;
+            pad_along = (ox - d->x) * d->nx + (oz - d->z) * d->nz;
+            side = (pad_along >= 0.f) ? 1.f : -1.f;
+            need = clear - side * along;
+            if (need <= 0.f)
+                continue;
+            if (need > best_need) {
+                best_need = need;
+                bnx = d->nx * side;
+                bnz = d->nz * side;
+                hit = 1;
+            }
+        }
+        if (!hit)
+            break;
+        if (best_need > cap)
+            best_need = cap;
+        dx += bnx * best_need;
+        dz += bnz * best_need;
+        if (dx * dx + dz * dz > cap * cap) {
+            float len = sqrtf(dx * dx + dz * dz);
+            dx *= cap / len;
+            dz *= cap / len;
+            break;
+        }
+    }
+    if (dx == 0.f && dz == 0.f)
+        return 0;
+    if (pdx)
+        *pdx = dx;
+    if (pdz)
+        *pdz = dz;
+    return 1;
+}
+
 void port_stan_tick_doors(void)
 {
     int i;

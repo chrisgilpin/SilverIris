@@ -1373,6 +1373,450 @@ void port_stage_dump_walls_at(float lx, float ly, float lz)
         dump_one_room_walls(ids[i], lx, ly, lz, inv);
 }
 
+#define PORT_G1_LEAF_SKIN 8.0f
+#define PORT_G1_LEAF_PUSH_CAP 180.0f
+#define PORT_G1_LEAF_PROBE 55.0f
+#define PORT_G1_LEAF_DUMP 8
+
+typedef struct {
+    float px, pz;
+    float nx, nz;
+    float tx, tz;
+    float half_w;
+    float thick;
+    float pad_along;
+    float amin, amax;
+    float need;
+    float dcam;
+    int both;
+    int straddle;
+    int ray;
+} G1LeafHit;
+
+static int g1_add_room(int *rooms, int n, int max, int r)
+{
+    int j;
+    if (r < 1)
+        return n;
+    for (j = 0; j < n; j++) {
+        if (rooms[j] == r)
+            return n;
+    }
+    if (n < max)
+        rooms[n++] = r;
+    return n;
+}
+
+static int g1_chr_rooms(float pad_lx, float pad_lz, float cam_lx, float cam_lz, int *rooms,
+                        int max)
+{
+    int n = 0, i, r;
+    n = g1_add_room(rooms, n, max, port_stan_tile_room(pad_lx, pad_lz));
+    n = g1_add_room(rooms, n, max, port_stan_tile_room(cam_lx, cam_lz));
+    n = g1_add_room(rooms, n, max, g_cur_room);
+    n = g1_add_room(rooms, n, max, port_stage_current_room());
+    for (i = 0; i < g_rooms_walked; i++)
+        n = g1_add_room(rooms, n, max, g_walked[i]);
+    for (i = 0; i < g_nportals && n < max; i++) {
+        int a = g_portals[i].a, b = g_portals[i].b, j, keep = 0;
+        for (j = 0; j < n; j++) {
+            if (rooms[j] == a || rooms[j] == b) {
+                keep = 1;
+                break;
+            }
+        }
+        if (!keep)
+            continue;
+        n = g1_add_room(rooms, n, max, a);
+        n = g1_add_room(rooms, n, max, b);
+    }
+    (void)cam_lx;
+    (void)cam_lz;
+    return n;
+}
+
+static int g1_leaf_from_tri(float x0, float y0, float z0, float x1, float y1, float z1,
+                            float x2, float y2, float z2, float sc, float ox, float oz,
+                            float cam_lx, float cam_lz, float pad_lx, float pad_lz,
+                            float ax0, float az0, float ax1, float az1, G1LeafHit *out)
+{
+    float e1x, e1y, e1z, e2x, e2y, e2z, nx, ny, nz, nlen, wlen, wx, wz;
+    float pcx, pcz, ymin, ymax, yspan;
+    float vx[3], vz[3], along[3], thick, half_w, tx, tz;
+    float pad_along, amin, amax, tmin, tmax, side, min_pad, need;
+    float rdx, rdz, denom, t, hx, hz, across;
+    float pax, paz, fpx, fpz;
+    int i, both, straddle, ray;
+
+    e1x = x1 - x0;
+    e1y = y1 - y0;
+    e1z = z1 - z0;
+    e2x = x2 - x0;
+    e2y = y2 - y0;
+    e2z = z2 - z0;
+    nx = e1y * e2z - e1z * e2y;
+    ny = e1z * e2x - e1x * e2z;
+    nz = e1x * e2y - e1y * e2x;
+    nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (nlen < 1.f)
+        return 0;
+    if (fabsf(ny) > 0.35f * nlen)
+        return 0;
+    ymin = y0;
+    ymax = y0;
+    if (y1 < ymin)
+        ymin = y1;
+    if (y2 < ymin)
+        ymin = y2;
+    if (y1 > ymax)
+        ymax = y1;
+    if (y2 > ymax)
+        ymax = y2;
+    yspan = (ymax - ymin) * sc;
+    if (yspan < 80.f || ymax * sc < 40.f)
+        return 0;
+    wx = nx;
+    wz = nz;
+    wlen = sqrtf(wx * wx + wz * wz);
+    if (wlen < 1e-3f)
+        return 0;
+    wx /= wlen;
+    wz /= wlen;
+    tx = -wz;
+    tz = wx;
+    vx[0] = x0 * sc + ox;
+    vz[0] = z0 * sc + oz;
+    vx[1] = x1 * sc + ox;
+    vz[1] = z1 * sc + oz;
+    vx[2] = x2 * sc + ox;
+    vz[2] = z2 * sc + oz;
+    pcx = (vx[0] + vx[1] + vx[2]) / 3.f;
+    pcz = (vz[0] + vz[1] + vz[2]) / 3.f;
+    thick = 0.f;
+    half_w = 0.f;
+    for (i = 0; i < 3; i++) {
+        along[i] = (vx[i] - pcx) * wx + (vz[i] - pcz) * wz;
+        if (along[i] < 0.f) {
+            if (-along[i] > thick)
+                thick = -along[i];
+        } else if (along[i] > thick)
+            thick = along[i];
+        {
+            float ta = (vx[i] - pcx) * tx + (vz[i] - pcz) * tz;
+            if (ta < 0.f)
+                ta = -ta;
+            if (ta > half_w)
+                half_w = ta;
+        }
+    }
+    if (thick > 50.f)
+        return 0;
+    if (half_w < 25.f || half_w > 180.f)
+        return 0;
+    pad_along = (pad_lx - pcx) * wx + (pad_lz - pcz) * wz;
+    pax = pcx + wx * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
+    paz = pcz + wz * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
+    fpx = pcx - wx * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
+    fpz = pcz - wz * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
+    both = port_stan_on_tile(pax, paz) && port_stan_on_tile(fpx, fpz);
+    {
+        float cx[4], cz[4];
+        cx[0] = ax0;
+        cz[0] = az0;
+        cx[1] = ax0;
+        cz[1] = az1;
+        cx[2] = ax1;
+        cz[2] = az0;
+        cx[3] = ax1;
+        cz[3] = az1;
+        amin = amax = (cx[0] - pcx) * wx + (cz[0] - pcz) * wz;
+        tmin = tmax = (cx[0] - pcx) * tx + (cz[0] - pcz) * tz;
+        for (i = 1; i < 4; i++) {
+            float a = (cx[i] - pcx) * wx + (cz[i] - pcz) * wz;
+            float ta = (cx[i] - pcx) * tx + (cz[i] - pcz) * tz;
+            if (a < amin)
+                amin = a;
+            if (a > amax)
+                amax = a;
+            if (ta < tmin)
+                tmin = ta;
+            if (ta > tmax)
+                tmax = ta;
+        }
+    }
+    straddle = (amin < -1.f && amax > 1.f);
+    side = (pad_along >= 0.f) ? 1.f : -1.f;
+    min_pad = (side > 0.f) ? amin : -amax;
+    need = 0.f;
+    /* Push only the leaf the camera-to-pad ray hits, onto the pad side.
+     * Other parallel walls (the far side of a 126u skip=pose AABB in a
+     * 106u gap) must not pull the body back through the door. */
+    ray = 0;
+    rdx = pad_lx - cam_lx;
+    rdz = pad_lz - cam_lz;
+    denom = rdx * wx + rdz * wz;
+    if (fabsf(denom) > 1e-4f) {
+        t = ((pcx - cam_lx) * wx + (pcz - cam_lz) * wz) / denom;
+        if (t > 0.02f && t < 0.98f) {
+            hx = cam_lx + t * rdx;
+            hz = cam_lz + t * rdz;
+            across = (hx - pcx) * tx + (hz - pcz) * tz;
+            if (across < 0.f)
+                across = -across;
+            if (across <= half_w + 10.f) {
+                ray = 1;
+                if (straddle || min_pad < PORT_G1_LEAF_SKIN) {
+                    need = PORT_G1_LEAF_SKIN - min_pad;
+                    if (need < 0.f)
+                        need = 0.f;
+                }
+            }
+        }
+    }
+    if (need <= 0.f && !ray && !(both && straddle))
+        return 0;
+    out->px = pcx;
+    out->pz = pcz;
+    out->nx = wx * side;
+    out->nz = wz * side;
+    out->tx = tx;
+    out->tz = tz;
+    out->half_w = half_w;
+    out->thick = thick;
+    out->pad_along = pad_along;
+    out->amin = amin;
+    out->amax = amax;
+    out->need = need;
+    out->dcam = sqrtf((cam_lx - pcx) * (cam_lx - pcx) + (cam_lz - pcz) * (cam_lz - pcz));
+    out->both = both;
+    out->straddle = straddle;
+    out->ray = ray;
+    return 1;
+}
+
+static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_lx,
+                                float pad_lz, float ax0, float az0, float ax1, float az1,
+                                G1LeafHit *hits, int *nhits, int max_hits, float *best_need,
+                                float *bnx, float *bnz, int *blocks)
+{
+    const PortBgRoom *rm;
+    const uint8_t *dl, *vtxbase;
+    uint32_t ncmd, i;
+    float ox, oz, sc, r1x, r1z;
+    float slot[PORT_G1_VTX_CACHE][3];
+    int have[PORT_G1_VTX_CACHE];
+
+    if (room < 1 || room > g_bg_rooms)
+        return;
+    rm = &g_rm[room];
+    dl = room_pri(rm);
+    if (!dl || rm->pri_ngfx == 0 || !rm->vtx)
+        return;
+    vtxbase = rm->vtx;
+    sc = (g_bg_inv != 0.f) ? g_bg_inv : 1.f;
+    r1x = g_rm[1].pos[0] * sc;
+    r1z = g_rm[1].pos[2] * sc;
+    ox = rm->pos[0] * sc - r1x;
+    oz = rm->pos[2] * sc - r1z;
+    memset(have, 0, sizeof have);
+    ncmd = rm->pri_ngfx;
+    for (i = 0; i < ncmd; i++) {
+        const uint8_t *p = dl + i * 8u;
+        uint8_t cmd = p[0];
+        uint32_t w0 = be32(p);
+        uint32_t w1 = be32(p + 4);
+        if (cmd == 0x04) {
+            uint32_t param = (w0 >> 16) & 0xFFu;
+            uint32_t n = (param >> 4) + 1u;
+            uint32_t v0 = param & 0xFu;
+            uint32_t seg = w1 >> 24;
+            uint32_t off = w1 & 0x00FFFFFFu;
+            uint32_t k;
+            const uint8_t *src;
+            if (seg != 14 || off + n * 16u > rm->vtx_len)
+                continue;
+            src = vtxbase + off;
+            for (k = 0; k < n && v0 + k < PORT_G1_VTX_CACHE; k++) {
+                const uint8_t *s = src + k * 16u;
+                slot[v0 + k][0] = (float)dump_be16(s);
+                slot[v0 + k][1] = (float)dump_be16(s + 2);
+                slot[v0 + k][2] = (float)dump_be16(s + 4);
+                have[v0 + k] = 1;
+            }
+            continue;
+        }
+        if (cmd != 0xB1)
+            continue;
+        {
+            uint32_t tris[4][3];
+            int t;
+            tris[0][0] = w1 & 0xF;
+            tris[0][1] = (w1 >> 4) & 0xF;
+            tris[0][2] = w0 & 0xF;
+            tris[1][0] = (w1 >> 8) & 0xF;
+            tris[1][1] = (w1 >> 12) & 0xF;
+            tris[1][2] = (w0 >> 4) & 0xF;
+            tris[2][0] = (w1 >> 16) & 0xF;
+            tris[2][1] = (w1 >> 20) & 0xF;
+            tris[2][2] = (w0 >> 8) & 0xF;
+            tris[3][0] = (w1 >> 24) & 0xF;
+            tris[3][1] = (w1 >> 28) & 0xF;
+            tris[3][2] = (w0 >> 12) & 0xF;
+            for (t = 0; t < 4; t++) {
+                G1LeafHit hit;
+                float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+                int a, b, c;
+                a = (int)tris[t][0];
+                b = (int)tris[t][1];
+                c = (int)tris[t][2];
+                if (a == 0 && b == 0 && c == 0)
+                    continue;
+                if (a >= PORT_G1_VTX_CACHE || b >= PORT_G1_VTX_CACHE ||
+                    c >= PORT_G1_VTX_CACHE)
+                    continue;
+                if (!have[a] || !have[b] || !have[c])
+                    continue;
+                x0 = slot[a][0];
+                y0 = slot[a][1];
+                z0 = slot[a][2];
+                x1 = slot[b][0];
+                y1 = slot[b][1];
+                z1 = slot[b][2];
+                x2 = slot[c][0];
+                y2 = slot[c][1];
+                z2 = slot[c][2];
+                if (!g1_leaf_from_tri(x0, y0, z0, x1, y1, z1, x2, y2, z2, sc, ox, oz,
+                                      cam_lx, cam_lz, pad_lx, pad_lz, ax0, az0, ax1, az1,
+                                      &hit))
+                    continue;
+                if (hit.ray && blocks)
+                    *blocks = 1;
+                if (hit.need > *best_need) {
+                    *best_need = hit.need;
+                    *bnx = hit.nx;
+                    *bnz = hit.nz;
+                }
+                if (hits && nhits && *nhits < max_hits) {
+                    hits[*nhits] = hit;
+                    (*nhits)++;
+                }
+            }
+        }
+    }
+}
+
+static void g1_scan_chr_leaves(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
+                               float ax0, float az0, float ax1, float az1, G1LeafHit *hits,
+                               int *nhits, int max_hits, float *best_need, float *bnx,
+                               float *bnz, int *blocks)
+{
+    int rooms[8], nr, j;
+    if (g_bg_rooms < 1)
+        return;
+    nr = g1_chr_rooms(pad_lx, pad_lz, cam_lx, cam_lz, rooms, 8);
+    for (j = 0; j < nr; j++)
+        g1_scan_room_leaves(rooms[j], cam_lx, cam_lz, pad_lx, pad_lz, ax0, az0, ax1, az1,
+                            hits, nhits, max_hits, best_need, bnx, bnz, blocks);
+}
+
+int port_stage_g1_chr_push(float cam_lx, float cam_lz, float pad_lx, float pad_lz, float x0,
+                           float z0, float x1, float z1, float *pdx, float *pdz)
+{
+    float dx = 0.f, dz = 0.f;
+    int iter;
+    const float cap = PORT_G1_LEAF_PUSH_CAP;
+
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    if (g_bg_rooms < 1)
+        return 0;
+    if (x1 < x0) {
+        float t = x0;
+        x0 = x1;
+        x1 = t;
+    }
+    if (z1 < z0) {
+        float t = z0;
+        z0 = z1;
+        z1 = t;
+    }
+    for (iter = 0; iter < 4; iter++) {
+        float best_need = 0.f, bnx = 0.f, bnz = 0.f;
+        int dummy = 0;
+        float sx0 = x0 + dx, sz0 = z0 + dz, sx1 = x1 + dx, sz1 = z1 + dz;
+        g1_scan_chr_leaves(cam_lx, cam_lz, pad_lx + dx, pad_lz + dz, sx0, sz0, sx1, sz1,
+                           NULL, NULL, 0, &best_need, &bnx, &bnz, &dummy);
+        if (best_need <= 0.f)
+            break;
+        if (best_need > cap)
+            best_need = cap;
+        dx += bnx * best_need;
+        dz += bnz * best_need;
+        if (dx * dx + dz * dz > cap * cap) {
+            float len = sqrtf(dx * dx + dz * dz);
+            dx *= cap / len;
+            dz *= cap / len;
+            break;
+        }
+    }
+    if (dx == 0.f && dz == 0.f)
+        return 0;
+    if (pdx)
+        *pdx = dx;
+    if (pdz)
+        *pdz = dz;
+    return 1;
+}
+
+int port_stage_g1_leaf_blocks(float cam_lx, float cam_lz, float pad_lx, float pad_lz)
+{
+    float dummy_n = 0.f, dummy_x = 0.f, dummy_z = 0.f;
+    int blocks = 0;
+    float x0 = pad_lx - 20.f, z0 = pad_lz - 20.f, x1 = pad_lx + 20.f, z1 = pad_lz + 20.f;
+    if (g_bg_rooms < 1)
+        return 0;
+    g1_scan_chr_leaves(cam_lx, cam_lz, pad_lx, pad_lz, x0, z0, x1, z1, NULL, NULL, 0,
+                       &dummy_n, &dummy_x, &dummy_z, &blocks);
+    return blocks;
+}
+
+void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
+                               float x0, float z0, float x1, float z1)
+{
+    G1LeafHit hits[PORT_G1_LEAF_DUMP];
+    int nh = 0, blocks = 0, i;
+    float best_need = 0.f, bnx = 0.f, bnz = 0.f, pdx = 0.f, pdz = 0.f;
+    if (x1 < x0) {
+        float t = x0;
+        x0 = x1;
+        x1 = t;
+    }
+    if (z1 < z0) {
+        float t = z0;
+        z0 = z1;
+        z1 = t;
+    }
+    g1_scan_chr_leaves(cam_lx, cam_lz, pad_lx, pad_lz, x0, z0, x1, z1, hits, &nh,
+                       PORT_G1_LEAF_DUMP, &best_need, &bnx, &bnz, &blocks);
+    (void)port_stage_g1_chr_push(cam_lx, cam_lz, pad_lx, pad_lz, x0, z0, x1, z1, &pdx, &pdz);
+    printf("g1leaf cam=%.1f,%.1f pad=%.1f,%.1f aabb=%.1f,%.1f..%.1f,%.1f span=%.1f,%.1f "
+           "hits=%d block=%d push=%.1f,%.1f need=%.1f\n",
+           (double)cam_lx, (double)cam_lz, (double)pad_lx, (double)pad_lz, (double)x0,
+           (double)z0, (double)x1, (double)z1, (double)(x1 - x0), (double)(z1 - z0), nh,
+           blocks, (double)pdx, (double)pdz, (double)best_need);
+    for (i = 0; i < nh; i++) {
+        const G1LeafHit *h = &hits[i];
+        printf("g1leaf[%d] pc=%.1f,%.1f n=%.2f,%.2f hw=%.1f thick=%.1f pad_along=%.1f "
+               "amin=%.1f amax=%.1f straddle=%d ray=%d both=%d dcam=%.1f need=%.1f\n",
+               i, (double)h->px, (double)h->pz, (double)h->nx, (double)h->nz,
+               (double)h->half_w, (double)h->thick, (double)h->pad_along, (double)h->amin,
+               (double)h->amax, h->straddle, h->ray, h->both, (double)h->dcam,
+               (double)h->need);
+    }
+}
+
 int port_stage_draw(void)
 {
     G1RoomDl passes[PORT_DRAW_MAX];
