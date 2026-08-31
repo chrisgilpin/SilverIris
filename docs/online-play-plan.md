@@ -329,3 +329,16 @@ Harness: spawn/WASD/A→B stay y=29.1 r71 c0=1; stairs still climb; `play_stairs
 
 - Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 landing void `ca673cf`)
+
+`play_stairs_end` after 2364 snap still had a black left slab + clipped guard limb. Dump: 2364 is the stair-well lip (south edge z=-452); 1e30 unlinked-edge ties picked it over 2367. Looking −Z was the well. Rare 2390 same-floor link is 2367. Score now skips tiles closer to the ground from-tile than the rise tile, so 2367 wins. `select_rooms` depth 5 when current is r12 so r71/r11 walk (portal r6-r71 at d4). Hall no-hop / `PORT_RISE_MAX` 350 / `e21097d` inv kept.
+
+Harness: spawn/WASD/A→B y=29.1 r71; stairs climb; `play_stairs_end` mean 65 dark16=4116 (5.4%, was a third-frame void). Left side is a real wall, not a black rectangle. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
