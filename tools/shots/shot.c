@@ -1762,6 +1762,129 @@ static int playtest_chris(const char *out_dir)
     port_stan_debug_at(spawn_x, spawn_z);
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
+    printf("walkhall spawn_shot cur=%d walked=%d c0=%d vtx=%d y=%.1f\n",
+           port_stage_current_room(), port_stage_rooms_walked(),
+           port_stage_gdl_c0(), port_stage_gdl_vtx(), (double)spawn_y);
+    if (spawn_y > 200.f || port_stage_current_room() != 71 ||
+        !port_stage_gdl_c0() || !port_stage_gdl_vtx()) {
+        fprintf(stderr, "walkhall spawn not low G1 stall\n");
+        return -1;
+    }
+    /* ~2s WASD around spawn: must not launch to r12. */
+    {
+        static const float kdx[8] = { 12.f, 12.f, 0.f, -12.f, -12.f, -12.f, 0.f, 12.f };
+        static const float kdz[8] = { 0.f, 12.f, 12.f, 12.f, 0.f, -12.f, -12.f, -12.f };
+        float wx = spawn_x, wz = spawn_z, wy = spawn_y;
+        int s, d;
+        place(wx, wz, 270.f);
+        for (s = 0; s < 24; s++) {
+            d = s % 8;
+            {
+                float nx = wx + kdx[d], nz = wz + kdz[d], ny = wy;
+                port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+                if (ny > 200.f) {
+                    fprintf(stderr, "walkhall spawn WASD hop step=%d y=%.1f xz=%.1f,%.1f\n",
+                            s, (double)ny, (double)nx, (double)nz);
+                    return -1;
+                }
+                if ((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz) > 0.25f) {
+                    wx = nx;
+                    wz = nz;
+                    wy = ny;
+                }
+            }
+        }
+        port_player_set_pose(wx, wy, wz, 270.f);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_hall_walk") != 0)
+            return -1;
+        printf("walkhall wasd xz=%.1f,%.1f y=%.1f cur=%d walked=%d c0=%d vtx=%d\n",
+               (double)wx, (double)wz, (double)wy, port_stage_current_room(),
+               port_stage_rooms_walked(), port_stage_gdl_c0(),
+               port_stage_gdl_vtx());
+        if (wy > 200.f || !port_stage_gdl_c0() || !port_stage_gdl_vtx() ||
+            port_stage_rooms_walked() > 30) {
+            fprintf(stderr, "walkhall WASD G1/y dump\n");
+            return -1;
+        }
+    }
+
+    /* Chris 2026-08-31 live hall hop: A y=29.1 -> B y=409.6 r12. */
+#define PLAY_HALL_A_X (-233.7f)
+#define PLAY_HALL_A_Z (-2312.1f)
+#define PLAY_HALL_A_TH 264.0f
+#define PLAY_HALL_B_X (-246.6f)
+#define PLAY_HALL_B_Z (-2347.8f)
+#define PLAY_HALL_B_TH 250.0f
+    {
+        float ax = PLAY_HALL_A_X, az = PLAY_HALL_A_Z, ay = 29.1f;
+        float bx = PLAY_HALL_B_X, bz = PLAY_HALL_B_Z, by = 29.1f;
+        float nx, nz, ny, fdx, fdz;
+        int i, hopped = 0;
+        printf("walkhall dump A\n");
+        place(ax, az, PLAY_HALL_A_TH);
+        (void)port_stan_eye_y(ax, az, &ay);
+        port_stan_debug_at(ax, az);
+        printf("walkhall dump B-xz at low y\n");
+        port_stan_debug_at(bx, bz);
+        place(ax, az, PLAY_HALL_A_TH);
+        nx = bx;
+        nz = bz;
+        ny = ay;
+        port_stan_clip_step(ax, az, &nx, &nz, &ny);
+        printf("walkhall A->B clip=%.1f,%.1f eye=%.1f room=%d (from eye=%.1f r%d)\n",
+               (double)nx, (double)nz, (double)ny, port_stan_tile_room(nx, nz),
+               (double)ay, port_stan_tile_room(ax, az));
+        playtest_forward(PLAY_HALL_A_TH, 12.f, &fdx, &fdz);
+        nx = ax;
+        nz = az;
+        ny = ay;
+        for (i = 0; i < 40; i++) {
+            float cx = nx + fdx, cz = nz + fdz, cy = ny;
+            port_stan_clip_step(nx, nz, &cx, &cz, &cy);
+            if ((cx - nx) * (cx - nx) + (cz - nz) * (cz - nz) < 0.01f)
+                break;
+            nx = cx;
+            nz = cz;
+            ny = cy;
+            if (i < 12 || ny > 200.f)
+                printf("walkhall step[%d] xz=%.1f,%.1f eye=%.1f room=%d\n",
+                       i, (double)nx, (double)nz, (double)ny,
+                       port_stan_tile_room(nx, nz));
+            if (ny > 200.f) {
+                hopped = 1;
+                printf("walkhall hop step=%d xz=%.1f,%.1f eye=%.1f room=%d\n",
+                       i, (double)nx, (double)nz, (double)ny,
+                       port_stan_tile_room(nx, nz));
+                port_stan_debug_at(nx, nz);
+                break;
+            }
+        }
+        printf("walkhall walkA step=%d xz=%.1f,%.1f eye=%.1f hopped=%d "
+               "gdlc0=%d vtx=%d walked=%d cur=%d\n",
+               i, (double)nx, (double)nz, (double)ny, hopped,
+               port_stage_gdl_c0(), port_stage_gdl_vtx(),
+               port_stage_rooms_walked(), port_stage_current_room());
+        if (hopped || ny > 200.f) {
+            fprintf(stderr, "walkhall hopped to y=%.1f room=%d (want stay ~29)\n",
+                    (double)ny, port_stan_tile_room(nx, nz));
+            return -1;
+        }
+        place(ax, az, PLAY_HALL_A_TH);
+        port_player_set_pitch(3.f);
+        if (shot_one(out_dir, "play_hall_a") != 0)
+            return -1;
+        printf("walkhall shot A cur=%d walked=%d c0=%d vtx=%d texOk\n",
+               port_stage_current_room(), port_stage_rooms_walked(),
+               port_stage_gdl_c0(), port_stage_gdl_vtx());
+        if (!port_stage_gdl_c0() || !port_stage_gdl_vtx() ||
+            port_stage_rooms_walked() > 30 || port_stage_current_room() != 71) {
+            fprintf(stderr, "walkhall G1 dump cur=%d walked=%d c0=%d vtx=%d\n",
+                    port_stage_current_room(), port_stage_rooms_walked(),
+                    port_stage_gdl_c0(), port_stage_gdl_vtx());
+            return -1;
+        }
+    }
 
     playtest_pose("corner", PLAY_CORNER_X, PLAY_CORNER_Z, PLAY_CORNER_TH);
     port_player_set_pitch(-3.f);

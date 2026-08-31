@@ -1231,6 +1231,78 @@ static int test_clip_stack_unlinked_stays_low(void)
     return 0;
 }
 
+/* Spawn hall after inv: dest enters a +380 overlapping r12 (eye 409).
+ * Not a stair. clip_step must stay low. */
+static int test_clip_hall_overlap_stays_low(void)
+{
+    uint8_t stan[512];
+    float nx, nz, ny, ey, hi;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 0, 200, -425, 0, 200);
+    stan[0x80 + 3] = 71;
+    wr_quad_link(stan, 0x80, 0, 0x11);
+    wr_unit_quad(stan, 0xA8, 100, 200, -45, 0, 200); /* +380 */
+    stan[0xA8 + 3] = 12;
+    wr_quad_link(stan, 0xA8, 0, 0x16);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("hall overlap load");
+    if (port_stan_eye_y(50.0f, 50.0f, &ey) != 0)
+        return fail("hall overlap eye");
+    hi = -45.0f + PORT_EYE_HEIGHT;
+    nx = 150.0f;
+    nz = 50.0f;
+    ny = ey;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (fabsf(ny - hi) < 20.0f)
+        return fail("hall overlap hopped +380");
+    if (fabsf(ny - ey) > 1.0f)
+        return fail("hall overlap left low");
+    printf("hall_overlap clip y=%.1f (high +380 ignored)\n", (double)ny);
+    port_stan_unload();
+    return 0;
+}
+
+/* Real start-stair landing: dest leaves the low tile onto +319. Hop. */
+static int test_clip_stair_overlap_hops(void)
+{
+    uint8_t stan[512];
+    float nx, nz, ny, ey, hi;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    wr_unit_quad(stan, 0x80, 0, 100, -425, 0, 200);
+    stan[0x80 + 3] = 71;
+    wr_quad_link(stan, 0x80, 0, 0x11);
+    wr_quad_link(stan, 0x80, 1, 0x11);
+    wr_quad_link(stan, 0x80, 2, 0x11);
+    wr_quad_link(stan, 0x80, 3, 0x11);
+    wr_unit_quad(stan, 0xA8, 80, 200, -106, 0, 200); /* +319, dest 150 off low */
+    stan[0xA8 + 3] = 12;
+    wr_quad_link(stan, 0xA8, 0, 0x16);
+    port_stan_unload();
+    port_stan_set_scale(1.0f);
+    port_stan_set_world_origin(0.0f, 0.0f, 0.0f);
+    if (port_stan_load(stan, sizeof stan) != PORT_STAN_OK)
+        return fail("stair overlap load");
+    if (port_stan_eye_y(50.0f, 50.0f, &ey) != 0)
+        return fail("stair overlap eye");
+    hi = -106.0f + PORT_EYE_HEIGHT;
+    nx = 150.0f;
+    nz = 50.0f;
+    ny = ey;
+    port_stan_clip_step(50.0f, 50.0f, &nx, &nz, &ny);
+    if (fabsf(ny - hi) > 2.0f)
+        return fail("stair overlap did not hop +319");
+    printf("stair_overlap clip y=%.1f (landing +319)\n", (double)ny);
+    port_stan_unload();
+    return 0;
+}
+
 /* Low hall --link--> high landing --link--> stacked high over a low decoy.
  * clip_step must keep the high eye on the stacked xz. */
 static int test_clip_stair_link_keeps_high(void)
@@ -1481,6 +1553,10 @@ int main(void)
     if (test_clip_unlinked_wall() != 0)
         return 1;
     if (test_clip_stack_unlinked_stays_low() != 0)
+        return 1;
+    if (test_clip_hall_overlap_stays_low() != 0)
+        return 1;
+    if (test_clip_stair_overlap_hops() != 0)
         return 1;
     if (test_clip_stair_link_keeps_high() != 0)
         return 1;

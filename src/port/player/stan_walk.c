@@ -1228,10 +1228,15 @@ static int take_link(const StanTile *from, const StanTile *nb, float ox, float o
  * no Rare up-link (landing 2390 links down to r11). Dest xz enters the
  * high polygon; origin is not inside it. Bathroom stacked xz already
  * contains the high tile at the origin — skip so clip stays low.
- * Rise cap 400u avgY: r12 landing is +319, r13 catwalk is +650.
+ * Rise dump (avgY): stair landing 2391 is +319 over r71 152; spawn-hall
+ * r12 2378 over r71 147 is +380 (not a Rare stair — walking that hall
+ * must stay at eye 29). r13 catwalk is +650. Cap 350 keeps the foot
+ * hop and blocks the hall +380 launch.
+ * Dest still inside the from-tile (147 overlapping 2393) is hall walk,
+ * not a stair step. The real foot leaves 152 onto 2391.
  */
 #define PORT_RISE_MIN 80.0f
-#define PORT_RISE_MAX 400.0f
+#define PORT_RISE_MAX 350.0f
 #define PORT_RISE_XZ 300.0f
 
 static const StanTile *enter_rise_tile(const StanTile *from, float ox, float oz,
@@ -1255,6 +1260,9 @@ static const StanTile *enter_rise_tile(const StanTile *from, float ox, float oz,
         if (!point_in_tile(t, dx, dz))
             continue;
         if (point_in_tile(t, ox, oz))
+            continue;
+        /* Still on the low tile: overlapping r12 in the spawn hall. */
+        if (point_in_tile(from, dx, dz))
             continue;
         d = tile_centroid_dist(from, t);
         if (d > PORT_RISE_XZ)
