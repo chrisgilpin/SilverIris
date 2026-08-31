@@ -357,3 +357,16 @@ Harness: `play_shoot_before` standing torso; 7 Z-fires; extra idle dead; `play_s
 - Walk clip/teleport past the hall (Chris r11 -651,-1311 y=29.1).
 - Guards through closed G1 doors / occlusion.
 - Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 clip `1601098`)
+
+Hall r12 tiles at +319 (under `PORT_RISE_MAX` 350) still launched a 12u step to eye 348 then snapped 300-500u onto the landing. Dump: 36 headings from spawn; th=110 from=-72,-2311 → 400,-2250 y=348 j=477, then drop through the stack to y=29. Retail r71→r12 now climbs only at the stair foot (`PLAY_STAIR` ~-572,-2229). Snaps >120u from the requested dest are refused except there. `try_snap_local` caps at 120u (was 800). `rising_landing` stays same-floor.
+
+Harness: hunt teleports=0; spawn/WASD/A→B y=29.1 r71; real stair still `-244,-2098` eye 348.2 mean 65. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Guards through closed G1 doors (`play_clip_door` / Chris r11). Dead skip=pose body through the hall wall (`play_shoot_after`).
+- Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
