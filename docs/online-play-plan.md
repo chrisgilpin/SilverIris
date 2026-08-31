@@ -299,3 +299,20 @@ Harness: spawn `rooms=21/71` fb=76800 closed stall; corner same stan tile, ceili
 
 - Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 hall hop `124b354`)
+
+Chris live `00430a0`: hall A `-233.7,-2312.1` y=29.1 r71 launched to B `-246.6,-2347.8` y=409.6 r12. Dump: r71 147 overlaps r12 2378 (+380 avgY, eye 409.6) and 2393 (+319). `enter_rise_tile` hopped because dest entered the high polygon (same path as the start-stair). Rare does not hop in that hall.
+
+Cap `PORT_RISE_MAX` 350 (foot 2391 is +319; hall 2378 is +380). Skip rise when dest is still inside the low from-tile (147 overlapping 2393). Stair still leaves 152 onto 2391 (eye 348.2). Did not revert `e21097d` inv, walk 4.5×, or skin 30.
+
+Harness: spawn stall r71 y=29.1 c0=1 vtx=1 walked=21; WASD around spawn stays y=29.1; A→B clip stays r71; 40 steps along A look stay y=29.1; stairs from converted foot still hop r12. Bathroom low. G1 never walked=400+/vtx=0 on that path. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+Shots (not committed): `.local/shots/play_spawn.png`, `play_hall_a.png`, `play_hall_walk.png`, `play_stairs.png`, `play_stairs_end.png`.
+
+**Remaining holes**
+
+- Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
