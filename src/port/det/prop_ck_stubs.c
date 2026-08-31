@@ -22,6 +22,45 @@ PORT_CK_WEAK int port_prop_guard_xz(int i, float *x, float *z)
     return -1;
 }
 
+PORT_CK_WEAK int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx, float dy,
+                                       float dz, float *t_out)
+{
+    (void)ox;
+    (void)oy;
+    (void)oz;
+    (void)dx;
+    (void)dy;
+    (void)dz;
+    (void)t_out;
+    return 0;
+}
+
+PORT_CK_WEAK int port_prop_chr_hit_xz(float *x, float *z)
+{
+    if (x)
+        *x = 0.f;
+    if (z)
+        *z = 0.f;
+    return -1;
+}
+
+PORT_CK_WEAK int port_prop_guard_visual_cyl(int i, float *lx, float *lz, float *radius,
+                                            float *y0, float *h)
+{
+    (void)i;
+    if (lx)
+        *lx = 0.f;
+    if (lz)
+        *lz = 0.f;
+    if (radius)
+        *radius = 0.f;
+    if (y0)
+        *y0 = 0.f;
+    if (h)
+        *h = 0.f;
+    return -1;
+}
+
 PORT_CK_WEAK int port_prop_guard_yaw(int i, float *yaw, int *alerted)
 {
     (void)i;

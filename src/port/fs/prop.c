@@ -204,6 +204,8 @@ static float g_die_hold[PORT_SKEL_GUARD_N][3];
 static int g_walkers;
 static int g_walk_prop;
 static int g_idle_prop;
+static float g_chr_hit_wx, g_chr_hit_wz;
+static int g_chr_hit_ok;
 static int g_walk_frame;
 static uint32_t g_walk_nframes;
 static float g_walk_fit_scale;
@@ -3280,6 +3282,311 @@ int port_prop_walk_xz(float *x, float *z)
         *x = g_prop[g_walk_prop].pos[0];
     if (z)
         *z = g_prop[g_walk_prop].pos[2];
+    return 0;
+}
+
+#define PORT_CHR_RAY_TMIN 0.05f
+#define PORT_CHR_RAY_TMAX 4000.0f
+/* skip=pose: Chris 2026-08-31 spawn-hall shoot, body on crosshair,
+ * pad cylinder perp=104u. Until a ROM aim still exists, the drawn
+ * torso sits off the 30u pad; viscyl must cover that body. */
+#define PORT_VIS_RMIN 115.0f
+#define PORT_VIS_RMAX 150.0f
+#define PORT_VIS_VTX_CAP 4000.0f
+
+typedef void (*VisPtFn)(float x, float y, float z, void *ud);
+
+static void vis_emit_pt(float x, float y, float z, VisPtFn fn, void *ud)
+{
+    if (!(x == x) || !(y == y) || !(z == z))
+        return;
+    fn(x, y, z, ud);
+}
+
+/* G1 draws G_VTX from the part DL (seg5 file / seg4 bank), not only
+ * the node collision vtx4. Those verts are the on-screen body. */
+static void vis_gdl_pts(const uint8_t *dl, uint32_t ncmd, const PortModel *mdl,
+                        const PortPart *pt, float ox, float oy, float oz,
+                        const float world[4][4], float sc, VisPtFn fn, void *ud)
+{
+    uint32_t i, k;
+    if (!dl || ncmd == 0 || !mdl || !mdl->file)
+        return;
+    for (i = 0; i < ncmd; i++) {
+        const uint8_t *op = dl + i * 8u;
+        uint32_t w1, seg, off, n, vbytes;
+        const uint8_t *vb = NULL;
+        size_t remain = 0;
+        if (op[0] != 0x04u)
+            continue;
+        n = ((uint32_t)op[1] >> 4) + 1u;
+        if (n > 32u)
+            n = 32u;
+        w1 = be32(op + 4);
+        seg = w1 >> 24;
+        off = w1 & 0x00FFFFFFu;
+        if (seg == 5u || seg == 0u) {
+            if (off < mdl->file_len) {
+                vb = mdl->file + off;
+                remain = mdl->file_len - off;
+            }
+        } else if (seg == 4u && pt && pt->vtx4) {
+            vb = (const uint8_t *)pt->vtx4;
+            remain = (pt->nvtx ? pt->nvtx : 32u) * 16u;
+        } else if (off < mdl->file_len) {
+            vb = mdl->file + off;
+            remain = mdl->file_len - off;
+        }
+        if (!vb)
+            continue;
+        vbytes = n * 16u;
+        if (vbytes > remain)
+            n = (uint32_t)(remain / 16u);
+        for (k = 0; k < n; k++) {
+            float vx, vy, vz, px, py, pz;
+            const uint8_t *s = vb + k * 16u;
+            vx = (float)(int16_t)be16(s);
+            vy = (float)(int16_t)be16(s + 2);
+            vz = (float)(int16_t)be16(s + 4);
+            if (fabsf(vx) > PORT_VIS_VTX_CAP || fabsf(vy) > PORT_VIS_VTX_CAP ||
+                fabsf(vz) > PORT_VIS_VTX_CAP)
+                continue;
+            px = world[0][0] * vx + world[0][1] * vy + world[0][2] * vz;
+            py = world[1][0] * vx + world[1][1] * vy + world[1][2] * vz;
+            pz = world[2][0] * vx + world[2][1] * vy + world[2][2] * vz;
+            vis_emit_pt(ox + sc * px, oy + sc * py, oz + sc * pz, fn, ud);
+        }
+    }
+}
+
+static void vis_model_pts(const PortProp *pr, const PortModel *mdl, const float r1[3],
+                          float extra_x, float extra_y, float extra_z, float extra_rx,
+                          float extra_ry, float extra_rz, VisPtFn fn, void *ud)
+{
+    int p;
+    float extra[4][4], yawm[4][4];
+    float sc;
+
+    if (!pr || !mdl)
+        return;
+    sc = (pr->scale != 0.f) ? pr->scale : 1.f;
+    mtx_local(extra, extra_x, extra_y, extra_z, extra_rx, extra_ry, extra_rz);
+    mtx_local(yawm, 0.f, 0.f, 0.f, 0.f, pr->yaw * (PI_F / 180.f), 0.f);
+    mtx_mul4(extra, yawm, extra);
+    for (p = 0; p < mdl->npart; p++) {
+        const PortPart *pt = &mdl->part[p];
+        float loc[4][4], world[4][4];
+        float ox, oy, oz;
+        uint32_t i, nv;
+        const uint8_t *vb;
+        mtx_local(loc, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
+        mtx_mul4(world, extra, loc);
+        ox = world[0][3];
+        oy = world[1][3];
+        oz = world[2][3];
+        if (mdl->fit_scale != 1.f || mdl->fit_ymin != 0.f) {
+            ox *= sc;
+            oy = (oy - mdl->fit_ymin) * sc;
+            oz *= sc;
+        }
+        ox += pr->pos[0] - r1[0];
+        oy += pr->pos[1] - r1[1];
+        oz += pr->pos[2] - r1[2];
+        vis_emit_pt(ox, oy, oz, fn, ud);
+        vis_gdl_pts(pt->pri, pt->pri_n, mdl, pt, ox, oy, oz, world, sc, fn, ud);
+        vis_gdl_pts(pt->sec, pt->sec_n, mdl, pt, ox, oy, oz, world, sc, fn, ud);
+        vb = pt->vtx4 ? (const uint8_t *)pt->vtx4 : NULL;
+        nv = pt->nvtx;
+        if (!vb || nv == 0)
+            continue;
+        if (nv > 256u)
+            nv = 256u;
+        for (i = 0; i < nv; i++) {
+            float vx, vy, vz, px, py, pz;
+            const uint8_t *s = vb + i * 16u;
+            vx = (float)(int16_t)be16(s);
+            vy = (float)(int16_t)be16(s + 2);
+            vz = (float)(int16_t)be16(s + 4);
+            if (fabsf(vx) > PORT_VIS_VTX_CAP || fabsf(vy) > PORT_VIS_VTX_CAP ||
+                fabsf(vz) > PORT_VIS_VTX_CAP)
+                continue;
+            px = world[0][0] * vx + world[0][1] * vy + world[0][2] * vz;
+            py = world[1][0] * vx + world[1][1] * vy + world[1][2] * vz;
+            pz = world[2][0] * vx + world[2][1] * vy + world[2][2] * vz;
+            vis_emit_pt(ox + sc * px, oy + sc * py, oz + sc * pz, fn, ud);
+        }
+    }
+}
+
+static void vis_guard_pts(const PortProp *pr, const float r1[3], VisPtFn fn, void *ud)
+{
+    if (!pr || !pr->mdl)
+        return;
+    vis_model_pts(pr, pr->mdl, r1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, fn, ud);
+    if (pr->head && pr->head->npart)
+        vis_model_pts(pr, pr->head, r1, pr->head_off[0], pr->head_off[1], pr->head_off[2],
+                      pr->head_rx, pr->head_ry, pr->head_rz, fn, ud);
+}
+
+typedef struct {
+    int n;
+    float sx, sy, sz;
+    float y0, y1;
+} VisSum;
+
+typedef struct {
+    float cx, cz;
+    float r2;
+    float y0, y1;
+} VisRad;
+
+static void vis_sum_pt(float x, float y, float z, void *ud)
+{
+    VisSum *s = (VisSum *)ud;
+    s->sx += x;
+    s->sy += y;
+    s->sz += z;
+    if (s->n == 0 || y < s->y0)
+        s->y0 = y;
+    if (s->n == 0 || y > s->y1)
+        s->y1 = y;
+    s->n++;
+}
+
+static void vis_rad_pt(float x, float y, float z, void *ud)
+{
+    VisRad *r = (VisRad *)ud;
+    float dx = x - r->cx, dz = z - r->cz, d2 = dx * dx + dz * dz;
+    (void)y;
+    if (d2 > r->r2)
+        r->r2 = d2;
+}
+
+static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, float *y0,
+                               float *h)
+{
+    float r1[3];
+    VisSum sum;
+    VisRad rad;
+    float r, hh;
+
+    if (pi < 0 || pi >= g_nprop || g_prop[pi].type != PDEF_GUARD || !g_prop[pi].mdl)
+        return -1;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    memset(&sum, 0, sizeof sum);
+    vis_guard_pts(&g_prop[pi], r1, vis_sum_pt, &sum);
+    if (sum.n < 1)
+        return -1;
+    rad.cx = sum.sx / (float)sum.n;
+    rad.cz = sum.sz / (float)sum.n;
+    rad.r2 = 0.f;
+    rad.y0 = sum.y0;
+    rad.y1 = sum.y1;
+    vis_guard_pts(&g_prop[pi], r1, vis_rad_pt, &rad);
+    r = sqrtf(rad.r2);
+    if (r < PORT_VIS_RMIN)
+        r = PORT_VIS_RMIN;
+    if (r > PORT_VIS_RMAX)
+        r = PORT_VIS_RMAX;
+    hh = PORT_CHR_STAND + 80.f;
+    {
+        float ey = 0.f;
+        /* skip=pose joint Y is not stand height. Rare shot hits the
+         * body on the stan floor the G1 feet sit on. */
+        if (port_stan_eye_y(rad.cx, rad.cz, &ey) == 0)
+            sum.y0 = ey - PORT_EYE_HEIGHT;
+        else
+            sum.y0 = 0.f;
+    }
+    if (lx)
+        *lx = rad.cx;
+    if (lz)
+        *lz = rad.cz;
+    if (radius)
+        *radius = r;
+    if (y0)
+        *y0 = sum.y0;
+    if (h)
+        *h = hh;
+    return 0;
+}
+
+int port_prop_guard_visual_cyl(int want, float *lx, float *lz, float *radius, float *y0,
+                               float *h)
+{
+    return guard_visual_cyl_pi(guard_prop_at(want), lx, lz, radius, y0, h);
+}
+
+static int vis_cyl_ray(float ox, float oy, float oz, float dx, float dy, float dz,
+                       float cx, float cz, float r, float y0, float y1, float *t_out)
+{
+    float fx, fz, a, b, c, disc, t, hy;
+
+    fx = ox - cx;
+    fz = oz - cz;
+    a = dx * dx + dz * dz;
+    if (a < 1.0e-12f)
+        return 0;
+    b = 2.0f * (fx * dx + fz * dz);
+    c = fx * fx + fz * fz - r * r;
+    disc = b * b - 4.0f * a * c;
+    if (disc < 0.0f)
+        return 0;
+    t = (-b - sqrtf(disc)) / (2.0f * a);
+    if (t < PORT_CHR_RAY_TMIN)
+        t = (-b + sqrtf(disc)) / (2.0f * a);
+    if (t < PORT_CHR_RAY_TMIN || t > PORT_CHR_RAY_TMAX)
+        return 0;
+    hy = oy + dy * t;
+    if (hy < y0 || hy > y1)
+        return 0;
+    if (t_out)
+        *t_out = t;
+    return 1;
+}
+
+int port_prop_chr_ray_hit(float local_x, float local_y, float local_z, float dx, float dy,
+                          float dz, float *t_out)
+{
+    int i, best_i = -1;
+    float best = PORT_CHR_RAY_TMAX + 1.f;
+
+    g_chr_hit_ok = 0;
+    for (i = 0; i < g_nprop; i++) {
+        float cx, cz, r, y0, h, t;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
+            continue;
+        if (guard_visual_cyl_pi(i, &cx, &cz, &r, &y0, &h) != 0)
+            continue;
+        if (!vis_cyl_ray(local_x, local_y, local_z, dx, dy, dz, cx, cz, r, y0, y0 + h,
+                         &t))
+            continue;
+        if (t < best) {
+            best = t;
+            best_i = i;
+        }
+    }
+    if (best_i < 0)
+        return 0;
+    g_chr_hit_wx = g_prop[best_i].pos[0];
+    g_chr_hit_wz = g_prop[best_i].pos[2];
+    g_chr_hit_ok = 1;
+    if (t_out)
+        *t_out = best;
+    return 1;
+}
+
+int port_prop_chr_hit_xz(float *world_x, float *world_z)
+{
+    if (!g_chr_hit_ok)
+        return -1;
+    if (world_x)
+        *world_x = g_chr_hit_wx;
+    if (world_z)
+        *world_z = g_chr_hit_wz;
     return 0;
 }
 

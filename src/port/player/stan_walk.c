@@ -198,6 +198,19 @@ void port_stan_mark_ray_guard(void)
         g_guard[g_ray_guard].hit = 1;
 }
 
+void port_stan_mark_guard_at(float world_x, float world_z)
+{
+    int i;
+    for (i = 0; i < g_nguard; i++) {
+        float dx = world_x - g_guard[i].x;
+        float dz = world_z - g_guard[i].z;
+        if (dx * dx + dz * dz <= 1.0f) {
+            g_guard[i].hit = 1;
+            return;
+        }
+    }
+}
+
 void port_stan_add_door(float world_x, float world_z, float look_x, float look_z)
 {
     port_stan_add_door_w(world_x, world_z, look_x, look_z, 0.0f);

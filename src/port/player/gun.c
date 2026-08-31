@@ -10,6 +10,26 @@
 
 __attribute__((weak)) void port_prop_hear_player_shot(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
+__attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
+                                                float dy, float dz, float *t_out)
+{
+    (void)ox;
+    (void)oy;
+    (void)oz;
+    (void)dx;
+    (void)dy;
+    (void)dz;
+    (void)t_out;
+    return 0;
+}
+__attribute__((weak)) int port_prop_chr_hit_xz(float *x, float *z)
+{
+    if (x)
+        *x = 0.f;
+    if (z)
+        *z = 0.f;
+    return -1;
+}
 
 /*
  * PP7 / KF7 slice of gunfire.c until that file compiles.
@@ -80,7 +100,7 @@ static void fire_hitscan(void)
     float dx, dy, dz;
     float t_best = 1.0e9f;
     float t;
-    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor, 5 other seat */
+    int src = 0; /* 1 stan, 2 patrol, 3 fake z=-50, 4 floor, 5 other seat, 6 chr vis */
     int hit_seat = -1;
     int shooter = port_cur_player();
     int seat, n;
@@ -89,6 +109,11 @@ static void fire_hitscan(void)
     if (port_stan_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
         t_best = t;
         src = 1;
+    }
+    /* Drawn setup-chr body (pose AABB), not only the 30u pad cylinder. */
+    if (port_prop_chr_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
+        t_best = t;
+        src = 6;
     }
     if (port_chr_ray_hit(ox, oy, oz, dx, dy, dz, &t) && t < t_best) {
         t_best = t;
@@ -140,6 +165,11 @@ static void fire_hitscan(void)
         g->hits += 1;
         if (src == 2) {
             port_chr_kill();
+            port_score_add_kill();
+        } else if (src == 6) {
+            float hx = 0.f, hz = 0.f;
+            if (port_prop_chr_hit_xz(&hx, &hz) == 0)
+                port_stan_mark_guard_at(hx, hz);
             port_score_add_kill();
         } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();

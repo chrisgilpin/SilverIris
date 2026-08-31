@@ -1886,6 +1886,145 @@ static int playtest_chris(const char *out_dir)
         }
     }
 
+    /* Chris 2026-08-31 live shoot: crosshair on spawn-hall guard, hits
+     * increment, body stays up. */
+#define PLAY_SHOOT_X (-219.0f)
+#define PLAY_SHOOT_Z (-2364.3f)
+#define PLAY_SHOOT_TH 264.0f
+    {
+        float r1[3], ey = 29.1f, ldx, ldz, ldy, tblk = 0.f, thit = 0.f;
+        int gi, ng, dead0 = 0, dead1 = 0, hits0;
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+        port_player_set_pitch(0.f);
+        (void)port_stan_eye_y(PLAY_SHOOT_X, PLAY_SHOOT_Z, &ey);
+        port_player_look_dir(&ldx, &ldy, &ldz);
+        {
+            float vx = PLAY_SHOOT_X, vz = PLAY_SHOOT_Z;
+            port_stan_visual_xz(PLAY_SHOOT_X, PLAY_SHOOT_Z, &vx, &vz);
+            printf("shoot dump player local=%.1f,%.1f,%.1f world=%.1f,%.1f look=%.3f,%.3f,%.3f visual=%.1f,%.1f dvis=%.1f idle=%d\n",
+                   (double)PLAY_SHOOT_X, (double)ey, (double)PLAY_SHOOT_Z,
+                   (double)(PLAY_SHOOT_X + r1[0]), (double)(PLAY_SHOOT_Z + r1[2]),
+                   (double)ldx, (double)ldy, (double)ldz, (double)vx, (double)vz,
+                   (double)sqrtf((vx - PLAY_SHOOT_X) * (vx - PLAY_SHOOT_X) +
+                                 (vz - PLAY_SHOOT_Z) * (vz - PLAY_SHOOT_Z)),
+                   port_prop_idle_guard());
+        }
+        ng = port_prop_guard_count();
+        for (gi = 0; gi < ng; gi++) {
+            float gx, gy, gz, lx, lz, dx, dz, d, along, perp;
+            if (port_prop_guard_xyz(gi, &gx, &gy, &gz) != 0)
+                continue;
+            lx = gx - r1[0];
+            lz = gz - r1[2];
+            dx = lx - PLAY_SHOOT_X;
+            dz = lz - PLAY_SHOOT_Z;
+            d = sqrtf(dx * dx + dz * dz);
+            if (d > 500.f)
+                continue;
+            along = dx * ldx + dz * ldz;
+            perp = sqrtf(fmaxf(0.f, d * d - along * along));
+            printf("shoot guard[%d] world=%.1f,%.1f local=%.1f,%.1f d=%.1f along=%.1f perp=%.1f dead=%d idle=%d\n",
+                   gi, (double)gx, (double)gz, (double)lx, (double)lz, (double)d,
+                   (double)along, (double)perp,
+                   port_stan_guard_dead_at(gx, gz),
+                   gi == port_prop_idle_guard());
+            (void)gy;
+        }
+        (void)port_stan_ray_block(PLAY_SHOOT_X, ey, PLAY_SHOOT_Z, ldx, ldy, ldz,
+                                  &tblk);
+        (void)port_stan_ray_hit(PLAY_SHOOT_X, ey, PLAY_SHOOT_Z, ldx, ldy, ldz,
+                                &thit);
+        printf("shoot ray coll block_t=%.1f hit_t=%.1f guard=%d hits0=%d\n",
+               (double)tblk, (double)thit, port_stan_ray_hit_guard(),
+               port_gun_hits());
+        {
+            float vx = PLAY_SHOOT_X, vz = PLAY_SHOOT_Z, tvis = 0.f;
+            port_stan_visual_xz(PLAY_SHOOT_X, PLAY_SHOOT_Z, &vx, &vz);
+            (void)port_stan_ray_hit(vx, ey, vz, ldx, ldy, ldz, &tvis);
+            printf("shoot ray vis origin=%.1f,%.1f hit_t=%.1f guard=%d\n",
+                   (double)vx, (double)vz, (double)tvis, port_stan_ray_hit_guard());
+        }
+        {
+            int ig = port_prop_idle_guard();
+            float cx = 0.f, cz = 0.f, vr = 0.f, y0 = 0.f, vh = 0.f, tchr = 0.f;
+            if (ig >= 0 &&
+                port_prop_guard_visual_cyl(ig, &cx, &cz, &vr, &y0, &vh) == 0) {
+                float dx = cx - PLAY_SHOOT_X, dz = cz - PLAY_SHOOT_Z;
+                float along = dx * ldx + dz * ldz;
+                float d = sqrtf(dx * dx + dz * dz);
+                float perp = sqrtf(fmaxf(0.f, d * d - along * along));
+                printf("shoot viscyl idle local=%.1f,%.1f r=%.1f y=%.1f..%.1f d=%.1f along=%.1f perp=%.1f\n",
+                       (double)cx, (double)cz, (double)vr, (double)y0, (double)(y0 + vh),
+                       (double)d, (double)along, (double)perp);
+            }
+            printf("shoot chr_ray hit=%d t=%.1f\n",
+                   port_prop_chr_ray_hit(PLAY_SHOOT_X, ey, PLAY_SHOOT_Z, ldx, ldy, ldz,
+                                         &tchr),
+                   (double)tchr);
+        }
+        place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_shoot_before") != 0)
+            return -1;
+        hits0 = port_gun_hits();
+        dead0 = 0;
+        for (gi = 0; gi < ng; gi++) {
+            float gx, gz;
+            if (port_prop_guard_xz(gi, &gx, &gz) == 0 &&
+                port_stan_guard_dead_at(gx, gz))
+                dead0++;
+        }
+        {
+            int s;
+            for (s = 0; s < 8; s++) {
+                port_gun_tick(0);
+                port_gun_tick(PORT_Z_TRIG);
+            }
+        }
+        dead1 = 0;
+        for (gi = 0; gi < ng; gi++) {
+            float gx, gz;
+            if (port_prop_guard_xz(gi, &gx, &gz) == 0 &&
+                port_stan_guard_dead_at(gx, gz))
+                dead1++;
+        }
+        printf("shoot after hits=%d->%d kills=%d dead=%d->%d mag=%d die=%d\n",
+               hits0, port_gun_hits(), port_api_kills(), dead0, dead1,
+               port_gun_mag(), port_prop_have_die());
+        if (port_prop_have_die()) {
+            int lastf = port_prop_die_last_frame();
+            int ti, need = 0;
+            if (lastf > 0)
+                need = (lastf + PORT_DIE_FRAMES_PER_TICK - 1) /
+                       PORT_DIE_FRAMES_PER_TICK;
+            for (ti = 0; ti < need + 4; ti++)
+                port_prop_tick_die();
+        }
+        while (port_gun_flash_frames() > 0)
+            port_gun_tick(0);
+        place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_shoot_after") != 0)
+            return -1;
+        if (dead1 <= dead0) {
+            fprintf(stderr, "shoot guard still up dead=%d hits=%d (want body drop)\n",
+                    dead1, port_gun_hits());
+            return -1;
+        }
+        {
+            int ig = port_prop_idle_guard();
+            float gx = 0.f, gz = 0.f;
+            if (ig < 0 || port_prop_guard_xz(ig, &gx, &gz) != 0 ||
+                !port_stan_guard_dead_at(gx, gz)) {
+                fprintf(stderr, "shoot extra idle still up ig=%d dead=%d hits=%d\n",
+                        ig, dead1, port_gun_hits());
+                return -1;
+            }
+        }
+    }
+
     playtest_pose("corner", PLAY_CORNER_X, PLAY_CORNER_Z, PLAY_CORNER_TH);
     port_player_set_pitch(-3.f);
     if (shot_one(out_dir, "play_corner") != 0)
