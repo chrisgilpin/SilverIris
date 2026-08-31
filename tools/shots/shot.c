@@ -1942,7 +1942,7 @@ int main(int argc, char **argv)
     size_t pack_len = 0;
     uint8_t hash[32];
     int a, rc = 1;
-    float spawn_x = 0.f, spawn_z = 0.f, spawn_th = 0.f;
+    float spawn_x = 0.f, spawn_y = 0.f, spawn_z = 0.f, spawn_th = 0.f;
 
     for (a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--pack") == 0 && a + 1 < argc)
@@ -2183,6 +2183,7 @@ int main(int argc, char **argv)
         }
     }
     spawn_x = port_api_player_x();
+    spawn_y = port_api_player_y();
     spawn_z = port_api_player_z();
     spawn_th = port_api_player_theta();
     printf("spawn_first y=%.1f xz=%.1f,%.1f on=%d\n",
@@ -2224,6 +2225,47 @@ int main(int argc, char **argv)
     }
     if (probe_eye_band("spawn", spawn_x, spawn_z, 70.f, 110.f) != 0)
         goto done;
+    {
+        const char *info = port_prop_idle_info();
+        int ig;
+        float gx, gy, gz, r1[3], lx, lz, dx, dz, dist;
+        float look_x, look_z, look_y, look_th;
+        if (!info || !strstr(info, "rest=skel") || strstr(info, "skip=aabb")) {
+            fprintf(stderr, "idle rest not skel: %s\n", info ? info : "(null)");
+            goto done;
+        }
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        ig = port_prop_idle_guard();
+        if (ig < 0)
+            ig = 0;
+        if (port_prop_guard_xyz(ig, &gx, &gy, &gz) != 0) {
+            fprintf(stderr, "idle_look no guard xyz\n");
+            goto done;
+        }
+        lx = gx - r1[0];
+        lz = gz - r1[2];
+        dx = lx - spawn_x;
+        dz = lz - spawn_z;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist < 80.f)
+            dist = 80.f;
+        /* Stand ~220u from the extra idle / first living body, face it. */
+        look_x = lx - dx * (220.f / dist);
+        look_z = lz - dz * (220.f / dist);
+        if (port_stan_eye_y(look_x, look_z, &look_y) != 0)
+            look_y = spawn_y;
+        look_th = atan2f(dx, -dz) * (180.f / 3.14159265f);
+        if (look_th < 0.f)
+            look_th += 360.f;
+        printf("idle_look from=%.1f,%.1f to=%.1f,%.1f th=%.1f dist=%.1f %s\n",
+               (double)look_x, (double)look_z, (double)lx, (double)lz,
+               (double)look_th, (double)dist, info);
+        port_player_set_pose(look_x, look_y, look_z, look_th);
+        if (shot_one(out_dir, "idle_look") != 0)
+            goto done;
+        port_player_set_pose(spawn_x, spawn_y, spawn_z, spawn_th);
+    }
     {
         float x, z, ey, best = 0.f, bx = 0.f, bz = 0.f, ny = 0.f;
         int n = 0;

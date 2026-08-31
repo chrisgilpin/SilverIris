@@ -3573,19 +3573,24 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
                       float wdx, float wdy, float wdz)
 {
     int p;
-    float th, c, s;
     float extra[4][4];
 
     if (!mdl)
         return k;
-    th = pr->yaw * (PI_F / 180.f);
-    c = cosf(th);
-    s = sinf(th);
     mtx_local(extra, extra_x, extra_y, extra_z, extra_rx, extra_ry, extra_rz);
+    /* Bake pad yaw into the part matrix (T * R_yaw * R_pose). G1 used to
+     * do T * R_pose * R_yaw, which tore idle/walk limbs into wall smears
+     * while GROUP-origin AABB still looked like a 1510u stand. Identity
+     * pose (doors, G1DL) is unchanged: R_pose=I. */
+    {
+        float yawm[4][4];
+        mtx_local(yawm, 0.f, 0.f, 0.f, 0.f, (pr->yaw + add_yaw) * (PI_F / 180.f), 0.f);
+        mtx_mul4(extra, yawm, extra);
+    }
     for (p = 0; p < mdl->npart && k < cap; p++) {
         const PortPart *pt = &mdl->part[p];
         float loc[4][4], world[4][4];
-        float lx, ly, lz, wx, wz, rx, ry, rz;
+        float lx, ly, lz, rx, ry, rz;
         if (!pt->pri || pt->pri_n == 0)
             continue;
         mtx_local(loc, pt->ox, pt->oy, pt->oz, pt->rx, pt->ry, pt->rz);
@@ -3602,18 +3607,16 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
             ly = (ly - mdl->fit_ymin) * sc;
             lz *= sc;
         }
-        wx = c * lx + s * lz;
-        wz = -s * lx + c * lz;
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
         out[k].pri_n = pt->pri_n;
         out[k].sec = pt->sec;
         out[k].sec_n = pt->sec_n;
-        out[k].ox = pr->pos[0] - room1[0] + wx + wdx;
+        out[k].ox = pr->pos[0] - room1[0] + lx + wdx;
         out[k].oy = pr->pos[1] - room1[1] + ly + wdy;
-        out[k].oz = pr->pos[2] - room1[2] + wz + wdz;
+        out[k].oz = pr->pos[2] - room1[2] + lz + wdz;
 
-        out[k].yaw = pr->yaw + add_yaw;
+        out[k].yaw = 0.f;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
         out[k].seg4 = pt->vtx4;
