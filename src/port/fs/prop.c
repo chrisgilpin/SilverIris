@@ -3360,6 +3360,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
     int p, k = 0;
     float hold[4][4], r180[4][4];
     int show_flash;
+    float gun_sc = PORT_GUN_MODEL_SCALE;
 
     g_viewgun_parts = 0;
     if (!out || cap < 1)
@@ -3367,6 +3368,8 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
     m = load_viewgun();
     if (!m || m->npart == 0)
         return 0;
+    if (g_viewgun_id == PORT_GUN_AK47_ID)
+        gun_sc = PORT_GUN_MODEL_SCALE * (PORT_GUN_WPPK_RADIUS / PORT_GUN_AK47_RADIUS);
     show_flash = port_gun_flash_frames() > 0;
     {
         float hx, hy, hz;
@@ -3384,8 +3387,8 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
             continue;
         /* Rare: gunmtx = T(Pos) * R * S(0.1) * node. Scale node
          * translation here so G1's T*R*S matches that product. */
-        mtx_local(part, pt->ox * PORT_GUN_MODEL_SCALE, pt->oy * PORT_GUN_MODEL_SCALE,
-                  pt->oz * PORT_GUN_MODEL_SCALE, pt->rx, pt->ry, pt->rz);
+        mtx_local(part, pt->ox * gun_sc, pt->oy * gun_sc, pt->oz * gun_sc, pt->rx,
+                  pt->ry, pt->rz);
         mtx_mul4(tmp, r180, part);
         mtx_mul4(world, hold, tmp);
         mtx_euler(world, &rx, &ry, &rz);
@@ -3402,7 +3405,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
-        out[k].scale = PORT_GUN_MODEL_SCALE;
+        out[k].scale = gun_sc;
         out[k].seg5 = (uintptr_t)m->file;
         out[k].seg4 = pt->vtx4;
         out[k].view = 1;

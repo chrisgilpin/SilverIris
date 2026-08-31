@@ -233,6 +233,12 @@ static int load_from_pack(unsigned id)
         snprintf(path, sizeof path, "assets/images/split/%s.bin", name);
         e = c0pack_find(g_pack, path);
     }
+    /* Pack extract names files by TextureID (`1916.bin`). images.def names
+     * are an index; numeric fallback is dump-verified, not a palette invent. */
+    if (!e) {
+        snprintf(path, sizeof path, "assets/images/split/%u.bin", id);
+        e = c0pack_find(g_pack, path);
+    }
     if (!e) {
         snprintf(path, sizeof path, "assets/images/split/image%u.bin", id);
         e = c0pack_find(g_pack, path);
@@ -252,6 +258,11 @@ int g1_tex_settex(uint32_t w0, uint32_t w1)
     uint8_t cms = (uint8_t)((w0 >> 22) & 3u);
     uint8_t cmt = (uint8_t)((w0 >> 20) & 3u);
     int slot;
+
+    /* F3D G_NOOP is also 0xC0. gsSPUseTexture(id=0) would be COPYICON;
+     * a zeroed 0xC0000000/0 is a no-op, not texture 0. */
+    if (w0 == 0xC0000000u && w1 == 0u)
+        return 0;
 
     g_settex_n++;
     g_last_id = (uint16_t)id;

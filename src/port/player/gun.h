@@ -24,6 +24,11 @@
  * matrix_scalar_multiply(IDO_POINT_ONE) on the 3x3 (translation stays).
  * Without that 0.1 the GwppkZ / Gak47Z mesh fills the near plane. */
 #define PORT_GUN_MODEL_SCALE 0.10000001f
+/* MODELFILEHEADER BoundingVolumeRadius. G1 near=10 cannot host KF7's
+ * 941u mesh at Rare hold Z -16 after 0.1 (PP7 294u at Z -33.5 is fine).
+ * Hold XYZ stays Rare; only G1 mesh scale uses the radius ratio. */
+#define PORT_GUN_WPPK_RADIUS 293.60767f
+#define PORT_GUN_AK47_RADIUS 941.9339f
 #define PORT_PP7_HOLD_X 11.f
 #define PORT_PP7_HOLD_Y (-20.8f)
 #define PORT_PP7_HOLD_Z (-33.5f)

@@ -269,3 +269,19 @@ Harness: Facility `idle_look` `have=1 off=5.8,520.1,-36.7` — standing body wit
 - Chr SETTEX grey vs brick.
 - KF7 near-white after collect.
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 SETTEX + KF7)
+
+SETTEX bind: pack files are `assets/images/split/<TextureID>.bin` (and images.def names). `g1_tex_settex` now tries the numeric id path after the name; F3D `G_NOOP` (`0xC0000000/0`) is not COPYICON. Oliveguard SETTEX 1916 decodes CI8 5551 mean rgb 87,109,51 (camo), texOk=1306/1306. Remaining flat olive is SHADE on greyscale Vtx.cn, not a missing palette — no invented TLUT.
+
+KF7 viewmodel: `MODELFILEHEADER` radius 941.9339 vs PP7 293.60767. G1 near=10 cannot host 0.1×941 at Rare hold Z −16. Mesh scale is `0.1 * (294/941)` for Gak47Z only. Hold XYZ stays Rare `11/−19/−16`. PP7 stays 0.1 at `11/−20.8/−33.5`.
+
+Spawn first frame stall room 71. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- G1 walls still inside some stan tiles (corner black void).
+- Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
