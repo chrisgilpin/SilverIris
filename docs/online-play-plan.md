@@ -427,3 +427,28 @@ idle (`rest=skel`); `play_clip_door` leaf solid; extra idle still dies
 **Remaining holes**
 
 - Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 extra-idle mesh `fc5214a`)
+
+shots2 extra idle was a vertical green slab off the head (vertex card to the
+ceiling). Dump vs `goldeneye_src`: rest=skel `T*R_yaw*R_pose` and Chead*Z on
+neck (opcode 23 / Switches[4]) were already right; G_VTX banks are compact
+(vmax ~200–500). Rare `modelApplyHeadRelations` replaces HeadPlaceholder.Child
+with Chead*Z RootNode. The body's default-head GDL at that neck origin was
+still drawn under Jim/Sally. That card is skipped. Opcode 4 binds Vertices
+(not BaseAddr/COL1). skip=pose DLs ignore G_MTX and do not keep a previous
+room's clip verts. Door-leaf skip / idle exempt / death clamp / shooting
+unchanged.
+
+Harness: `play_spawn` / `play_hall_a` / `play_shoot_before` standing camo
+body+head, no ceiling plane; `play_clip_door` leaf solid (md5 unchanged);
+`play_shoot_after` kills=1, body on the pad floor. Native player/gun/lockstep/
+2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Remaining G1 clip while walking. Chr camo still SHADE-flattened vs brick.
+  Aim `skip=pose`. Campaign out of v1.
