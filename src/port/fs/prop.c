@@ -3986,6 +3986,22 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
             ly = (ly - mdl->fit_ymin) * sc;
             lz *= sc;
         }
+        /* skip=pose death rest throws limbs through G1. Keep the dead
+         * AABB on the pad floor, not a fake ragdoll. */
+        if (mdl->id >= PORT_DIE_ID_BASE && mdl->id < PORT_DIE_ID_BASE + 256) {
+            if (lx > 45.f)
+                lx = 45.f;
+            if (lx < -45.f)
+                lx = -45.f;
+            if (lz > 45.f)
+                lz = 45.f;
+            if (lz < -45.f)
+                lz = -45.f;
+            if (ly < 0.f)
+                ly = 0.f;
+            if (ly > 40.f)
+                ly = 40.f;
+        }
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
         out[k].pri_n = pt->pri_n;

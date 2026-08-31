@@ -2040,6 +2040,34 @@ static int playtest_chris(const char *out_dir)
         printf("clipdoor pose local=%.1f,%.1f eye=%.1f on=%d room=%d cur=%d\n",
                (double)PLAY_CLIP_X, (double)PLAY_CLIP_Z, (double)ey, on, room,
                port_stage_current_room());
+        {
+            float r1[3], ldx, ldy, ldz;
+            int gi, ng;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            port_player_look_dir(&ldx, &ldy, &ldz);
+            ng = port_prop_guard_count();
+            for (gi = 0; gi < ng; gi++) {
+                float gx, gy, gz, lx, lz, dx, dz, d, along, tblk = 0.f;
+                if (port_prop_guard_xyz(gi, &gx, &gy, &gz) != 0)
+                    continue;
+                lx = gx - r1[0];
+                lz = gz - r1[2];
+                dx = lx - PLAY_CLIP_X;
+                dz = lz - PLAY_CLIP_Z;
+                d = sqrtf(dx * dx + dz * dz);
+                if (d > 400.f)
+                    continue;
+                along = dx * ldx + dz * ldz;
+                (void)port_stan_ray_block(PLAY_CLIP_X, ey, PLAY_CLIP_Z,
+                                          dx / (d > 1.f ? d : 1.f), 0.f,
+                                          dz / (d > 1.f ? d : 1.f), &tblk);
+                printf("clipdoor guard[%d] local=%.1f,%.1f d=%.1f along=%.1f block_t=%.1f dead=%d\n",
+                       gi, (double)lx, (double)lz, (double)d, (double)along,
+                       (double)tblk, port_stan_guard_dead_at(gx, gz));
+                (void)gy;
+            }
+        }
         port_stan_debug_at(PLAY_CLIP_X, PLAY_CLIP_Z);
         playtest_forward(PLAY_CLIP_TH, 12.f, &ddx, &ddz);
         nx = PLAY_CLIP_X + ddx;
