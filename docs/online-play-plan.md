@@ -342,3 +342,18 @@ Harness: spawn/WASD/A→B y=29.1 r71; stairs climb; `play_stairs_end` mean 65 da
 
 - Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+- Walk clip/teleport past the hall (r11 dump at -651,-1311). Guards through closed doors.
+
+---
+
+## STATUS (2026-08-31 shoot `b1a9201`)
+
+Live `playtest-shoot.png` after `ca673cf`: PP7 2/21 hp 8 hits 5 los 1 shots 4, crosshair on spawn-hall extra idle, body stayed up. Dump at x=-219 z=-2364 θ=264: pad cylinder perp=104u (skip=pose mesh vs 30u pad), tile-exit t=386, `guard=0`. Hitscan now uses the posed G1 viscyl (floor Y, r≥115 so that body registers) and marks the pad dead. Aim `skip=pose`.
+
+Harness: `play_shoot_before` standing torso; 7 Z-fires; extra idle dead; `play_shoot_after` pack death rest (not standing). Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Walk clip/teleport past the hall (Chris r11 -651,-1311 y=29.1).
+- Guards through closed G1 doors / occlusion.
+- Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
