@@ -1348,6 +1348,60 @@ static int dest_too_close_to_wall(float wx, float wz)
     return 0;
 }
 
+/* Draw-only: G1 walls sit inside walkable tiles. Pull the camera off
+ * unlinked edges by extra slack. clip_step / PORT_WALL_SKIN stay 30. */
+#define PORT_DRAW_SKIN 46.0f
+
+void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
+{
+    float wx, wz, cx = 0.f, cz = 0.f;
+    const StanTile *t;
+    int k, n, hits = 0;
+
+    if (ox)
+        *ox = lx;
+    if (oz)
+        *oz = lz;
+    if (!g_have_links || g_ntile <= 0)
+        return;
+    local_to_world(lx, lz, &wx, &wz);
+    t = tile_for_walk(wx, wz);
+    if (!t)
+        t = tile_at_world(wx, wz);
+    if (!t || t->n < 3)
+        return;
+    for (k = 0; k < t->n; k++) {
+        cx += t->x[k];
+        cz += t->z[k];
+    }
+    cx /= (float)t->n;
+    cz /= (float)t->n;
+    for (k = 0; k < t->n; k++) {
+        float d, need, dx, dz, len;
+        n = (k + 1 == t->n) ? 0 : k + 1;
+        if (t->link[k] >> 4)
+            continue;
+        d = dist_seg(wx, wz, t->x[k], t->z[k], t->x[n], t->z[n]);
+        if (d >= PORT_DRAW_SKIN)
+            continue;
+        need = PORT_DRAW_SKIN - d;
+        dx = cx - wx;
+        dz = cz - wz;
+        len = sqrtf(dx * dx + dz * dz);
+        if (len < 0.1f)
+            continue;
+        wx += dx / len * need;
+        wz += dz / len * need;
+        hits++;
+    }
+    if (!hits)
+        return;
+    if (ox)
+        *ox = wx - g_ox;
+    if (oz)
+        *oz = wz - g_oz;
+}
+
 static int legal_step(float owx, float owz, float cwx, float cwz, int start_door)
 {
     if (!legal_world(cwx, cwz, start_door))

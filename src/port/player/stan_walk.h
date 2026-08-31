@@ -103,6 +103,9 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
  * linked upper keeps that floor; stacked xz with no stair link stays low.
  */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
+/* Draw-only camera xz. Pulls off unlinked edges by 46u (30+16). Does not
+ * change clip_step or PORT_WALL_SKIN. */
+void port_stan_visual_xz(float lx, float lz, float *ox, float *oz);
 /* Same xz clip, but always the lowest floor (guards / chase). Does not
  * touch the player's current-tile cache. */
 void port_stan_clip_step_ground(float ox, float oz, float *nx, float *nz, float *ny);

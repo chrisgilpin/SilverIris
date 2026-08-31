@@ -207,28 +207,28 @@ make -C native wasm   # emcc → web/shell/public/game.{js,wasm}
 
 ---
 
-## STATUS (2026-08-28)
+## STATUS (2026-08-30)
 
-Playtest (Facility, y=86.8, cur=71, PP7) on https://007.goodhouseinc.com: yellow debug overlay off, idle rest rebound via SKELETON(guard), hold-Shift run.
+Playtest Facility on https://007.goodhouseinc.com (hard-refresh). Spawn stays closed stall room 71. Netplay on. Lobby `siliris-run-v9!!!!!!` (walk/run pad from `a81d7db`; this session did not change the lockstep pad).
 
 **Shipped on `origin/main` (this session)**
 
 | Item | SHA | What |
 | --- | --- | --- |
-| Debug overlay | `4cf2365` | Live G1 canvas no longer composites yellow hit-cylinder boxes, hit crosses, or radar. Draw path: `web/shell/src/game/view.ts` `drawOverlayMarks` / `presentLiveView` → `drawPortOverlay`. Default is blit + center sight only. `?ff_debug=1` restores the overlay. Native G1 FB never stamped those prims. |
-| Idle rest | `4cf2365` | `rest_for_group` applies ANIM_idle / walk via SKELETON(guard) JointID → mtxA. RST1 still wins on synthetic files. Exploded Euler AABB (`h>2500` or `h<40`) rebinds without rest (RST1/identity) and records `skip=aabb` — no capsule. Aim stays `skip=pose`. Fit still 185u. |
-| Run | `4cf2365` | Hold-Shift sets lockstep `PORT_RUN` (CONT_R 0x0010), 1.9× analog. Default analog unchanged (~3 u/tick, dt=3). `crc_players` hashes pad buttons so the run bit is in the checksum. |
+| Walk / gun / wall skin | `a81d7db` | Keep. Rare 0.1 viewgun scale, authentic PP7/KF7 PosXYZ, `PORT_WALK_MUL` 4.5, collision skin 30. Not reverted. |
+| Standing bodies | `15def0a` | `emit_parts` bakes pad yaw into the part matrix (`T * R_yaw * R_pose`). Old G1 order `T * R_pose * R_yaw` smeared idle/walk limbs into wall blobs while GROUP AABB still reported `fit=0.123 h=1510 rest=skel`. Doors / identity G1DL unchanged. Facility harness `idle_look` from ~220u at the extra idle (`-420,-2480`). Spawn first frame still stall. Aim stays `skip=pose`. |
+| Draw-only wall slack | this commit | `port_stan_visual_xz` pulls the G1 camera off unlinked edges to 46u. `clip_step` / `PORT_WALL_SKIN` stay 30. Walk 4.5× unchanged. |
 
-Lobby `buildId` `siliris-run-v8!!!!!!`. Netplay on at https://007.goodhouseinc.com.
-G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477` (unchanged; chr rest is pack-only).
+G1 greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477` (unchanged).
 
 **Remaining holes**
 
+- Heads often missing: body `have_head` (opcode 23) may not fire, so `head_off` stays 0 and Chead*Z sits at the feet. Neck attach still dump-verified, not invented.
 - Aim decode `have≠0`: 16-joint Euler still explodes (`skip=pose`). Needs a ROM still of standing aim. Do not fake an arm.
-- G1 walls ≠ stan tiles: some visual clip-through.
-- If Facility C*Z idle Euler AABBs explode, HUD `idle_info` shows `skip=aabb` and the body is RST1/identity at 185u (T-pose-ish), not a standing Rare idle. Needs a pack look of room-71 idle/walker.
+- G1 walls still sit inside some stan tiles; visual slack 46 reduces smear, does not match meshes to tiles.
+- Chr SETTEX can stay grey/flat vs brick walls.
+- KF7 near-white after collect (header radius 941 vs PP7 294) — hold Z is Rare `-16` after 0.1 scale.
 - Combat AI is chase / LOS, not full `chrai`.
-- KF7 near-white after collect (header radius 941 vs PP7 294).
 - Two-box live netplay look. M19 private Facility tape (Chris).
 
-Default walk stays the pinned analog (~3 u/tick). Hold-Shift is 1.9× analog. Campaign is out of v1.
+Walk is `PORT_WALK_MUL` 4.5 × analog×dt (~13.5 u/tick). Hold-Shift is 1.9× that. Campaign is out of v1.

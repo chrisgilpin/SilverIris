@@ -1110,7 +1110,11 @@ int port_stage_draw(void)
             port_player_set_y(ey);
         }
     }
-    g1_set_lookat(port_player_x(), port_player_y(), port_player_z(), port_player_theta());
+    {
+        float vx = port_player_x(), vz = port_player_z();
+        port_stan_visual_xz(vx, vz, &vx, &vz);
+        g1_set_lookat(vx, port_player_y(), vz, port_player_theta());
+    }
     g1_set_pitch(port_player_phi());
 
     memset(passes, 0, sizeof passes);
