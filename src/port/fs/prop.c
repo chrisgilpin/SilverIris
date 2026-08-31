@@ -126,7 +126,7 @@ typedef struct {
     uint32_t sec_n;
     float ox, oy, oz;
     float rx, ry, rz;
-    uintptr_t vtx4; /* DLCOLLISION vertex bank for G_VTX 0x04 */
+    uintptr_t vtx4; /* SPSEGMENT_MODEL_VTX (4); not BaseAddr / COL1 */
     uint32_t nvtx;
 } PortPart;
 
@@ -738,19 +738,32 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
                         uint32_t data, float ox, float oy, float oz, float rx, float ry,
                         float rz)
 {
-    uint32_t p = 0, s = 0;
+    uint32_t p = 0, s = 0, v = 0, nv = 0;
     PortPart *pt;
 
     if (!data || m->npart >= PORT_MODEL_PARTS)
         return 0;
-    if (op == 24 && data + 8 <= n) {
+    /* goldeneye_src/src/bondtypes.h: opcode 4 DisplayListRecord Vertices
+     * at +0xC / numVertices at +0x10; +8 is BaseAddr (COL1), not VTX.
+     * Opcode 22 DisplayListPrimary: numVertices, Vertices, Primary.
+     * Opcode 24 DisplayList_Collision: Primary, Secondary, Vertices. */
+    if (op == 24 && data + 14 <= n) {
         p = file_off(be32(base + data), n);
         s = file_off(be32(base + data + 4), n);
-    } else if (op == 4 && data + 8 <= n) {
+        v = file_off(be32(base + data + 8), n);
+        nv = (uint32_t)be16(base + data + 12);
+    } else if (op == 4 && data + 18 <= n) {
         p = file_off(be32(base + data), n);
         s = file_off(be32(base + data + 4), n);
+        v = file_off(be32(base + data + 12), n);
+        nv = (uint32_t)be16(base + data + 16);
     } else if (op == 22 && data + 12 <= n) {
+        nv = be32(base + data);
+        v = file_off(be32(base + data + 4), n);
         p = file_off(be32(base + data + 8), n);
+    } else if ((op == 24 || op == 4) && data + 8 <= n) {
+        p = file_off(be32(base + data), n);
+        s = file_off(be32(base + data + 4), n);
     }
     if (!p)
         return 0;
@@ -770,14 +783,11 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
     pt->rx = rx;
     pt->ry = ry;
     pt->rz = rz;
-    if ((op == 24 || op == 4) && data + 12 <= n) {
-        uint32_t v = file_off(be32(base + data + 8), n);
-        if (v) {
-            pt->vtx4 = (uintptr_t)(base + v);
-            pt->nvtx = (uint32_t)be16(base + data + 12);
-            if (pt->nvtx > 256u)
-                pt->nvtx = 256u;
-        }
+    if (v) {
+        pt->vtx4 = (uintptr_t)(base + v);
+        pt->nvtx = nv;
+        if (pt->nvtx > 256u)
+            pt->nvtx = 256u;
     }
     m->npart++;
     return 1;
@@ -834,14 +844,21 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
         mtx_euler(childm, &rx, &ry, &rz);
         if ((op == 4 || op == 22 || op == 24) && data)
             add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz);
-        if (!m->have_head && (op == 23 || (sw4 && off == sw4))) {
-            m->head_off[0] = ox;
-            m->head_off[1] = oy;
-            m->head_off[2] = oz;
-            m->head_rx = rx;
-            m->head_ry = ry;
-            m->head_rz = rz;
-            m->have_head = 1;
+        /* Rare modelApplyHeadRelations: HeadPlaceholder.Child = Chead*Z
+         * RootNode. Walking the original child DL draws a default-head
+         * card at the neck (ceiling slab) under the attached Jim/Sally. */
+        if (op == 23 || (sw4 && off == sw4)) {
+            if (!m->have_head) {
+                m->head_off[0] = ox;
+                m->head_off[1] = oy;
+                m->head_off[2] = oz;
+                m->head_rx = rx;
+                m->head_ry = ry;
+                m->head_rz = rz;
+                m->have_head = 1;
+            }
+            if (use_guard)
+                child = 0;
         }
         for (i = 0; i < 2; i++) {
             uint32_t c = i ? next : child;
@@ -864,6 +881,27 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
     return m->npart ? 0 : -1;
 }
 
+/* Rare modelApplyHeadRelations replaces HeadPlaceholder.Child with Chead*Z.
+ * A GDL at the same world origin (child or neck-GROUP sibling) is the
+ * default head — drawing it with Jim/Sally is the spawn-hall ceiling slab. */
+static void strip_default_head_dl(PortModel *m)
+{
+    int p, w = 0;
+    if (!m || !m->have_head || m->npart < 1)
+        return;
+    for (p = 0; p < m->npart; p++) {
+        float dx = m->part[p].ox - m->head_off[0];
+        float dy = m->part[p].oy - m->head_off[1];
+        float dz = m->part[p].oz - m->head_off[2];
+        if (dx * dx + dy * dy + dz * dz < 1.f)
+            continue;
+        if (w != p)
+            m->part[w] = m->part[p];
+        w++;
+    }
+    m->npart = w;
+}
+
 static int chr_part_span(const PortModel *m, float *ymin, float *ymax)
 {
     int dp;
@@ -875,6 +913,13 @@ static int chr_part_span(const PortModel *m, float *ymin, float *ymax)
             lo = m->part[dp].oy;
         if (m->part[dp].oy > hi)
             hi = m->part[dp].oy;
+    }
+    /* HeadPlaceholder origin is not a GDL after Rare replaces Child. */
+    if (m->have_head) {
+        if (m->head_off[1] < lo)
+            lo = m->head_off[1];
+        if (m->head_off[1] > hi)
+            hi = m->head_off[1];
     }
     if (hi <= lo + 1.f)
         return 0;
@@ -933,6 +978,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         walk_parts(m, 0, use_guard);
         used = 0;
     }
+    if (use_guard)
+        strip_default_head_dl(m);
     if (use_guard && m->npart) {
         float ymin = 0.f, ymax = 0.f;
         if (chr_part_span(m, &ymin, &ymax)) {
@@ -947,6 +994,7 @@ static int bind_model_gdl(PortModel *m, int use_guard)
                 m->have_head = 0;
                 m->head_rx = m->head_ry = m->head_rz = 0.f;
                 walk_parts(m, used, use_guard);
+                strip_default_head_dl(m);
                 g_pose_rest = save;
                 if (chr_part_span(m, &ymin, &ymax))
                     fit_chr_stand(m, ymin, ymax, "skip=aabb");
@@ -4112,6 +4160,8 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
+        if (pr->type == PDEF_GUARD)
+            out[k].no_mtx = 1;
         k++;
     }
     return k;

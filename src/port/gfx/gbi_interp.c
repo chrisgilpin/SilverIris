@@ -15,6 +15,7 @@ typedef struct {
     float clip[4];
     float s, t;
     uint8_t r, g, b, a;
+    uint8_t live; /* this G1RoomDl loaded the slot; skip=pose must not keep room clip */
 } Slot;
 
 static GirList g_ir;
@@ -30,6 +31,7 @@ static float g_cam_eye[3];
 static float g_cam_theta;
 static float g_cam_pitch;
 static int g_cam_on;
+static int g_no_mtx;
 #define G1_PI 3.1415927f
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
@@ -155,6 +157,7 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
         s->a = v->cn[3];
         if (!s->r && !s->g && !s->b && !s->a)
             s->a = 255;
+        s->live = 1;
     }
 }
 
@@ -222,6 +225,8 @@ static void emit_indexed_tri(uint32_t i0, uint32_t i1, uint32_t i2)
     idx[0] = &g_slot[i0];
     idx[1] = &g_slot[i1];
     idx[2] = &g_slot[i2];
+    if (!idx[0]->live || !idx[1]->live || !idx[2]->live)
+        return;
     memset(&c, 0, sizeof c);
     c.op = GIR_DRAW_TRIS;
     for (k = 0; k < 3; k++) {
@@ -310,6 +315,8 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_MTX) {
+        if (g_no_mtx)
+            return 0;
         if (be) {
             const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
             apply_matrix(w0, mtx_from_be(p));
@@ -356,6 +363,8 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_POPMTX) {
+        if (g_no_mtx)
+            return 0;
         if (g_mvsp > 0) {
             g_mvsp--;
             mtx_copy(g_mv, g_mvstack[g_mvsp]);
@@ -603,7 +612,8 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         if (rooms[0].ox == 0.f && rooms[0].oy == 0.f && rooms[0].oz == 0.f &&
             rooms[0].yaw == 0.f && rooms[0].seg5 == 0 && rooms[0].seg4 == 0 &&
             rooms[0].rx == 0.f && rooms[0].ry == 0.f && rooms[0].rz == 0.f &&
-            (rooms[0].scale == 0.f || rooms[0].scale == 1.f) && !rooms[0].view)
+            (rooms[0].scale == 0.f || rooms[0].scale == 1.f) && !rooms[0].view &&
+            !rooms[0].no_mtx)
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
                                        rooms[0].sec_n);
     }
@@ -624,9 +634,13 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         if (rooms[i].seg5)
             g_seg[5] = rooms[i].seg5;
         /* Node vertex bank. Never bind seg 3: retail G_MTX is 0x03 and
-         * G_MTX_LOAD would replace the camera. Unbound G_MTX is a no-op. */
+         * G_MTX_LOAD would replace the camera. Unbound G_MTX is a no-op.
+         * skip=pose must not keep the previous part's VTX bank — opcode 4
+         * Chead*Z G_VTX is 0x04 into Vertices, not leftover body COL1. */
         if (rooms[i].seg4)
             g_seg[4] = rooms[i].seg4;
+        else if (rooms[i].no_mtx)
+            g_seg[4] = 0;
         if (rooms[i].view) {
             /* Camera-space: look from the origin with the stored pitch so
              * the PP7 sits bottom-center and tilts with phi. */
@@ -687,9 +701,16 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             mtx_copy(g_mv, tmp);
             rebuild_mvp();
         }
+        g_no_mtx = rooms[i].no_mtx;
+        /* skip=pose parts share the G1 vertex cache with room DLs. A G_TRI4
+         * nibble that this part did not G_VTX would paint a room clip vert
+         * (ceiling slab off the extra-idle head). Rare reloads Vtx per node. */
+        if (g_no_mtx)
+            memset(g_slot, 0, sizeof g_slot);
         walk_be(rooms[i].pri, rooms[i].pri_n);
         if (rooms[i].sec && rooms[i].sec_n)
             walk_be(rooms[i].sec, rooms[i].sec_n);
+        g_no_mtx = 0;
         walked++;
     }
     g_cam_eye[0] = eye[0];
