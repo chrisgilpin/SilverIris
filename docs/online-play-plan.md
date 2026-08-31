@@ -272,7 +272,7 @@ Harness: Facility `idle_look` `have=1 off=5.8,520.1,-36.7` — standing body wit
 
 ---
 
-## STATUS (2026-08-31 SETTEX + KF7)
+## STATUS (2026-08-31 SETTEX + KF7 `624ee87`)
 
 SETTEX bind: pack files are `assets/images/split/<TextureID>.bin` (and images.def names). `g1_tex_settex` now tries the numeric id path after the name; F3D `G_NOOP` (`0xC0000000/0`) is not COPYICON. Oliveguard SETTEX 1916 decodes CI8 5551 mean rgb 87,109,51 (camo), texOk=1306/1306. Remaining flat olive is SHADE on greyscale Vtx.cn, not a missing palette — no invented TLUT.
 
