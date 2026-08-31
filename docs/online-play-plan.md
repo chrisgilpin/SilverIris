@@ -239,7 +239,7 @@ Walk is `PORT_WALK_MUL` 4.5 × analog×dt (~13.5 u/tick). Hold-Shift is 1.9× th
 
 Chris poses on live `95fc845`: corner `117.6,-2447` θ244; stairs `-530.7,-2580.3` y=86.8 θ80; wall `-687,-2713.9` θ271. Spawn stall room 71. Netplay on. Lobby still `siliris-run-v9!!!!!!` (no lockstep pad change).
 
-**Shipped this slice**
+**Shipped this slice (`04b3db7`)**
 
 | Item | What |
 | --- | --- |
