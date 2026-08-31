@@ -1606,11 +1606,13 @@ static const StanTile *landing_interior(const StanTile *t, const StanTile *from)
     ay = tile_avg_y(t);
     tile_centroid(t, &tcx, &tcz);
     best_s = min_unlinked_edge(t, tcx, tcz);
+    if (best_s > 200.0f)
+        best_s = 200.0f;
     if (from && point_in_tile(from, tcx, tcz))
         best_s -= 400.0f;
     for (i = 0; i < g_ntile; i++) {
         const StanTile *nb = &g_tile[i];
-        float nay, ncx, ncz, dx, dz, d, s;
+        float nay, ncx, ncz, dx, dz, d, s, fdx, fdz;
         if (nb == t || nb->room != t->room || nb->n < 3)
             continue;
         nay = tile_avg_y(nb);
@@ -1623,8 +1625,22 @@ static const StanTile *landing_interior(const StanTile *t, const StanTile *from)
         if (d > PORT_RISE_XZ)
             continue;
         s = min_unlinked_edge(nb, ncx, ncz);
+        if (s > 200.0f)
+            s = 200.0f;
         if (from && point_in_tile(from, ncx, ncz))
             s -= 400.0f;
+        /* Do not walk back toward the from-tile (linked A->C test
+         * snapped to B). Prefer farther from the ground overlap. */
+        if (from) {
+            float fcx, fcz, tdf;
+            tile_centroid(from, &fcx, &fcz);
+            fdx = ncx - fcx;
+            fdz = ncz - fcz;
+            tdf = sqrtf((tcx - fcx) * (tcx - fcx) + (tcz - fcz) * (tcz - fcz));
+            if (sqrtf(fdx * fdx + fdz * fdz) < tdf)
+                continue;
+            s += 0.25f * sqrtf(fdx * fdx + fdz * fdz);
+        }
         if (s > best_s) {
             best_s = s;
             best = nb;

@@ -1022,12 +1022,15 @@ static int select_rooms(uint8_t *out, int cap)
         qh++;
         out[n++] = (uint8_t)r;
         /* r13/r14/r15 need extra depth so a neighbor GDL (r12/r14) and its
-         * rooms stay in frame. Spawn r71 / r7 / r8 need extra ground
-         * depth so r19 (d4) and r18 (d5) walk; r12 stays off the extra
-         * hops so the stall frame does not pick up the catwalk. */
+         * rooms stay in frame. r12 landing looks down the start stairs
+         * into r71 (portal r6-r71 at d4); depth 3 left r71 undrawn and
+         * the stair well was a black slab. Spawn r71 / r7 / r8 need
+         * extra ground depth so r19 (d4) and r18 (d5) walk; r12 stays
+         * off those extra hops so the stall frame does not pick up the
+         * catwalk. */
         maxd = PORT_WALK_DEPTH;
         ground_extra = 0;
-        if (cur == 13 || cur == 14 || cur == 15)
+        if (cur == 12 || cur == 13 || cur == 14 || cur == 15)
             maxd = 5;
         else if (cur == 71 || cur == 7 || cur == 8) {
             maxd = 5;

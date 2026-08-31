@@ -1999,18 +1999,28 @@ static int playtest_chris(const char *out_dir)
     {
         const uint8_t *fb = g1_fb_rgba();
         unsigned long s = 0;
-        int pi;
-        unsigned mean;
-        for (pi = 0; pi < 320 * 240; pi++)
+        int pi, wi;
+        unsigned mean, dark16 = 0;
+        for (pi = 0; pi < 320 * 240; pi++) {
+            unsigned luma = ((unsigned)fb[pi * 4] + fb[pi * 4 + 1] +
+                             fb[pi * 4 + 2]) / 3u;
             s += (unsigned)fb[pi * 4] + fb[pi * 4 + 1] + fb[pi * 4 + 2];
+            if (luma < 16u)
+                dark16++;
+        }
         mean = (unsigned)(s / (320ul * 240ul * 3ul));
-        printf("stairs_end after_draw cur=%d walked=%d c0=%d vtx=%d nz=%u mean=%u\n",
+        printf("stairs_end after_draw cur=%d walked=%d c0=%d vtx=%d nz=%u "
+               "mean=%u dark16=%u\n",
                port_stage_current_room(), port_stage_rooms_walked(),
                port_stage_gdl_c0(), port_stage_gdl_vtx(),
-               (unsigned)g1_fb_nonzero(), mean);
-        if (mean < 40u) {
-            fprintf(stderr, "stairs_end mean luma %u (inside geo, want ~70)\n",
-                    mean);
+               (unsigned)g1_fb_nonzero(), mean, dark16);
+        printf("stairs_end walked:");
+        for (wi = 0; wi < port_stage_rooms_walked(); wi++)
+            printf(" %d", port_stage_walked_room(wi));
+        printf("\n");
+        if (mean < 40u || dark16 > (320u * 240u * 15u) / 100u) {
+            fprintf(stderr, "stairs_end mean=%u dark16=%u (void slab)\n", mean,
+                    dark16);
             return -1;
         }
     }
