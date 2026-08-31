@@ -370,3 +370,16 @@ Harness: hunt teleports=0; spawn/WASD/A→B y=29.1 r71; real stair still `-244,-
 
 - Guards through closed G1 doors (`play_clip_door` / Chris r11). Dead skip=pose body through the hall wall (`play_shoot_after`).
 - Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 death floor `57e8429`)
+
+`play_shoot_after` after `b1a9201` was a skip=pose death rest jammed through the hall G1 wall. Die-model part origins now clamp to the pad (±45 xz, 0..40 y) so the body lies on the tile. No invented ragdoll. Living chr / door ghosts unchanged.
+
+Harness: `play_shoot_before` standing extra idle; `play_shoot_after` torso on the floor. Clip hunt still 0. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Guards through closed G1 doors (`play_clip_door` / Chris r11 — skip=pose mesh vs pad).
+- Chr camo still SHADE-flattened vs brick. Aim `skip=pose`. Campaign out of v1.
