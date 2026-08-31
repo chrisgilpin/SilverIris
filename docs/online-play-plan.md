@@ -282,6 +282,20 @@ Spawn first frame stall room 71. Aim `skip=pose`. Native player/gun/lockstep/2p-
 
 **Remaining holes**
 
-- G1 walls still inside some stan tiles (corner black void).
+- Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 G1≠stan `e21097d`)
+
+Rare `bgroomtrans` scales room verts and `room.pos` by `room_data_float2 = 1/levelscale` (Facility 1/1.20648). Stan s16 already used `inv`. Port G1 was unscaled `vtx+(pos-r1)`, so walls sat inside tiles: playtest-corner camera 37u past the G1 wall while stan tile 162's unlinked edge is z=-358.9 — dump-equal to G1 rareAABB z max.
+
+Retail C0 (78 rooms, >100 tiles): pads `*= inv` (Rare prop.c), origin `r1*inv`, G1 `scale=inv` / `ox=pos*inv-r1*inv`. Synthetic 1-room C0 / G1DL keep inv=1 (greyscale). Pad 167 *inv sits on r13; spawn snaps to the low hall (eye 29.1 local = floor+175 in scaled space). `PORT_WALL_SKIN` 30, `PORT_DRAW_SKIN` 46, walk 4.5× kept.
+
+Harness: spawn `rooms=21/71` fb=76800 closed stall; corner same stan tile, ceiling/walls fill the frame (no black void). Stairs still hop to r12. Bathroom stays low. Aim `skip=pose`. Native player/gun/lockstep/2p-corridor/g1 green. Greyscale `643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
 - Chr camo still SHADE-flattened vs brick (bind hits; no invented palette).
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
