@@ -349,6 +349,25 @@ static void rgba5551(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
     *a = (c & 1) ? 255 : 0;
 }
 
+int g1_tex_slot_keep_albedo(int slot)
+{
+    unsigned id;
+    if (slot < 0 || slot >= G1_TEX_SLOTS || !g_slots[slot].loaded)
+        return 0;
+    id = g_slots[slot].id;
+    /* Pgas_plant_met1_do1 tiles + oliveguard camo. skip=pose identity SHADE
+     * covers no_mtx chr; these IDs still bind on door props / room leftovers. */
+    if (id >= 685u && id <= 688u)
+        return 1;
+    if (id == 706u)
+        return 1;
+    if (id == 1914u || id == 1915u || id == 1916u)
+        return 1;
+    if (id == 1968u || id == 1969u)
+        return 1;
+    return 0;
+}
+
 int g1_tex_sample_slot(int slot, float s, float t, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
 {
     Tile *tile;

@@ -223,8 +223,11 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                     }
                     if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
                         /* G_CC_MODULATERGB: texel * Vtx.cn. cn=0 keeps albedo
-                         * (G1 greyscale / SETTEX checkers use zeroed verts). */
-                        if (g_shade_mod && (r | g | bl)) {
+                         * (G1 greyscale / SETTEX checkers use zeroed verts).
+                         * Door 685 / oliveguard camo keep texel even when cn
+                         * is baked grey (skip=pose leftover off no_mtx). */
+                        if (g_shade_mod && (r | g | bl) &&
+                            !g1_tex_slot_keep_albedo(tex_slot)) {
                             r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
                             g = (uint8_t)(((unsigned)sg * (unsigned)g) / 255u);
                             bl = (uint8_t)(((unsigned)sb * (unsigned)bl) / 255u);

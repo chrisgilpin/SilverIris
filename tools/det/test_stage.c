@@ -4698,6 +4698,103 @@ static int test_skip_pose_camo_albedo(void)
     return 0;
 }
 
+/* SETTEX 685 (door) with baked cn=80 must keep texel albedo even off
+ * skip=pose. Rooms still modulate other ids (test_shade_modulate). */
+static int test_door_tex_albedo(void)
+{
+    uint8_t vtx_be[48];
+    static Vtx vtx[3];
+    int i, r, c;
+    unsigned full = 0, mid = 0, k, n;
+    const uint8_t *fb;
+    uint8_t white[64];
+    uint8_t gdl[80];
+    uint8_t host[0x300];
+    static Mtx mv, proj;
+    float id[4][4];
+    uint32_t ngfx;
+
+    memset(white, 0xff, sizeof white);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.tc[0] = 256;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.tc[1] = 256;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 80;
+        vtx[i].v.cn[1] = 80;
+        vtx[i].v.cn[2] = 80;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+    g1_tex_unload();
+    if (g1_tex_load_raw(685, G1_TEX_I8, 8, 8, white, 64, NULL, 0) != 0)
+        return fail("door tex albedo load");
+    for (r = 0; r < 4; r++)
+        for (c = 0; c < 4; c++)
+            id[r][c] = (r == c) ? 1.f : 0.f;
+    g0_mtx_f2l(id, &mv);
+    g0_mtx_f2l(id, &proj);
+    memset(host, 0, sizeof host);
+    wr_be_mtx(host + 0x200, &mv);
+    wr_be_mtx(host + 0x240, &proj);
+    memcpy(host + 0x280, vtx_be, 48);
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_SETFILLCOLOR << 24));
+    wr_be32(gdl + ngfx * 8 + 4,
+            GPACK_RGBA5551(12, 28, 48, 1) | (GPACK_RGBA5551(12, 28, 48, 1) << 16));
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)G_FILLRECT << 24) | (G1_FB_W << 14) | (G1_FB_H << 2));
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000200u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8,
+            ((uint32_t)(uint8_t)G_MTX << 24) |
+                ((G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH) << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000240u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x0F000280u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 685);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    g1_clear_lookat();
+    g1_set_segment(0xF, (uintptr_t)host);
+    g1_set_shade_modulate(1);
+    if (g1_interpret_be_dl(gdl, ngfx) != 0)
+        return fail("door tex albedo interpret");
+    fb = g1_fb_rgba();
+    n = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    for (k = 0; k < n; k++) {
+        unsigned pr = fb[k * 4];
+        if (pr >= 200)
+            full++;
+        if (pr >= 60 && pr <= 100)
+            mid++;
+    }
+    if (full < 1000)
+        return fail("door SETTEX 685 must keep albedo off no_mtx");
+    if (mid > 80)
+        return fail("door SETTEX 685 still SHADE-flattened");
+    g1_tex_unload();
+    printf("door tex albedo full=%u (cn80 ignored, SETTEX 685)\n", full);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -4936,6 +5033,8 @@ int main(int argc, char **argv)
     if (test_shade_modulate() != 0)
         return 1;
     if (test_skip_pose_camo_albedo() != 0)
+        return 1;
+    if (test_door_tex_albedo() != 0)
         return 1;
     if (test_settex_ia_formats() != 0)
         return 1;

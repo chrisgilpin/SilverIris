@@ -4302,6 +4302,10 @@ static int g_slab_ok;
 #define SLAB_POOL 48
 #define SLAB_V1 (4 + 7 * 8)
 #define SLAB_V2 (4 + 7 * 8 + 48)
+/* In-plane pad covers the G1 jamb. Toward-camera push wins z over the rim
+ * so 1.15× oversize is not needed (that ballooned the r71 alcove). */
+#define SLAB_RIM 8.f
+#define SLAB_ZPUSH 4.f
 static uint8_t g_slab_pool[SLAB_POOL][SLAB_FILE_SIZE];
 static PortModel g_slab_pool_mdl[SLAB_POOL];
 static int g_slab_pool_n;
@@ -4437,6 +4441,24 @@ static PortModel *slab_quad(void)
 }
 
 /* One GDL per fitted face so later raster still sees this portal's verts. */
+static void slab_face(PortProp *tmp, float px, float py, float pz, float yaw, float pwx,
+                      float pwz)
+{
+    memset(tmp, 0, sizeof *tmp);
+    tmp->type = PDEF_DOOR;
+    tmp->pos[0] = px;
+    tmp->pos[1] = py;
+    tmp->pos[2] = pz;
+    tmp->scale = 1.f;
+    if (yaw == 90.f || yaw == -90.f) {
+        tmp->yaw = (pwx > px) ? 90.f : -90.f;
+        tmp->pos[0] += (pwx > px) ? SLAB_ZPUSH : -SLAB_ZPUSH;
+    } else {
+        tmp->yaw = (pwz > pz) ? 0.f : 180.f;
+        tmp->pos[2] += (pwz > pz) ? SLAB_ZPUSH : -SLAB_ZPUSH;
+    }
+}
+
 static PortModel *slab_sized(float width, float tall)
 {
     int16_t hw, ht;
@@ -4444,8 +4466,9 @@ static PortModel *slab_sized(float width, float tall)
 
     if (width < 80.f)
         width = 80.f;
-    if (width > 450.f)
-        width = 450.f;
+    /* r71 alcove stamp is 640; 450 silently cropped the G1≠stan void. */
+    if (width > 640.f)
+        width = 640.f;
     if (tall < 80.f)
         tall = 80.f;
     if (tall > 500.f)
@@ -5024,19 +5047,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             tall = port_stage_opening_height(o);
             if (tall < 80.f)
                 tall = PORT_DOOR_HEIGHT;
-            /* Tiny oversize so the G1 cutout does not rim-black. 1.15×
-             * read as a strange oversized panel (P0-C). */
-            slab = slab_sized(width * 1.02f, tall * 1.02f);
-            memset(&tmp, 0, sizeof tmp);
-            tmp.pos[0] = pos[0];
-            tmp.pos[1] = floor_y;
-            tmp.pos[2] = pos[2];
-            /* Face the player so the XY slab is not edge-on / backface. */
-            if (yaw == 90.f)
-                tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
-            else
-                tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
-            tmp.scale = 1.f;
+            /* Fixed rim pad + z-push: 1.02× left G1 jamb black, 1.15× read
+             * as an oversized panel (P0-C). */
+            slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
+            slab_face(&tmp, pos[0], floor_y, pos[2], yaw, pwx, pwz);
             tmp.mdl = slab;
             {
                 float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
@@ -5076,9 +5090,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 PortProp tmp;
                 PortModel *slab;
                 memset(&tmp, 0, sizeof tmp);
-                tmp.pos[0] = pwx + leftx * 120.f;
+                tmp.type = PDEF_DOOR;
+                tmp.pos[0] = pwx + leftx * (120.f - SLAB_ZPUSH);
                 tmp.pos[1] = floor_y;
-                tmp.pos[2] = pwz + leftz * 120.f;
+                tmp.pos[2] = pwz + leftz * (120.f - SLAB_ZPUSH);
                 tmp.yaw = (pwz + leftz * 120.f > pwz) ? 0.f : 180.f;
                 /* Face the player: left wall is +Z at spawn, yaw 0 faces +Z. */
                 if (leftz > 0.f)
@@ -5090,7 +5105,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.scale = 1.f;
                 /* Cover the G1≠stan left void: room 71 mesh ends short of
                  * the stan tile, so a door-sized stamp left a black hole.
-                 * Full-bright 685 so this is a door panel, not a black slab. */
+                 * Full-bright 685 so this is a door panel, not a black slab.
+                 * slab_sized must keep 640 (was capped at 450). */
                 slab = slab_sized(640.f, 360.f);
                 tmp.mdl = slab;
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
@@ -5162,16 +5178,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                     continue;
                 if (tall < 80.f)
                     tall = PORT_DOOR_HEIGHT;
-                slab = slab_sized(width * 1.02f, tall * 1.02f);
-                memset(&tmp, 0, sizeof tmp);
-                tmp.pos[0] = pos[0];
-                tmp.pos[1] = pos[1];
-                tmp.pos[2] = pos[2];
-                if (yaw == 90.f || yaw == -90.f)
-                    tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
-                else
-                    tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
-                tmp.scale = 1.f;
+                slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
+                slab_face(&tmp, pos[0], pos[1], pos[2], yaw, pwx, pwz);
                 tmp.mdl = slab;
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
