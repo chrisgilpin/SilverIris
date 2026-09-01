@@ -848,3 +848,46 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 closed-door portal vis `e9247e9`)
+
+N64-feel slice on top of camera-space PP7 `42ba170` (KEEP). SHA `e9247e9`.
+Draw walked portal neighbors even when the connecting door was shut, so
+`play_clip_door` showed the next hall, EXIT, and a camo guard through a
+closed opening. Rare `doorActivatePortal` clears `PORTALFLAG_DISABLED`
+only while opening. Doorlike portals with a closed bound slab no longer
+enqueue the far room. Open / frac>0 and non-doorlike archways still
+traverse. Pads whose stan room was not walked skip draw; spawn-hall
+extra idle stays exempt.
+
+KEEP `42ba170` PP7 camera-space, `b56a698` per-pose Chead neck,
+`7f974af` Hor+, `1207531` fetal death, `1312936` held KF7, `999e0fc`
+aim joints, `e01e97f` spawn FPS.
+
+**1 — closed door.** `play_clip_door` `walked n=1 11` `clipdoor_olive
+n=34` (was next-room camo + EXIT through the leaf). Doorway is the
+current-room frame, not the far hall. Synthetic `closed-portal vis
+closed_walked=1 open_walked=2`.
+
+**2 — hitch / jump / Hor+ / heads / gun.** Re-measured: `fire_hitch
+miss_ms=3.42 hit_ms=3.78`; `play_shoot_after` kills=2 mag 7/14
+`held=0`; `aim_look have=1 bound=1` `held=1` `headj=1`; `play_aim_grip`
+Jim + tan KF7 grip `headj=1`. A→B hopped=0 y=29.12 r71; `clipdoor hunt
+teleports=0`; real stair still `-244,-2098` eye 348.2. `play_spawn`
+aspect=1.333 hfov=75.2; `play_spawn_wide` aspect=1.778 hfov=91.5.
+`play_spawn` `drawn=68 held=0 headj=1` camo olive=4172 uniq=22.
+`viewgun_lr play_spawn n=12771`; `play_shoot_after_down` phi=-40
+`viewgun_lr n=5053 top_r=1290` (no look-swing). Fetal ymin=-245.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=25.41 (39.4 fps unopt) —
+`e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Fitted slabs may not fill every sealed portal (black vs door mesh).
+- Combat AI / matching engine later. Campaign out of v1.
+
