@@ -180,7 +180,7 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
          * skip=pose chr cn is baked greyscale (not RSP lighting). SHADE*TEXEL
          * flattened oliveguard SETTEX 1916 camo to a slab; identity SHADE
          * keeps texel albedo. Rooms (no_mtx=0) still modulate unless the
-         * bound SETTEX is a door/camo albedo id (g1_tex_slot_keep_albedo). */
+         * bound SETTEX is a door/camo/head albedo id (g1_tex_slot_keep_albedo). */
         if (g_no_mtx) {
             s->r = 255;
             s->g = 255;
