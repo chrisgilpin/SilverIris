@@ -39,7 +39,7 @@
 /* Last-frame rest. PTR_ANIM_die is not a table name; these are. */
 #define PORT_ANIM_DIE_OFF 0x30B8u /* PTR_ANIM_death_forward_face_down */
 #define PORT_ANIM_DIE_OFF2 0x32C8u /* PTR_ANIM_death_backward_fall_face_up1 */
-#define PORT_ANIM_DIE_OFF3 0x3AF0u /* PTR_ANIM_death_fetal_position_right */
+#define PORT_ANIM_DIE_OFF3 0x3AF0u /* PTR_ANIM_death_fetal_position_right (rest) */
 #define PORT_ANIM_AIM_OFF 0x144u /* PTR_ANIM_fire_standing */
 #define PORT_ANIM_AIM_FRAME 53 /* mid-cycle; frame 0 is near-idle hang */
 #define PORT_AIM_ID_BASE 5000
@@ -665,8 +665,11 @@ static void load_idle_rest(void)
         snprintf(g_aim_info, sizeof g_aim_info, "aim=0 %s", err);
     }
     {
+        /* Fetal last frame is a tucked on-tile rest. Face-down last frame
+         * is ~1500u along model Z with BASE at the origin, so the legs
+         * stick 120u off the pad into the shoot camera. */
         static const uint32_t k_die_off[] = {
-            PORT_ANIM_DIE_OFF, PORT_ANIM_DIE_OFF2, PORT_ANIM_DIE_OFF3
+            PORT_ANIM_DIE_OFF3, PORT_ANIM_DIE_OFF2, PORT_ANIM_DIE_OFF
         };
         int di;
         g_have_die = 0;
@@ -1263,16 +1266,53 @@ static PortModel *load_chr_walk(int body)
 }
 
 /* Keep standing scale (lying AABB must not become a 185u-tall blob) but
- * pin fit_ymin to the posed min Y so the lie-down sits on the pad. */
+ * pin fit_ymin to the posed min Y so the lie-down sits on the pad.
+ * Joint translations are recentered in XZ: BASE stays at the origin
+ * while the last frame extends ~1500u along Z, which put feet in the
+ * shoot camera. Same pad pin as the Y floor, not a ragdoll. */
 static void pin_die_floor(PortModel *m, float stand_scale)
 {
     float ymin = 0.f, ymax = 0.f;
+    float xmin = 1e9f, xmax = -1e9f, zmin = 1e9f, zmax = -1e9f;
+    float cx, cz;
+    int j, n = 0;
+
     if (!m)
         return;
     if (stand_scale != 0.f)
         m->fit_scale = stand_scale;
     if (chr_part_span(m, &ymin, &ymax))
         m->fit_ymin = ymin;
+    for (j = 0; j < m->njoint; j++) {
+        float x = m->joint[j][0][3], z = m->joint[j][2][3];
+        if (x * x + z * z < 1.f)
+            continue;
+        if (x < xmin)
+            xmin = x;
+        if (x > xmax)
+            xmax = x;
+        if (z < zmin)
+            zmin = z;
+        if (z > zmax)
+            zmax = z;
+        n++;
+    }
+    if (n < 2 || ((xmax - xmin) < 1.f && (zmax - zmin) < 1.f))
+        return;
+    cx = 0.5f * (xmin + xmax);
+    cz = 0.5f * (zmin + zmax);
+    if (cx * cx + cz * cz < 1.f)
+        return;
+    for (j = 0; j < m->njoint; j++) {
+        m->joint[j][0][3] -= cx;
+        m->joint[j][2][3] -= cz;
+    }
+    if (m->have_head) {
+        m->head_mtx[0][3] -= cx;
+        m->head_mtx[2][3] -= cz;
+        m->head_off[0] -= cx;
+        m->head_off[2] -= cz;
+    }
 }
 
 /* Separate model id so a death rest does not flatten every living clone. */
