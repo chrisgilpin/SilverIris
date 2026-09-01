@@ -850,9 +850,10 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-01 pack VADPCM gun/dry/door SFX)
+## STATUS (2026-09-01 pack VADPCM gun/dry/door SFX `4883173`)
 
 SFX slice on top of P0 empty-mag / fire≠use / walk FB `9b7b6e6` (KEEP).
+SHA `4883173`.
 Pack `sfx.ctl`/`sfx.tbl` are still N64 banks (no ASP HLE). Runtime decode
 of ALBankFile VADPCM one-shots into host PCM: PP7 `GUN_B2_HEAVY` 107,
 empty-mag `EMPTY_GUN_FIRE` 89, door `DOOR_METAL_OPEN` 196. Mixer
