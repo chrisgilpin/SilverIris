@@ -34,8 +34,9 @@
 #define PICKUP_LEN ((PORT_AUDIO_RATE * 80u) / 1000u)
 #define AMMO_HZ 660u
 #define ARMOUR_HZ 440u
+#define RELOAD_HZ 1180u
 #define DOOR_CLOSE_HZ 62u
-#define SFX_KIND_MAX 11
+#define SFX_KIND_MAX 12
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -216,7 +217,8 @@ static uint32_t placeholder_len(int kind)
         return HIT_LEN;
     if (kind == PORT_SFX_RICO)
         return RICO_LEN;
-    if (kind == PORT_SFX_PICKUP || kind == PORT_SFX_AMMO || kind == PORT_SFX_ARMOUR)
+    if (kind == PORT_SFX_PICKUP || kind == PORT_SFX_AMMO || kind == PORT_SFX_ARMOUR ||
+        kind == PORT_SFX_RELOAD)
         return PICKUP_LEN;
     if (kind == PORT_SFX_DOOR_CLOSE)
         return DOOR_LEN;
@@ -313,6 +315,11 @@ void port_audio_play_ammo(void)
 void port_audio_play_armour(void)
 {
     queue_sfx(PORT_SFX_ARMOUR, PICKUP_LEN);
+}
+
+void port_audio_play_reload(void)
+{
+    queue_sfx(PORT_SFX_RELOAD, PICKUP_LEN);
 }
 
 void port_audio_play_kf7(void)
@@ -483,6 +490,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t pinc = phase_inc(PICKUP_HZ);
     uint32_t ainc = phase_inc(AMMO_HZ);
     uint32_t arinc = phase_inc(ARMOUR_HZ);
+    uint32_t rlinc = phase_inc(RELOAD_HZ);
     uint32_t cinc = phase_inc(DOOR_CLOSE_HZ);
     int i;
     int kind = g_sfx_kind;
@@ -522,7 +530,8 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 int amp = (int)((uint32_t)((kind == PORT_SFX_DRY) ? DRY_AMP
                         : (kind == PORT_SFX_DOOR || kind == PORT_SFX_DOOR_CLOSE) ? DOOR_AMP
                         : (kind == PORT_SFX_PICKUP || kind == PORT_SFX_AMMO ||
-                           kind == PORT_SFX_ARMOUR) ? PICKUP_AMP
+                           kind == PORT_SFX_ARMOUR || kind == PORT_SFX_RELOAD)
+                              ? PICKUP_AMP
                         : (kind == PORT_SFX_KF7) ? KF7_AMP
                         : GUN_AMP) * g_sfx_left / g_sfx_len);
                 if (kind == PORT_SFX_DRY)
@@ -530,7 +539,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 else if (kind == PORT_SFX_DOOR || kind == PORT_SFX_DOOR_CLOSE)
                     s = osc_tri(g_sfx_phase, amp);
                 else if (kind == PORT_SFX_PICKUP || kind == PORT_SFX_AMMO ||
-                         kind == PORT_SFX_ARMOUR)
+                         kind == PORT_SFX_ARMOUR || kind == PORT_SFX_RELOAD)
                     s = osc_tri(g_sfx_phase, amp);
                 else {
                     uint32_t spent = g_sfx_len - g_sfx_left;
@@ -550,6 +559,8 @@ void port_audio_cb(int16_t *stereo, int nframes)
                     g_sfx_phase += ainc;
                 else if (kind == PORT_SFX_ARMOUR)
                     g_sfx_phase += arinc;
+                else if (kind == PORT_SFX_RELOAD)
+                    g_sfx_phase += rlinc;
                 else if (kind == PORT_SFX_KF7)
                     g_sfx_phase += kinc + ninc / 8u;
                 else

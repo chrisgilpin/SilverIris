@@ -16,6 +16,7 @@ __attribute__((weak)) void port_audio_play_hit(void) {}
 __attribute__((weak)) void port_audio_play_rico(void) {}
 __attribute__((weak)) void port_audio_play_kf7(void) {}
 __attribute__((weak)) void port_audio_play_pickup(void) {}
+__attribute__((weak)) void port_audio_play_reload(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -256,6 +257,8 @@ void port_gun_tick(uint16_t buttons)
         reload();
         if (g->mag > 0) {
             g->last_action = PORT_GUN_ACT_RELOAD;
+            if (port_audio_play_reload)
+                port_audio_play_reload();
             return;
         }
         /* Empty mag + empty reserve: dry click, no muzzle, no shot. */

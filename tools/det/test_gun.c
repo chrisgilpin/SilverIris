@@ -874,6 +874,8 @@ int main(void)
         return fail("reload reserve");
     if (port_gun_hits() != 7)
         return fail("reload is not a shot");
+    if (port_gun_last_action() != PORT_GUN_ACT_RELOAD)
+        return fail("reload action");
     if (port_gun_flash_frames() == PORT_MUZZLE_FLASH_FRAMES)
         return fail("reload is not a flash");
 

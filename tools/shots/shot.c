@@ -46,7 +46,7 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -60,9 +60,11 @@ static int sfx_bank_proof(void)
     rn = port_audio_sfx_frames(PORT_SFX_RICO);
     an = port_audio_sfx_frames(PORT_SFX_AMMO);
     vn = port_audio_sfx_frames(PORT_SFX_ARMOUR);
+    ln = port_audio_sfx_frames(PORT_SFX_RELOAD);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
-           "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn);
+           "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d "
+           "reload_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -73,13 +75,14 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_DOOR_CLOSE) ||
         !port_audio_sfx_from_bank(PORT_SFX_RICO) ||
         !port_audio_sfx_from_bank(PORT_SFX_AMMO) ||
-        !port_audio_sfx_from_bank(PORT_SFX_ARMOUR) || gn < 2000 || dn < 500 ||
+        !port_audio_sfx_from_bank(PORT_SFX_ARMOUR) ||
+        !port_audio_sfx_from_bank(PORT_SFX_RELOAD) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
-        rn < 200 || an < 200 || vn < 200 || gn <= dn) {
+        rn < 200 || an < 200 || vn < 200 || ln < 200 || gn <= dn) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
-                "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d\n",
-                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn);
+                "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d reload=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -273,6 +276,29 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_ARMOUR || ev < 10000ll || diff < 16) {
             fprintf(stderr, "sfx_armour last=%d e=%lld diff=%d\n",
                     port_audio_last_sfx(), ev, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t reload[512], pickup[512];
+        long long el = 0;
+        int diff = 0;
+        memset(reload, 0, sizeof reload);
+        memset(pickup, 0, sizeof pickup);
+        port_audio_play_pickup();
+        port_audio_cb(pickup, 256);
+        port_audio_play_reload();
+        port_audio_cb(reload, 256);
+        for (i = 0; i < 512; i++) {
+            el += (long long)reload[i] * reload[i];
+            if (reload[i] != pickup[i])
+                diff++;
+        }
+        printf("sfx_reload n=%d e=%lld last=%d mix_diff=%d\n", ln, el,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_RELOAD || el < 10000ll || diff < 16) {
+            fprintf(stderr, "sfx_reload last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), el, diff);
             return -1;
         }
     }
@@ -3564,6 +3590,36 @@ static int playtest_chris(const char *out_dir)
     if (path_unlatch_proof() != 0)
         return -1;
     {
+        int mag0, res0, n = 0;
+        while (port_gun_mag() > 0 && n < 20) {
+            port_gun_tick(0);
+            port_gun_tick(PORT_Z_TRIG);
+            n++;
+        }
+        while (port_gun_flash_frames() > 0)
+            port_gun_tick(0);
+        mag0 = port_gun_mag();
+        res0 = port_gun_reserve();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        printf("reload_cock mag=%d->%d res=%d->%d flash=%d act=%d sfx=%d n=%d\n",
+               mag0, port_gun_mag(), res0, port_gun_reserve(),
+               port_gun_flash_frames(), port_gun_last_action(),
+               port_audio_last_sfx(), n);
+        if (mag0 != 0 || res0 < PORT_PP7_MAG || port_gun_mag() != PORT_PP7_MAG ||
+            port_gun_reserve() != res0 - PORT_PP7_MAG ||
+            port_gun_flash_frames() != 0 ||
+            port_gun_last_action() != PORT_GUN_ACT_RELOAD ||
+            port_audio_last_sfx() != PORT_SFX_RELOAD) {
+            fprintf(stderr,
+                    "reload_cock mag=%d->%d res=%d->%d flash=%d act=%d sfx=%d\n",
+                    mag0, port_gun_mag(), res0, port_gun_reserve(),
+                    port_gun_flash_frames(), port_gun_last_action(),
+                    port_audio_last_sfx());
+            return -1;
+        }
+    }
+    {
         int mag0, n = 0;
         while ((port_gun_mag() > 0 || port_gun_reserve() > 0) && n < 80) {
             port_gun_tick(0);
@@ -3720,7 +3776,7 @@ static int shot_one(const char *out_dir, const char *tag)
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
              "guards=%d parts=%d drawn=%d held=%d headj=%d viewgun=%d viewid=%d flash=%d pickup=%d drop=%d "
-             "aspect=%.3f hfov=%.1f",
+             "aspect=%.3f hfov=%.1f sfx=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
@@ -3735,7 +3791,8 @@ static int shot_one(const char *out_dir, const char *tag)
              port_prop_viewgun_id(),
              port_gun_flash_frames(), port_prop_pickup_drawn(),
              port_prop_drop_drawn(),
-             (double)port_persp_aspect(), (double)port_view_hfov());
+             (double)port_persp_aspect(), (double)port_view_hfov(),
+             port_audio_last_sfx());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
