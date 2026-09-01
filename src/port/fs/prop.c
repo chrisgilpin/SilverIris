@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+__attribute__((weak)) void port_audio_play_pickup(void) {}
+
 #define PORT_MAX_PROPS 256
 #define PORT_MAX_MODELS 128
 #define PORT_MODEL_PARTS 32
@@ -5555,13 +5557,18 @@ void port_prop_tick_pickup(void)
             g_pickup_drawn = 0;
         if (drop_index_of(i) >= 0)
             g_drop_drawn = 0;
-        if (pr->pickup_kind == PORT_PICKUP_ARMOUR)
+        if (pr->pickup_kind == PORT_PICKUP_ARMOUR) {
             port_player_add_armour(pr->pickup_amount);
-        else if (pr->model == PORT_PROP_CHRKALASH ||
+            if (port_audio_play_pickup)
+                port_audio_play_pickup();
+        } else if (pr->model == PORT_PROP_CHRKALASH ||
                  pr->model == PORT_PROP_CHRMP5K)
             port_gun_collect_model(pr->model);
-        else
+        else {
             port_gun_add_reserve(pr->pickup_amount);
+            if (port_audio_play_pickup)
+                port_audio_play_pickup();
+        }
     }
 }
 

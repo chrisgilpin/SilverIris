@@ -19,9 +19,11 @@ void port_audio_play_dry(void);
 void port_audio_play_door(void);
 void port_audio_play_fall(void);
 void port_audio_play_hit(void);
+void port_audio_play_kf7(void);
+void port_audio_play_pickup(void);
 int port_audio_music_on(void);
 uint32_t port_audio_rate(void);
-/* 0 none, 1 gun, 2 dry, 3 door, 4 body-fall, 5 flesh-hit. Last one-shot queued. */
+/* 0 none, 1 gun, 2 dry, 3 door, 4 body-fall, 5 flesh-hit, 6 KF7, 7 pickup. */
 int port_audio_last_sfx(void);
 #define PORT_SFX_NONE 0
 #define PORT_SFX_GUN 1
@@ -29,6 +31,8 @@ int port_audio_last_sfx(void);
 #define PORT_SFX_DOOR 3
 #define PORT_SFX_FALL 4
 #define PORT_SFX_HIT 5
+#define PORT_SFX_KF7 6
+#define PORT_SFX_PICKUP 7
 
 /* Host-endian PCM one-shot. Mixer does not own `pcm`. vol 0..127 (N64). */
 void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vol);

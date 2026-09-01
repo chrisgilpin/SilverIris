@@ -13,6 +13,8 @@ __attribute__((weak)) void port_audio_play_gun(void) {}
 __attribute__((weak)) void port_audio_play_dry(void) {}
 __attribute__((weak)) void port_audio_play_fall(void) {}
 __attribute__((weak)) void port_audio_play_hit(void) {}
+__attribute__((weak)) void port_audio_play_kf7(void) {}
+__attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -264,7 +266,10 @@ void port_gun_tick(uint16_t buttons)
     g->flash_frames = PORT_MUZZLE_FLASH_FRAMES;
     g->last_action = PORT_GUN_ACT_SHOT;
     fire_hitscan();
-    if (port_audio_play_gun)
+    if (g->weapon == PORT_WEAPON_KF7) {
+        if (port_audio_play_kf7)
+            port_audio_play_kf7();
+    } else if (port_audio_play_gun)
         port_audio_play_gun();
     if (port_prop_hear_player_shot)
         port_prop_hear_player_shot();
@@ -335,6 +340,8 @@ void port_gun_collect_model(int model)
     g->weapon = next;
     g->ammo[weapon_ammo_type(next)] += PORT_GUN_PICKUP_ADD;
     reload();
+    if (port_audio_play_pickup)
+        port_audio_play_pickup();
     if (port_prop_viewgun_sync)
         port_prop_viewgun_sync();
 }

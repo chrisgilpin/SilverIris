@@ -6,20 +6,23 @@
 
 /*
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
- * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall / hit.
+ * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall / hit /
+ * KF7 bolt / pickup.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  */
 
 #define PACK_SFX_EMPTY_GUN_FIRE 89
 #define PACK_SFX_PP7 107 /* GUN_B2_HEAVY / PPK */
+#define PACK_SFX_KF7 109 /* GUN_B4_BOLTACTION / AK47 */
+#define PACK_SFX_PICKUP_GUN 232
 #define PACK_SFX_DOOR_METAL_OPEN 196
 #define PACK_SFX_BODY_FALL_C1 123
 #define PACK_SFX_HIT_FLESH 69 /* HIT_BULLET_FLESH */
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
 
-static int16_t *g_owned[6];
+static int16_t *g_owned[8];
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -67,6 +70,8 @@ void port_audio_unload_pack_sfx(void)
     drop_kind(PORT_SFX_DOOR);
     drop_kind(PORT_SFX_FALL);
     drop_kind(PORT_SFX_HIT);
+    drop_kind(PORT_SFX_KF7);
+    drop_kind(PORT_SFX_PICKUP);
 }
 
 static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
@@ -172,6 +177,12 @@ int port_audio_load_pack_sfx(void)
         n++;
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_HIT_FLESH,
                   PORT_SFX_HIT) == 0)
+        n++;
+    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_KF7,
+                  PORT_SFX_KF7) == 0)
+        n++;
+    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_PICKUP_GUN,
+                  PORT_SFX_PICKUP) == 0)
         n++;
     return n;
 }

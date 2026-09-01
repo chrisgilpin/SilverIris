@@ -46,7 +46,7 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn;
+    int i, gn, dn, on, fn, hn, kn, pn;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -54,16 +54,23 @@ static int sfx_bank_proof(void)
     on = port_audio_sfx_frames(PORT_SFX_DOOR);
     fn = port_audio_sfx_frames(PORT_SFX_FALL);
     hn = port_audio_sfx_frames(PORT_SFX_HIT);
-    printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn);
+    kn = port_audio_sfx_frames(PORT_SFX_KF7);
+    pn = port_audio_sfx_frames(PORT_SFX_PICKUP);
+    printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
+           "kf7_n=%d pickup_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
         !port_audio_sfx_from_bank(PORT_SFX_FALL) ||
-        !port_audio_sfx_from_bank(PORT_SFX_HIT) || gn < 2000 || dn < 500 ||
-        on < 1000 || fn < 500 || hn < 200 || gn <= dn) {
-        fprintf(stderr, "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d\n",
-                gn, dn, on, fn, hn);
+        !port_audio_sfx_from_bank(PORT_SFX_HIT) ||
+        !port_audio_sfx_from_bank(PORT_SFX_KF7) ||
+        !port_audio_sfx_from_bank(PORT_SFX_PICKUP) || gn < 2000 || dn < 500 ||
+        on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || gn <= dn) {
+        fprintf(stderr,
+                "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
+                "kf7=%d pickup=%d\n",
+                gn, dn, on, fn, hn, kn, pn);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -86,6 +93,43 @@ static int sfx_bank_proof(void)
         ed == eo) {
         fprintf(stderr, "sfx_pcm not distinct pack one-shots\n");
         return -1;
+    }
+    {
+        int16_t kf7[512], pickup[512];
+        long long ek = 0, ep = 0;
+        int diffk = 0, diffp = 0;
+        memset(kf7, 0, sizeof kf7);
+        memset(pickup, 0, sizeof pickup);
+        port_audio_play_kf7();
+        port_audio_cb(kf7, 256);
+        port_audio_play_pickup();
+        port_audio_cb(pickup, 256);
+        for (i = 0; i < 512; i++) {
+            ek += (long long)kf7[i] * kf7[i];
+            ep += (long long)pickup[i] * pickup[i];
+            if (kf7[i] != gun[i])
+                diffk++;
+            if (pickup[i] != gun[i])
+                diffp++;
+        }
+        printf("sfx_kf7 n=%d e=%lld last=%d mix_diff=%d\n", kn, ek,
+               port_audio_last_sfx(), diffk);
+        /* last is pickup: played after kf7. */
+        printf("sfx_pickup n=%d e=%lld last=%d mix_diff=%d\n", pn, ep,
+               port_audio_last_sfx(), diffp);
+        if (port_audio_last_sfx() != PORT_SFX_PICKUP || ek < 100000ll ||
+            ep < 10000ll || diffk < 16 || diffp < 16 || ek == eg) {
+            fprintf(stderr,
+                    "sfx_kf7/pickup not distinct pack one-shots last=%d ek=%lld "
+                    "ep=%lld diffk=%d diffp=%d\n",
+                    port_audio_last_sfx(), ek, ep, diffk, diffp);
+            return -1;
+        }
+        port_audio_play_kf7();
+        if (port_audio_last_sfx() != PORT_SFX_KF7) {
+            fprintf(stderr, "sfx_kf7 last=%d\n", port_audio_last_sfx());
+            return -1;
+        }
     }
     {
         int16_t fall[512];
@@ -301,9 +345,10 @@ static int path_unlatch_proof(void)
         if (port_api_sim_tick(4999) != 0)
             return -1;
         flash0 = port_gun_flash_frames();
-        printf("pad_fire_no_unlatch mag=%d->%d flash=%d open=%d->%d act=%d\n",
+        printf("pad_fire_no_unlatch mag=%d->%d flash=%d open=%d->%d act=%d sfx=%d\n",
                mag0, port_gun_mag(), flash0, open0,
-               port_stan_door_is_open_at(pos[0], pos[2]), port_gun_last_action());
+               port_stan_door_is_open_at(pos[0], pos[2]), port_gun_last_action(),
+               port_audio_last_sfx());
         if (port_stan_door_is_open_at(pos[0], pos[2]) != open0) {
             fprintf(stderr, "pad fire unlatched the door\n");
             return -1;
@@ -311,6 +356,11 @@ static int path_unlatch_proof(void)
         if (port_gun_mag() != mag0 - 1 || flash0 <= 0) {
             fprintf(stderr, "pad fire facing door did not shoot mag %d->%d flash=%d\n",
                     mag0, port_gun_mag(), flash0);
+            return -1;
+        }
+        if (port_gun_weapon() == PORT_WEAPON_PP7 &&
+            port_audio_last_sfx() != PORT_SFX_GUN) {
+            fprintf(stderr, "pad PP7 fire sfx=%d (want gun)\n", port_audio_last_sfx());
             return -1;
         }
         while (port_gun_flash_frames() > 0) {
@@ -2010,6 +2060,28 @@ static int drop_proof(const char *out_dir, float death_wx, float death_wz)
         fprintf(stderr, "drop_proof viewgun id=%d (no FP KF7 Gak47Z bind)\n", vg1);
         return -1;
     }
+    if (port_audio_last_sfx() != PORT_SFX_PICKUP) {
+        fprintf(stderr, "drop_proof collect sfx=%d (want pickup)\n",
+                port_audio_last_sfx());
+        return -1;
+    }
+    if (port_gun_weapon() != PORT_WEAPON_KF7) {
+        fprintf(stderr, "drop_proof weapon=%d (want KF7)\n", port_gun_weapon());
+        return -1;
+    }
+    {
+        int mag0 = port_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        printf("kf7_fire mag=%d->%d act=%d sfx=%d weapon=%d\n", mag0, port_gun_mag(),
+               port_gun_last_action(), port_audio_last_sfx(), port_gun_weapon());
+        if (port_gun_mag() != mag0 - 1 || port_gun_last_action() != PORT_GUN_ACT_SHOT ||
+            port_audio_last_sfx() != PORT_SFX_KF7) {
+            fprintf(stderr, "kf7_fire mag=%d->%d act=%d sfx=%d\n", mag0, port_gun_mag(),
+                    port_gun_last_action(), port_audio_last_sfx());
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -3358,6 +3430,26 @@ static int playtest_chris(const char *out_dir)
             fprintf(stderr, "dry_fire still shot mag=%d flash=%d act=%d sfx=%d\n",
                     port_gun_mag(), port_gun_flash_frames(), port_gun_last_action(),
                     port_audio_last_sfx());
+            return -1;
+        }
+        port_gun_collect_model(PORT_GUN_MODEL_KF7);
+        printf("kf7_pickup weapon=%d mag=%d sfx=%d\n", port_gun_weapon(), port_gun_mag(),
+               port_audio_last_sfx());
+        if (port_gun_weapon() != PORT_WEAPON_KF7 ||
+            port_audio_last_sfx() != PORT_SFX_PICKUP) {
+            fprintf(stderr, "kf7_pickup weapon=%d sfx=%d\n", port_gun_weapon(),
+                    port_audio_last_sfx());
+            return -1;
+        }
+        mag0 = port_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        printf("kf7_fire mag=%d->%d act=%d sfx=%d weapon=%d\n", mag0, port_gun_mag(),
+               port_gun_last_action(), port_audio_last_sfx(), port_gun_weapon());
+        if (port_gun_mag() != mag0 - 1 || port_gun_last_action() != PORT_GUN_ACT_SHOT ||
+            port_audio_last_sfx() != PORT_SFX_KF7) {
+            fprintf(stderr, "kf7_fire mag=%d->%d act=%d sfx=%d\n", mag0, port_gun_mag(),
+                    port_gun_last_action(), port_audio_last_sfx());
             return -1;
         }
     }

@@ -24,7 +24,12 @@
 #define HIT_HZ 1600u
 #define HIT_AMP 8000
 #define HIT_LEN ((PORT_AUDIO_RATE * 50u) / 1000u)
-#define SFX_KIND_MAX 5
+#define KF7_HZ 110u
+#define KF7_AMP 12000
+#define PICKUP_HZ 880u
+#define PICKUP_AMP 8000
+#define PICKUP_LEN ((PORT_AUDIO_RATE * 80u) / 1000u)
+#define SFX_KIND_MAX 7
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -203,6 +208,8 @@ static uint32_t placeholder_len(int kind)
         return FALL_LEN;
     if (kind == PORT_SFX_HIT)
         return HIT_LEN;
+    if (kind == PORT_SFX_PICKUP)
+        return PICKUP_LEN;
     return GUN_LEN;
 }
 
@@ -281,6 +288,16 @@ static void queue_hit(int kind, uint32_t len)
 void port_audio_play_hit(void)
 {
     queue_hit(PORT_SFX_HIT, HIT_LEN);
+}
+
+void port_audio_play_kf7(void)
+{
+    queue_sfx(PORT_SFX_KF7, GUN_LEN);
+}
+
+void port_audio_play_pickup(void)
+{
+    queue_sfx(PORT_SFX_PICKUP, PICKUP_LEN);
 }
 
 int port_audio_last_sfx(void)
@@ -431,6 +448,8 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t oinc = phase_inc(DOOR_HZ);
     uint32_t finc = phase_inc(FALL_HZ);
     uint32_t hinc = phase_inc(HIT_HZ);
+    uint32_t kinc = phase_inc(KF7_HZ);
+    uint32_t pinc = phase_inc(PICKUP_HZ);
     int i;
     int kind = g_sfx_kind;
 
@@ -459,7 +478,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
 
         if (g_sfx_left > 0 && g_sfx_len > 0) {
             int s = 0;
-            if (g_sfx_use_pcm && kind >= 1 && kind <= 3 && g_sfx_pcm[kind] &&
+            if (g_sfx_use_pcm && kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] &&
                 g_sfx_pcm_pos < g_sfx_pcm_n[kind]) {
                 int vol = (int)g_sfx_pcm_vol[kind];
                 int32_t v = ((int32_t)g_sfx_pcm[kind][g_sfx_pcm_pos] * vol) / 127;
@@ -468,10 +487,14 @@ void port_audio_cb(int16_t *stereo, int nframes)
             } else {
                 int amp = (int)((uint32_t)((kind == PORT_SFX_DRY) ? DRY_AMP
                         : (kind == PORT_SFX_DOOR) ? DOOR_AMP
+                        : (kind == PORT_SFX_PICKUP) ? PICKUP_AMP
+                        : (kind == PORT_SFX_KF7) ? KF7_AMP
                         : GUN_AMP) * g_sfx_left / g_sfx_len);
                 if (kind == PORT_SFX_DRY)
                     s = osc_tri(g_sfx_phase, amp);
                 else if (kind == PORT_SFX_DOOR)
+                    s = osc_tri(g_sfx_phase, amp);
+                else if (kind == PORT_SFX_PICKUP)
                     s = osc_tri(g_sfx_phase, amp);
                 else {
                     uint32_t spent = g_sfx_len - g_sfx_left;
@@ -483,6 +506,10 @@ void port_audio_cb(int16_t *stereo, int nframes)
                     g_sfx_phase += dinc;
                 else if (kind == PORT_SFX_DOOR)
                     g_sfx_phase += oinc;
+                else if (kind == PORT_SFX_PICKUP)
+                    g_sfx_phase += pinc;
+                else if (kind == PORT_SFX_KF7)
+                    g_sfx_phase += kinc + ninc / 8u;
                 else
                     g_sfx_phase += ginc + ninc / 8u;
             }
