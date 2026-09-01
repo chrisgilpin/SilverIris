@@ -41,6 +41,7 @@
 #define PORT_ANIM_DIE_OFF2 0x32C8u /* PTR_ANIM_death_backward_fall_face_up1 */
 #define PORT_ANIM_DIE_OFF3 0x3AF0u /* PTR_ANIM_death_fetal_position_right */
 #define PORT_ANIM_AIM_OFF 0x144u /* PTR_ANIM_fire_standing */
+#define PORT_ANIM_AIM_FRAME 53 /* mid-cycle; frame 0 is near-idle hang */
 #define PORT_AIM_ID_BASE 5000
 /* NTSC: PORT_CHR_WALK (1) * g_GlobalTimerDelta (3). Not clock-coupled so
  * the shot harness can step without a sim tick. */
@@ -632,8 +633,8 @@ static void load_idle_rest(void)
     }
     addr = off = frames = 0;
     width = 0;
-    if (decode_anim_frame(PORT_ANIM_AIM_OFF, 0, g_aim_rest, &addr, &off, &frames, &width, err,
-                          sizeof err)) {
+    if (decode_anim_frame(PORT_ANIM_AIM_OFF, PORT_ANIM_AIM_FRAME, g_aim_rest, &addr, &off,
+                          &frames, &width, err, sizeof err)) {
         int j, ident = 1, same_idle = 1;
         for (j = 0; j < PORT_SKEL_GUARD_N; j++) {
             if (g_aim_rest[j][0] != 0.f || g_aim_rest[j][1] != 0.f || g_aim_rest[j][2] != 0.f)
@@ -642,19 +643,17 @@ static void load_idle_rest(void)
                 g_aim_rest[j][2] != g_idle_rest[j][2])
                 same_idle = 0;
         }
-        /* Header decodes (same path as idle/walk/death) and is not
-         * identity / idle. The 16-joint Euler bind still explodes the
-         * mesh (stretched head, collapsed torso) for fire_standing and
-         * aim_one_handed_weapon_left_right. Keep idle — do not fake an
-         * arm raise. */
+        /* PTR_ANIM_fire_standing mid-cycle (frame 0 hangs like idle).
+         * Hierarchical 4x4 like idle/die — skip=pose Euler exploded.
+         * Do not fake an arm. */
         if (ident) {
             snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=tpose addr=0x%x", addr);
         } else if (same_idle) {
             snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=same_idle addr=0x%x", addr);
         } else {
-            g_have_aim = 0;
-            snprintf(g_aim_info, sizeof g_aim_info,
-                     "aim=0 skip=pose addr=0x%x off=%u fr=%u w=%u", addr, off, frames, width);
+            g_have_aim = 1;
+            snprintf(g_aim_info, sizeof g_aim_info, "aim=1 addr=0x%x off=%u fr=%u w=%u f=%u",
+                     addr, off, frames, width, (unsigned)PORT_ANIM_AIM_FRAME);
         }
     } else {
         snprintf(g_aim_info, sizeof g_aim_info, "aim=0 %s", err);
@@ -709,9 +708,9 @@ static void rest_for_group(const uint8_t *base, size_t n, uint32_t data, int use
         *rz = be_f32(base + data + 0x28);
         return;
     }
-    /* ANIM_idle / ANIM_walking via SKELETON(guard) JointID → mtxA.
-     * Aim stays skip=pose (16-joint Euler explodes). An exploded idle
-     * AABB is rejected in bind_model_gdl and rebound without rest. */
+    /* ANIM_idle / ANIM_walking / ANIM_fire_standing via SKELETON(guard)
+     * JointID → mtxA. Hierarchical 4x4, not skip=pose Euler. An exploded
+     * idle AABB is rejected in bind_model_gdl and rebound without rest. */
     if (use_guard && g_pose_rest && joint < PORT_SKEL_GUARD_N) {
         *rx = g_pose_rest[joint][0];
         *ry = g_pose_rest[joint][1];
@@ -1098,12 +1097,11 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         if (chr_part_span(m, &ymin, &ymax)) {
             float h = ymax - ymin;
             /* Exploded 16-joint Euler (stretched head / collapsed torso):
-             * drop rest and keep RST1 / identity so the C*Z mesh still
-             * stands at 185u. Do not invent a capsule. Aim stays skip=pose.
-             * Death rest can be a thin lie-down (h<40) or a 90° root swing
-             * — keep it; skip=pose Euler extract is what pancaked, not the
-             * hierarchical 4x4. */
-            if (g_pose_rest && g_pose_rest != g_die_rest &&
+             * drop idle/walk rest and keep RST1 / identity so the C*Z mesh
+             * still stands at 185u. Do not invent a capsule. Aim and death
+             * keep the hierarchical 4x4 (skip=pose Euler extract is what
+             * pancaked). load_chr_aim rejects a non-standing span. */
+            if (g_pose_rest && g_pose_rest != g_die_rest && g_pose_rest != g_aim_rest &&
                 (h > 2500.f || h < 40.f)) {
                 const float (*save)[3] = g_pose_rest;
                 g_pose_rest = NULL;
@@ -1285,10 +1283,10 @@ static PortModel *load_chr_die(int body)
  * (T-pose leftover or bad Euler) is rejected — idle, no fake arm. */
 static int aim_height_ok(const PortModel *m, float *h_out)
 {
-    float h;
-    if (!m || m->fit_scale < 1e-6f)
+    float ymin = 0.f, ymax = 0.f, h;
+    if (!m || !m->use_joints || m->njoint < 8 || !chr_part_span(m, &ymin, &ymax))
         return 0;
-    h = PORT_CHR_STAND / m->fit_scale;
+    h = ymax - ymin;
     if (h_out)
         *h_out = h;
     return h >= 600.f && h <= 2200.f;
@@ -1298,6 +1296,7 @@ static PortModel *load_chr_aim(int body)
 {
     PortModel *m;
     float h = 0.f;
+    int i;
     int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
     if (!g_have_aim || !use_guard)
         return NULL;
@@ -1305,14 +1304,23 @@ static PortModel *load_chr_aim(int body)
     if (!m)
         return NULL;
     if (!aim_height_ok(m, &h)) {
-        snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=aabb h=%.0f", h);
+        snprintf(g_aim_info, sizeof g_aim_info, "aim=0 skip=aabb h=%.0f j=%d", h, m->njoint);
         g_have_aim = 0;
         return NULL;
+    }
+    /* Same 185u stand as the living idle clone of this body. */
+    for (i = 0; i < g_nmdl; i++) {
+        if (g_mdl[i].id == 1000 + body && g_mdl[i].fit_scale != 0.f) {
+            m->fit_scale = g_mdl[i].fit_scale;
+            m->fit_ymin = g_mdl[i].fit_ymin;
+            break;
+        }
     }
     if (!strstr(g_aim_info, " fit=")) {
         char base[96];
         snprintf(base, sizeof base, "%s", g_aim_info);
-        snprintf(g_aim_info, sizeof g_aim_info, "%s fit=%.3f h=%.0f", base, m->fit_scale, h);
+        snprintf(g_aim_info, sizeof g_aim_info, "%s fit=%.3f h=%.0f j=%d rest=skel", base,
+                 m->fit_scale, h, m->njoint);
     }
     return m;
 }
@@ -2250,15 +2258,18 @@ int port_prop_tick_guard_fire(void)
         if (!guard_prop_in_los(i, &dx, &dz, &dist)) {
             g_prop[i].notice = 0;
             /* Alerted: face the player even outside the fire box.
-             * Do not set combat — they cannot shoot yet. */
+             * Do not set combat — they cannot shoot yet. Unalerted
+             * drop fire_standing back to idle. */
             if (g_prop[i].alerted &&
                 !port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
                 face_player_prop(i);
+            else if (mdl_is_aim(g_prop[i].mdl))
+                bind_prop_idle(i);
             continue;
         }
-        /* In the fire box: idle rest. Pack aim/fire decodes but the
-         * 16-joint Euler bind is a blob — do not apply it. */
-        bind_prop_idle(i);
+        /* In the fire box: pack fire_standing via the hierarchical joint
+         * table (same as idle/die). skip=pose Euler exploded the mesh. */
+        (void)bind_prop_aim(i);
         g_guard_los++;
         combat = 1;
         face_heading_prop(i, dx, dz);
@@ -3372,6 +3383,15 @@ int port_prop_load(int level_id)
     load_idle_rest();
     parse_setup(g_setup, g_setup_len);
     assign_walkers();
+    if (g_have_aim) {
+        int i;
+        for (i = 0; i < g_nprop; i++) {
+            if (g_prop[i].type != PDEF_GUARD)
+                continue;
+            if (!load_chr_aim(g_prop[i].model))
+                break;
+        }
+    }
     (void)load_wppk();
     (void)load_ak47(); /* bind Gak47Z if present; viewgun stays PP7 */
     (void)load_mp5k(); /* bind Gmp5kZ if present; viewgun stays PP7 */
@@ -4549,8 +4569,10 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             int use_j = mdl_use_joints(mdl);
             g_floor_clamp = dead && !use_j;
             g_die_lift = (dead && use_j) ? PORT_DIE_FLOOR_LIFT : 0.f;
-            if (dead && use_j && pr->head && mdl->have_head) {
-                /* Neck 4x4, not skip=pose Euler (gimbal at ~90° lie-down). */
+            if (use_j && pr->head && mdl->have_head &&
+                (dead || mdl_is_aim(mdl))) {
+                /* Neck 4x4, not skip=pose Euler (gimbal at ~90° lie-down).
+                 * Living aim uses the same so the hat follows a tilted neck. */
                 memcpy(pr->head->joint[0], mdl->head_mtx, sizeof pr->head->joint[0]);
                 pr->head->njoint = 1;
                 pr->head->use_joints = 1;

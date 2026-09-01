@@ -2156,6 +2156,52 @@ static int playtest_chris(const char *out_dir)
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_shoot_before") != 0)
             return -1;
+        /* Pack fire_standing on the extra idle (weapon up), then look. */
+        {
+            int ig = port_prop_idle_guard();
+            int bound;
+            float gx, gy, gz, r1[3], lx, lz, dx, dz, dist;
+            float look_x, look_z, look_y, look_th;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            if (ig < 0)
+                ig = 0;
+            if (port_prop_guard_xyz(ig, &gx, &gy, &gz) != 0) {
+                fprintf(stderr, "aim_look no guard xyz\n");
+                return -1;
+            }
+            lx = gx - r1[0];
+            lz = gz - r1[2];
+            port_prop_hear_player_shot();
+            (void)port_prop_tick_guard_fire();
+            bound = port_prop_guard_aim_bound(ig);
+            printf("aim_look have=%d bound=%d ig=%d %s\n", port_prop_have_aim(), bound, ig,
+                   port_prop_idle_info());
+            if (!port_prop_have_aim() || !bound) {
+                fprintf(stderr, "aim_look not bound have=%d bound=%d %s\n",
+                        port_prop_have_aim(), bound, port_prop_idle_info());
+                return -1;
+            }
+            dx = lx - PLAY_SHOOT_X;
+            dz = lz - PLAY_SHOOT_Z;
+            dist = sqrtf(dx * dx + dz * dz);
+            look_x = PLAY_SHOOT_X;
+            look_z = PLAY_SHOOT_Z;
+            look_y = ey;
+            look_th = PLAY_SHOOT_TH;
+            if (port_stan_on_tile(look_x, look_z) &&
+                port_stan_eye_y(look_x, look_z, &look_y) != 0)
+                look_y = ey;
+            printf("aim_look from=%.1f,%.1f to=%.1f,%.1f th=%.1f dist=%.1f\n",
+                   (double)look_x, (double)look_z, (double)lx, (double)lz, (double)look_th,
+                   (double)dist);
+            port_player_set_pose(look_x, look_y, look_z, look_th);
+            port_player_set_pitch(0.f);
+            if (shot_one(out_dir, "play_aim_look") != 0)
+                return -1;
+            place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+            port_player_set_pitch(0.f);
+        }
         hits0 = port_gun_hits();
         dead0 = 0;
         for (gi = 0; gi < ng; gi++) {
@@ -2778,7 +2824,8 @@ static int shot_one(const char *out_dir, const char *tag)
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
-        !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk")) {
+        !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk") ||
+        !strcmp(tag, "play_aim_look") || !strcmp(tag, "aim_look")) {
         if (camo_not_flat(fb, port_api_fb_width(), port_api_fb_height(), tag) != 0)
             return -1;
     }
@@ -3287,6 +3334,21 @@ int main(int argc, char **argv)
         port_player_set_pose(look_x, look_y, look_z, look_th);
         if (shot_one(out_dir, "idle_look") != 0)
             goto done;
+        {
+            int bound;
+            port_prop_hear_player_shot();
+            (void)port_prop_tick_guard_fire();
+            bound = port_prop_guard_aim_bound(ig);
+            printf("aim_look have=%d bound=%d ig=%d %s\n", port_prop_have_aim(), bound, ig,
+                   port_prop_idle_info());
+            if (!port_prop_have_aim() || !bound) {
+                fprintf(stderr, "aim_look not bound have=%d bound=%d %s\n",
+                        port_prop_have_aim(), bound, port_prop_idle_info());
+                goto done;
+            }
+            if (shot_one(out_dir, "aim_look") != 0)
+                goto done;
+        }
         port_player_set_pose(spawn_x, spawn_y, spawn_z, spawn_th);
     }
     {
