@@ -178,6 +178,10 @@ typedef struct {
     int chrnum;
     int held_model;
     int dropped;
+    /* Snapshot: extra yaw so fetal long axis (model +Z) lies across the
+     * shooter, not along the look. 1 once a dead emit has locked it. */
+    float die_add_yaw;
+    int die_oriented;
     PortModel *mdl;
     PortModel *head;
     float head_off[3];
@@ -2735,6 +2739,29 @@ int port_prop_die_last_frame(void)
     return (g_die_nframes > 1u) ? (int)g_die_nframes - 1 : 0;
 }
 
+float port_prop_die_add_yaw(void)
+{
+    int i, best = -1;
+    float best_d2 = 1e30f;
+    float r1[3];
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    for (i = 0; i < g_nprop; i++) {
+        float dx, dz, d2;
+        if (g_prop[i].type != PDEF_GUARD || !g_prop[i].die_oriented)
+            continue;
+        dx = (g_prop[i].pos[0] - r1[0]) - port_player_x();
+        dz = (g_prop[i].pos[2] - r1[2]) - port_player_z();
+        d2 = dx * dx + dz * dz;
+        if (d2 < best_d2) {
+            best_d2 = d2;
+            best = i;
+        }
+    }
+    return (best >= 0) ? g_prop[best].die_add_yaw : 0.f;
+}
+
 uint32_t port_prop_die_rest_crc(void)
 {
     const uint8_t *p = (const uint8_t *)g_die_rest;
@@ -4401,6 +4428,29 @@ static PortModel *slab_sized(float width, float tall)
     return &g_slab_pool_mdl[i];
 }
 
+/* Fetal last frame is recumbent along model +Z. Aiming-guard pad yaw
+ * faces the player, so look-down at -40° was along the body (head in
+ * the near plane). Pick extra 0/±90 so +Z is most perpendicular to
+ * player→pad. Snapshot on first dead emit so walking does not spin it. */
+static float die_across_add_yaw(float pad_yaw, float dx, float dz)
+{
+    float a = pad_yaw * (PI_F / 180.f);
+    float d0, d90, dm90;
+
+    d0 = sinf(a) * dx + cosf(a) * dz;
+    if (d0 < 0.f)
+        d0 = -d0;
+    d90 = sinf(a + 0.5f * PI_F) * dx + cosf(a + 0.5f * PI_F) * dz;
+    if (d90 < 0.f)
+        d90 = -d90;
+    dm90 = sinf(a - 0.5f * PI_F) * dx + cosf(a - 0.5f * PI_F) * dz;
+    if (dm90 < 0.f)
+        dm90 = -dm90;
+    if (d0 <= d90 && d0 <= dm90)
+        return 0.f;
+    return (d90 <= dm90) ? 90.f : -90.f;
+}
+
 static PortModel *slab_door(void)
 {
     PortModel *m;
@@ -4784,9 +4834,21 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
         }
         {
             int use_j = mdl_use_joints(mdl);
+            float add_yaw = 0.f;
             g_floor_clamp = dead && !use_j;
             g_die_lift = (dead && use_j) ? PORT_DIE_FLOOR_LIFT : 0.f;
-            k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+            if (dead && use_j) {
+                if (!pr->die_oriented) {
+                    float dx = padx - port_player_x();
+                    float dz = padz - port_player_z();
+                    pr->die_add_yaw = die_across_add_yaw(pr->yaw, dx, dz);
+                    pr->die_oriented = 1;
+                    printf("die_across chr=%d yaw=%.1f add=%.0f\n", pr->chrnum,
+                           (double)pr->yaw, (double)pr->die_add_yaw);
+                }
+                add_yaw = pr->die_add_yaw;
+            }
+            k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, add_yaw,
                            pdx, 0.f, pdz);
             if (pr->head && pr->head->npart) {
                 if (use_j && mdl->have_head) {
@@ -4805,11 +4867,11 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     g_emit_jtab = &mdl->head_mtx[0][0];
                     g_emit_nj = 1;
                     k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
-                                   0.f, 0.f, 0.f, pdx, 0.f, pdz);
+                                   0.f, 0.f, add_yaw, pdx, 0.f, pdz);
                     g_head_joint_drawn++;
                 } else
                     k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry,
-                                   hrz, 0.f, pdx, 0.f, pdz);
+                                   hrz, add_yaw, pdx, 0.f, pdz);
             }
             if (!dead)
                 k = emit_held_gun(out, cap, k, pr, mdl, room1, pdx, pdz);

@@ -98,6 +98,9 @@ void port_prop_set_die_frame(int frame);
 int port_prop_die_frame(void);
 /* Last death frame (nframes-1), or -1. */
 int port_prop_die_last_frame(void);
+/* Extra yaw (deg) on the nearest oriented dead joint rest so fetal +Z
+ * lies across the shooter. 0 if none has locked yet. */
+float port_prop_die_add_yaw(void);
 /* crc32 of the current death rest eulers. */
 uint32_t port_prop_die_rest_crc(void);
 /* After stan/origin are live: sit the test mover on a ground-floor

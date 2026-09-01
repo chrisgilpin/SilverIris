@@ -1181,6 +1181,50 @@ static unsigned count_olive(const uint8_t *rgba, int w, int h)
     return n;
 }
 
+/* Olive camo bbox + near-plane (bottom third) count. Look-down along the
+ * fetal +Z put a huge head in the near plane; across-yaw should not. */
+static unsigned olive_lookdown(const uint8_t *rgba, int w, int h, int *x0, int *y0,
+                               int *x1, int *y1, unsigned *nbot)
+{
+    unsigned n = 0;
+    int x, y, bx0 = w, by0 = h, bx1 = 0, by1 = 0;
+    unsigned bot = 0;
+    int ycut = (h * 2) / 3;
+
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2];
+            if (pg < 50u || pg <= pr + 8u || pg <= pb + 8u)
+                continue;
+            if (pr + pb > pg + 40u)
+                continue;
+            n++;
+            if (x < bx0)
+                bx0 = x;
+            if (y < by0)
+                by0 = y;
+            if (x > bx1)
+                bx1 = x;
+            if (y > by1)
+                by1 = y;
+            if (y >= ycut)
+                bot++;
+        }
+    }
+    if (x0)
+        *x0 = (n ? bx0 : 0);
+    if (y0)
+        *y0 = (n ? by0 : 0);
+    if (x1)
+        *x1 = (n ? bx1 : 0);
+    if (y1)
+        *y1 = (n ? by1 : 0);
+    if (nbot)
+        *nbot = bot;
+    return n;
+}
+
 static unsigned count_dark_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
                                int y1)
 {
@@ -2464,7 +2508,8 @@ static int playtest_chris(const char *out_dir)
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_shoot_after") != 0)
             return -1;
-        /* Look down at the corpse: lie-down vs compact pile. +pitch is up. */
+        /* Look down at the corpse: fetal long axis across the look, not
+         * along it (head in the near plane). +pitch is up. */
         port_player_set_pitch(-40.f);
         if (shot_one(out_dir, "play_shoot_after_down") != 0)
             return -1;
@@ -3146,6 +3191,32 @@ static int shot_one(const char *out_dir, const char *tag)
             fprintf(stderr, "%s viewgun top_r=%u lr=%u (look-down swung the PP7 up)\n",
                     tag, top, lr);
             return -1;
+        }
+        if (!strcmp(tag, "play_shoot_after_down")) {
+            int ox0 = 0, oy0 = 0, ox1 = 0, oy1 = 0;
+            unsigned nbot = 0, n;
+            float add = port_prop_die_add_yaw();
+            n = olive_lookdown(fb, port_api_fb_width(), port_api_fb_height(), &ox0,
+                               &oy0, &ox1, &oy1, &nbot);
+            printf("die_across %s add=%.0f olive=%u bbox=%d,%d-%d,%d bot=%u\n", tag,
+                   (double)add, n, ox0, oy0, ox1, oy1, nbot);
+            if (add != 90.f && add != -90.f) {
+                fprintf(stderr, "%s die_across add=%.0f (want ±90 so fetal +Z is across)\n",
+                        tag, (double)add);
+                return -1;
+            }
+            if (n < 400u) {
+                fprintf(stderr, "%s die_across olive=%u (corpse missing)\n", tag, n);
+                return -1;
+            }
+            /* Across the look: camo bbox should be wider than tall. The
+             * extra-idle down the hall can stretch y; still require a
+             * real x span so this is not a near-plane head blob. */
+            if ((ox1 - ox0) < 40) {
+                fprintf(stderr, "%s die_across bbox %d,%d-%d,%d (not across)\n", tag, ox0,
+                        oy0, ox1, oy1);
+                return -1;
+            }
         }
     }
     return 0;
