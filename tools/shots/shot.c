@@ -46,7 +46,7 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -59,9 +59,10 @@ static int sfx_bank_proof(void)
     cn = port_audio_sfx_frames(PORT_SFX_DOOR_CLOSE);
     rn = port_audio_sfx_frames(PORT_SFX_RICO);
     an = port_audio_sfx_frames(PORT_SFX_AMMO);
+    vn = port_audio_sfx_frames(PORT_SFX_ARMOUR);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
-           "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an);
+           "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -71,13 +72,14 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_PICKUP) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR_CLOSE) ||
         !port_audio_sfx_from_bank(PORT_SFX_RICO) ||
-        !port_audio_sfx_from_bank(PORT_SFX_AMMO) || gn < 2000 || dn < 500 ||
+        !port_audio_sfx_from_bank(PORT_SFX_AMMO) ||
+        !port_audio_sfx_from_bank(PORT_SFX_ARMOUR) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
-        rn < 200 || an < 200 || gn <= dn) {
+        rn < 200 || an < 200 || vn < 200 || gn <= dn) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
-                "kf7=%d pickup=%d close=%d rico=%d ammo=%d\n",
-                gn, dn, on, fn, hn, kn, pn, cn, rn, an);
+                "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -248,6 +250,29 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_AMMO || ea < 10000ll || diff < 16) {
             fprintf(stderr, "sfx_ammo last=%d e=%lld diff=%d\n",
                     port_audio_last_sfx(), ea, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t armour[512], pickup[512];
+        long long ev = 0;
+        int diff = 0;
+        memset(armour, 0, sizeof armour);
+        memset(pickup, 0, sizeof pickup);
+        port_audio_play_pickup();
+        port_audio_cb(pickup, 256);
+        port_audio_play_armour();
+        port_audio_cb(armour, 256);
+        for (i = 0; i < 512; i++) {
+            ev += (long long)armour[i] * armour[i];
+            if (armour[i] != pickup[i])
+                diff++;
+        }
+        printf("sfx_armour n=%d e=%lld last=%d mix_diff=%d\n", vn, ev,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_ARMOUR || ev < 10000ll || diff < 16) {
+            fprintf(stderr, "sfx_armour last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), ev, diff);
             return -1;
         }
     }
@@ -2073,6 +2098,11 @@ static int pickup_proof(const char *out_dir)
     }
     if (kind == PORT_PICKUP_AMMO && port_audio_last_sfx() != PORT_SFX_AMMO) {
         fprintf(stderr, "pickup_proof ammo sfx=%d (want ammo)\n",
+                port_audio_last_sfx());
+        return -1;
+    }
+    if (kind == PORT_PICKUP_ARMOUR && port_audio_last_sfx() != PORT_SFX_ARMOUR) {
+        fprintf(stderr, "pickup_proof armour sfx=%d (want armour)\n",
                 port_audio_last_sfx());
         return -1;
     }

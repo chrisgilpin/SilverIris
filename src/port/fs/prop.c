@@ -15,6 +15,7 @@
 
 __attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_audio_play_ammo(void) {}
+__attribute__((weak)) void port_audio_play_armour(void) {}
 
 #define PORT_MAX_PROPS 256
 #define PORT_MAX_MODELS 128
@@ -5560,8 +5561,8 @@ void port_prop_tick_pickup(void)
             g_drop_drawn = 0;
         if (pr->pickup_kind == PORT_PICKUP_ARMOUR) {
             port_player_add_armour(pr->pickup_amount);
-            if (port_audio_play_pickup)
-                port_audio_play_pickup();
+            if (port_audio_play_armour)
+                port_audio_play_armour();
         } else if (pr->model == PORT_PROP_CHRKALASH ||
                  pr->model == PORT_PROP_CHRMP5K)
             port_gun_collect_model(pr->model);
