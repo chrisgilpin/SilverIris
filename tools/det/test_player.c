@@ -682,6 +682,7 @@ static int test_door_use_open(void)
     uint8_t stan[256];
     float y, x1;
     uint32_t t;
+    int mag0;
     const float want_y = 50.0f + PORT_EYE_HEIGHT;
 
     (void)want_y;
@@ -719,20 +720,32 @@ static int test_door_use_open(void)
     port_set_local_pad(0, 0, 0, 0);
     if (port_sim_tick(700) != 0)
         return fail("use away idle");
-    port_set_local_pad(0, 0, 0, 0x2000); /* PORT_Z_TRIG */
+    port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_sim_tick(701) != 0)
         return fail("use away z");
     if (port_stan_door_is_open(0))
         return fail("use behind opened");
 
-    /* Face +X and press Z. */
+    /* Face +X and press A (use). Fire (Z) must not open. */
     port_player_set_pose(250.0f, y, 0.0f, 90.0f);
     port_set_local_pad(0, 0, 0, 0);
     if (port_sim_tick(702) != 0)
         return fail("use face idle");
-    port_set_local_pad(0, 0, 0, 0x2000);
+    mag0 = port_gun_mag();
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
     if (port_sim_tick(703) != 0)
-        return fail("use face z");
+        return fail("use face fire");
+    if (port_stan_door_is_open(0))
+        return fail("fire opened door");
+    if (port_gun_mag() != mag0 - 1)
+        return fail("fire facing door did not spend mag");
+    port_set_local_pad(0, 0, 0, 0);
+    if (port_sim_tick(704) != 0)
+        return fail("use face idle2");
+    mag0 = port_gun_mag();
+    port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
+    if (port_sim_tick(705) != 0)
+        return fail("use face a");
     if (!port_stan_door_is_open(0))
         return fail("use did not open");
     {
@@ -754,14 +767,14 @@ static int test_door_use_open(void)
     }
     printf("door_use open x=%.1f\n", (double)x1);
 
-    /* Second Z closes. */
+    /* Second A closes. */
     port_player_set_pose(250.0f, y, 0.0f, 90.0f);
     port_set_local_pad(0, 0, 0, 0);
     if (port_sim_tick(800) != 0)
         return fail("use close idle");
-    port_set_local_pad(0, 0, 0, 0x2000);
+    port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_sim_tick(801) != 0)
-        return fail("use close z");
+        return fail("use close a");
     if (port_stan_door_is_open(0))
         return fail("use did not close");
     {
@@ -851,16 +864,16 @@ static int test_door_use_does_not_fire(void)
     if (port_stan_eye_y(250.0f, 0.0f, &y) != 0)
         return fail("nofire eye");
 
-    /* Facing door in range: Z opens, mag/hits stay put. */
+    /* Facing door in range: A opens, mag/hits stay put. Z fires. */
     port_player_set_pose(250.0f, y, 0.0f, 90.0f);
     port_set_local_pad(0, 0, 0, 0);
     if (port_sim_tick(900) != 0)
         return fail("nofire idle");
     mag0 = port_gun_mag();
     hits0 = port_gun_hits();
-    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_sim_tick(901) != 0)
-        return fail("nofire use z");
+        return fail("nofire use a");
     if (!port_stan_door_is_open(0))
         return fail("nofire did not open");
     if (port_gun_mag() != mag0)
@@ -872,9 +885,9 @@ static int test_door_use_does_not_fire(void)
     port_set_local_pad(0, 0, 0, 0);
     if (port_sim_tick(902) != 0)
         return fail("nofire close idle");
-    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_sim_tick(903) != 0)
-        return fail("nofire close z");
+        return fail("nofire close a");
     if (port_stan_door_is_open(0))
         return fail("nofire did not close");
     if (port_gun_mag() != mag0)

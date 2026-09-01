@@ -14,6 +14,7 @@
 #include "player/move.h"
 #include "player/gun.h"
 #include "player/stan_walk.h"
+#include "audio/audio.h"
 #include "gfx/tmem.h"
 #include "gfx/gbi_interp.h"
 
@@ -195,16 +196,65 @@ static int path_unlatch_proof(void)
     ad_closed = adler32(port_api_fb(),
                         (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
 
+    /* P0-B: fire (Z) must not unlatch; A must. */
+    {
+        int mag0 = port_gun_mag();
+        int flash0;
+        int open0 = port_stan_door_is_open_at(pos[0], pos[2]);
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(4998) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        if (port_api_sim_tick(4999) != 0)
+            return -1;
+        flash0 = port_gun_flash_frames();
+        printf("pad_fire_no_unlatch mag=%d->%d flash=%d open=%d->%d act=%d\n",
+               mag0, port_gun_mag(), flash0, open0,
+               port_stan_door_is_open_at(pos[0], pos[2]), port_gun_last_action());
+        if (port_stan_door_is_open_at(pos[0], pos[2]) != open0) {
+            fprintf(stderr, "pad fire unlatched the door\n");
+            return -1;
+        }
+        if (port_gun_mag() != mag0 - 1 || flash0 <= 0) {
+            fprintf(stderr, "pad fire facing door did not shoot mag %d->%d flash=%d\n",
+                    mag0, port_gun_mag(), flash0);
+            return -1;
+        }
+        while (port_gun_flash_frames() > 0) {
+            port_api_set_pad(0, 0, 0, 0);
+            if (port_api_sim_tick(5000) != 0)
+                return -1;
+        }
+        mag0 = port_gun_mag();
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5001) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
+        if (port_api_sim_tick(5002) != 0)
+            return -1;
+        printf("pad_use_no_fire mag=%d->%d flash=%d open=%d sfx=%d\n", mag0,
+               port_gun_mag(), port_gun_flash_frames(),
+               port_stan_door_is_open_at(pos[0], pos[2]), port_audio_last_sfx());
+        if (port_gun_mag() != mag0) {
+            fprintf(stderr, "pad use spent mag\n");
+            return -1;
+        }
+        if (port_gun_flash_frames() != 0) {
+            fprintf(stderr, "pad use flashed muzzle\n");
+            return -1;
+        }
+    }
+
     used = port_stan_use_door(px, pz, lx, lz);
     if (!used)
         used = port_stan_use_door(px + r1[0], pz + r1[2], lx, lz);
     opened = port_stan_door_is_open_at(pos[0], pos[2]);
     if (!opened) {
         port_api_set_pad(0, 0, 0, 0);
-        if (port_api_sim_tick(5000) != 0)
+        if (port_api_sim_tick(5003) != 0)
             return -1;
-        port_api_set_pad(0, 0, 0, 0x2000);
-        if (port_api_sim_tick(5001) != 0)
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
+        if (port_api_sim_tick(5004) != 0)
             return -1;
         opened = port_stan_door_is_open_at(pos[0], pos[2]);
         if (opened)
@@ -347,7 +397,7 @@ static int path_close_swing_proof(void)
         port_api_set_pad(0, 0, 0, 0);
         if (port_api_sim_tick(5300) != 0)
             return -1;
-        port_api_set_pad(0, 0, 0, 0x2000);
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
         if (port_api_sim_tick(5301) != 0)
             return -1;
         opened = port_stan_door_is_open_at(pos[0], pos[2]);
@@ -744,7 +794,7 @@ static int wide_door_side_proof(void)
         port_api_set_pad(0, 0, 0, 0);
         if (port_api_sim_tick(5100) != 0)
             return -1;
-        port_api_set_pad(0, 0, 0, 0x2000);
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
         if (port_api_sim_tick(5101) != 0)
             return -1;
         opened = port_stan_door_is_open_at(pos[0], pos[2]);
@@ -878,7 +928,7 @@ static int hinge_park_one(const int pick[][2], int npick, float wlo, float whi,
         port_api_set_pad(0, 0, 0, 0);
         if (port_api_sim_tick(5200) != 0)
             return -1;
-        port_api_set_pad(0, 0, 0, 0x2000);
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
         if (port_api_sim_tick(5201) != 0)
             return -1;
         opened = port_stan_door_is_open_at(pos[0], pos[2]);
@@ -2241,6 +2291,47 @@ static int playtest_chris(const char *out_dir)
             fprintf(stderr, "walkhall WASD G1/y dump\n");
             return -1;
         }
+        {
+            unsigned nz0, nz1, dark = 0;
+            const uint8_t *fb;
+            int px, py, w, h, s2;
+            nz0 = port_api_fb_nonzero();
+            for (s2 = 0; s2 < 80; s2++) {
+                float nx = wx + kdx[s2 % 8], nz = wz + kdz[s2 % 8], ny = wy;
+                port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+                if (ny > 200.f)
+                    break;
+                if ((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz) > 0.25f) {
+                    wx = nx;
+                    wz = nz;
+                    wy = ny;
+                }
+            }
+            port_player_set_pose(wx, wy, wz, 270.f);
+            port_player_set_pitch(0.f);
+            port_api_draw();
+            nz1 = port_api_fb_nonzero();
+            fb = port_api_fb();
+            w = port_api_fb_width();
+            h = port_api_fb_height();
+            if (fb) {
+                for (py = 0; py < h; py++) {
+                    for (px = 0; px < w; px++) {
+                        const uint8_t *p = fb + ((py * w) + px) * 4;
+                        if ((unsigned)p[0] + p[1] + p[2] < 24u)
+                            dark++;
+                    }
+                }
+            }
+            printf("long_walk fb=%u->%u dark=%u cur=%d walked=%d xz=%.1f,%.1f y=%.1f\n",
+                   nz0, nz1, dark, port_stage_current_room(),
+                   port_stage_rooms_walked(), (double)wx, (double)wz, (double)wy);
+            if (nz1 == 0 || dark >= (unsigned)(w * h)) {
+                fprintf(stderr, "long_walk black frame fb=%u dark=%u/%d\n", nz1, dark,
+                        w * h);
+                return -1;
+            }
+        }
     }
 
     /* Chris 2026-08-31 live hall hop: A y=29.1 -> B y=409.6 r12. */
@@ -3067,6 +3158,32 @@ static int playtest_chris(const char *out_dir)
             return -1;
         }
     }
+    if (path_unlatch_proof() != 0)
+        return -1;
+    {
+        int mag0, n = 0;
+        while ((port_gun_mag() > 0 || port_gun_reserve() > 0) && n < 80) {
+            port_gun_tick(0);
+            port_gun_tick(PORT_Z_TRIG);
+            n++;
+        }
+        while (port_gun_flash_frames() > 0)
+            port_gun_tick(0);
+        mag0 = port_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        printf("dry_fire mag=%d->%d flash=%d act=%d sfx=%d n=%d\n", mag0,
+               port_gun_mag(), port_gun_flash_frames(), port_gun_last_action(),
+               port_audio_last_sfx(), n);
+        if (port_gun_mag() != mag0 || port_gun_flash_frames() != 0 ||
+            port_gun_last_action() != PORT_GUN_ACT_DRY ||
+            port_audio_last_sfx() != PORT_SFX_DRY) {
+            fprintf(stderr, "dry_fire still shot mag=%d flash=%d act=%d sfx=%d\n",
+                    port_gun_mag(), port_gun_flash_frames(), port_gun_last_action(),
+                    port_audio_last_sfx());
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -3199,6 +3316,12 @@ static int shot_one(const char *out_dir, const char *tag)
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
+    if (!strcmp(tag, "play_spawn")) {
+        if (mag < 1) {
+            fprintf(stderr, "play_spawn empty mag %d/%d\n", mag, reserve);
+            return -1;
+        }
+    }
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
         !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk") ||
         !strcmp(tag, "play_aim_look") || !strcmp(tag, "play_aim_grip") ||
@@ -4705,6 +4828,31 @@ int main(int argc, char **argv)
                     }
                 }
             }
+        }
+    }
+    /* P0-A: empty mag dry-fire — no muzzle, no ammo drain. */
+    {
+        int mag0, n = 0;
+        while ((port_gun_mag() > 0 || port_gun_reserve() > 0) && n < 80) {
+            port_gun_tick(0);
+            port_gun_tick(PORT_Z_TRIG);
+            n++;
+        }
+        while (port_gun_flash_frames() > 0)
+            port_gun_tick(0);
+        mag0 = port_gun_mag();
+        port_gun_tick(0);
+        port_gun_tick(PORT_Z_TRIG);
+        printf("dry_fire mag=%d->%d flash=%d act=%d sfx=%d n=%d\n", mag0,
+               port_gun_mag(), port_gun_flash_frames(), port_gun_last_action(),
+               port_audio_last_sfx(), n);
+        if (port_gun_mag() != mag0 || port_gun_flash_frames() != 0 ||
+            port_gun_last_action() != PORT_GUN_ACT_DRY ||
+            port_audio_last_sfx() != PORT_SFX_DRY) {
+            fprintf(stderr, "dry_fire still shot mag=%d flash=%d act=%d sfx=%d\n",
+                    port_gun_mag(), port_gun_flash_frames(), port_gun_last_action(),
+                    port_audio_last_sfx());
+            goto done;
         }
     }
     /* After living-player cameras: drain hp, show DEAD, prove no fire.

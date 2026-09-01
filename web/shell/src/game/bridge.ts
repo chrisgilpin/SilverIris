@@ -49,6 +49,8 @@ export type GameModule = {
   _port_api_ready: () => number;
   _port_api_audio_cb: (ptr: number, nframes: number) => void;
   _port_api_audio_play_gun: () => void;
+  _port_api_audio_play_dry?: () => void;
+  _port_api_audio_last_sfx?: () => number;
   _port_api_audio_set_music: (on: number) => void;
   _port_api_audio_rate: () => number;
   _port_api_load_stage: (levelId: number) => number;
@@ -91,6 +93,8 @@ export type GameModule = {
   _port_api_gun_reserve: () => number;
   _port_api_gun_weapon?: () => number;
   _port_api_gun_hits: () => number;
+  _port_api_gun_flash_frames?: () => number;
+  _port_api_gun_last_action?: () => number;
   _port_api_gun_have_hit: () => number;
   _port_api_gun_hit_x: () => number;
   _port_api_gun_hit_y: () => number;
@@ -135,6 +139,7 @@ export type GameModule = {
   HEAP16?: Int16Array;
   HEAP32?: Int32Array;
   UTF8ToString?: (p: number) => string;
+  wasmMemory?: WebAssembly.Memory;
 };
 
 export type GameBridge = {
@@ -148,6 +153,7 @@ export type GameBridge = {
   ready(): boolean;
   audioCb(out: Int16Array, nframes: number): void;
   audioPlayGun(): void;
+  audioLastSfx(): number;
   audioSetMusic(on: boolean): void;
   audioRate(): number;
   loadStage(levelId: number): number;
@@ -192,6 +198,8 @@ export type GameBridge = {
   gunReserve(): number;
   gunWeapon(): number;
   gunHits(): number;
+  gunFlashFrames(): number;
+  gunLastAction(): number;
   gunHaveHit(): boolean;
   gunHitX(): number;
   gunHitY(): number;
@@ -241,9 +249,18 @@ export function readHeapI32(heap: Uint8Array, ptr: number): number {
   return new DataView(heap.buffer, heap.byteOffset + ptr, 4).getInt32(0, true);
 }
 
+/** wasm ALLOW_MEMORY_GROWTH detaches HEAPU8; always rebind from wasmMemory. */
+export function liveHeapU8(mod: GameModule): Uint8Array {
+  const mem = mod.wasmMemory;
+  if (mem && (mod.HEAPU8.buffer !== mem.buffer || mod.HEAPU8.byteLength !== mem.buffer.byteLength))
+    mod.HEAPU8 = new Uint8Array(mem.buffer);
+  return mod.HEAPU8;
+}
+
 function hudSlot(mod: GameModule, slot: 0 | 1 | 2 | 3 | 4, fallback: () => number): number {
+  const heap = liveHeapU8(mod);
   const p = mod._port_api_hud_i32?.();
-  if (p) return readHeapI32(mod.HEAPU8, p + slot * 4);
+  if (p && p + slot * 4 + 4 <= heap.byteLength) return readHeapI32(heap, p + slot * 4);
   return fallback() | 0;
 }
 
@@ -252,8 +269,9 @@ type Factory = (opts?: Record<string, unknown>) => Promise<GameModule>;
 function cstr(mod: GameModule, p: number): string {
   if (mod.UTF8ToString) return mod.UTF8ToString(p);
   if (!p) return "";
+  const heap = liveHeapU8(mod);
   let s = "";
-  for (let i = p; mod.HEAPU8[i]; i++) s += String.fromCharCode(mod.HEAPU8[i]);
+  for (let i = p; heap[i]; i++) s += String.fromCharCode(heap[i]);
   return s;
 }
 
@@ -291,7 +309,7 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
   let audioCap = 0;
 
   const heapS16 = (ptr: number, samples: number): Int16Array => {
-    const heap = M.HEAPU8;
+    const heap = liveHeapU8(M);
     return new Int16Array(heap.buffer, heap.byteOffset + ptr, samples);
   };
 
@@ -301,8 +319,8 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       const p = M._malloc(pack.byteLength);
       const h = M._malloc(32);
       if (!p || !h) throw new Error("wasm malloc failed");
-      M.HEAPU8.set(pack, p);
-      M.HEAPU8.set(packHash, h);
+      liveHeapU8(M).set(pack, p);
+      liveHeapU8(M).set(packHash, h);
       const rc = M._port_api_init(p, pack.byteLength, h);
       M._free(p);
       M._free(h);
@@ -343,7 +361,8 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
       const h = M._port_api_fb_height();
       const ptr = M._port_api_fb();
       if (!ptr || w <= 0 || h <= 0) return null;
-      return { rgba: M.HEAPU8.subarray(ptr, ptr + w * h * 4), w, h };
+      const heap = liveHeapU8(M);
+      return { rgba: heap.subarray(ptr, ptr + w * h * 4), w, h };
     },
     lastDraw(): number {
       return alive && M._port_api_last_draw ? M._port_api_last_draw() : 0;
@@ -377,6 +396,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     audioPlayGun(): void {
       if (alive) M._port_api_audio_play_gun();
+    },
+    audioLastSfx(): number {
+      return alive && M._port_api_audio_last_sfx ? M._port_api_audio_last_sfx() : 0;
     },
     audioSetMusic(on: boolean): void {
       if (alive) M._port_api_audio_set_music(on ? 1 : 0);
@@ -511,6 +533,12 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     gunHits(): number {
       return alive ? hudSlot(M, 2, () => M._port_api_gun_hits()) : 0;
+    },
+    gunFlashFrames(): number {
+      return alive && M._port_api_gun_flash_frames ? M._port_api_gun_flash_frames() : 0;
+    },
+    gunLastAction(): number {
+      return alive && M._port_api_gun_last_action ? M._port_api_gun_last_action() : 0;
     },
     gunHaveHit(): boolean {
       return alive ? M._port_api_gun_have_hit() !== 0 : false;

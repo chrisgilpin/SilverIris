@@ -10,6 +10,8 @@
 #include <math.h>
 #include <string.h>
 
+__attribute__((weak)) void port_audio_play_door(void) {}
+
 /*
  * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
  * NTSC: deadzone 5, analogWalk/70, *1.08, vv_theta += speedtheta * dt * 3.5.
@@ -507,7 +509,8 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     if (p->health <= 0) {
         int rising;
         p->dead_ticks += 1;
-        rising = ((buttons & PORT_Z_TRIG) != 0) && ((p->prev_buttons & PORT_Z_TRIG) == 0);
+        rising = (((buttons & PORT_FIRE_MASK) != 0) && ((p->prev_buttons & PORT_FIRE_MASK) == 0))
+            || (((buttons & PORT_A_BUTTON) != 0) && ((p->prev_buttons & PORT_A_BUTTON) == 0));
         p->prev_buttons = buttons;
         if (p->dead_ticks >= PORT_RESPAWN_AUTO_TICKS
             || (p->dead_ticks >= PORT_RESPAWN_Z_TICKS && rising))
@@ -563,12 +566,15 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
             store_y(p, ny);
         }
     }
-    /* Rare bond_pressed_reload_activate -> propdoorInteract. HUD is Z/Space. */
-    if ((buttons & PORT_Z_TRIG) && !(p->prev_buttons & PORT_Z_TRIG)) {
+    /* Rare bond_pressed_reload_activate -> propdoorInteract. N64 A, not fire. */
+    if ((buttons & PORT_A_BUTTON) && !(p->prev_buttons & PORT_A_BUTTON)) {
         float lx = sinf(rad);
         float lz = -cosf(rad);
-        if (port_stan_use_door(p->x, p->z, lx, lz))
+        if (port_stan_use_door(p->x, p->z, lx, lz)) {
+            if (port_audio_play_door)
+                port_audio_play_door();
             port_gun_suppress_fire();
+        }
     }
     p->prev_buttons = buttons;
 }

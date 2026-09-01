@@ -91,6 +91,7 @@ static int g_portals_scaled;
 static void scale_portal_geom(float inv);
 static int g_nportals;
 static int g_cur_room;
+static int g_last_good_room;
 static int g_rooms_walked;
 static uint8_t g_walked[PORT_WALK_MAX];
 static void *g_first_room;
@@ -183,6 +184,7 @@ static void clear_rooms(void)
     g_nportals = 0;
     g_portals_scaled = 0;
     g_cur_room = 0;
+    g_last_good_room = 0;
     g_rooms_walked = 0;
     memset(g_walked, 0, sizeof g_walked);
     g1_clear_planes();
@@ -1056,8 +1058,14 @@ static int pick_current_room(void)
                                     port_player_y());
     if (rm >= 1 && rm <= g_bg_rooms)
         return rm;
-    return port_stage_room_at_local(port_player_x(), port_player_y(),
+    rm = port_stage_room_at_local(port_player_x(), port_player_y(),
                                     port_player_z());
+    if (rm >= 1 && rm <= g_bg_rooms)
+        return rm;
+    /* Stay on the last drawable room rather than clearing the FB. */
+    if (g_last_good_room >= 1 && g_last_good_room <= g_bg_rooms)
+        return g_last_good_room;
+    return 0;
 }
 
 static int select_rooms(uint8_t *out, int cap)
@@ -2501,9 +2509,16 @@ int port_stage_draw(void)
         return 1;
 
     nsel = select_rooms(ids, PORT_WALK_MAX);
+    if (nsel < 1 && g_last_good_room >= 1 && g_last_good_room <= g_bg_rooms) {
+        ids[0] = (uint8_t)g_last_good_room;
+        nsel = 1;
+        g_cur_room = g_last_good_room;
+    }
     for (i = 0; i < nsel && i < PORT_WALK_MAX; i++)
         g_walked[i] = ids[i];
     g_rooms_walked = nsel;
+    if (g_cur_room >= 1)
+        g_last_good_room = g_cur_room;
     ox = g_rm[1].pos[0] * g_bg_inv;
     oy = g_rm[1].pos[1] * g_bg_inv;
     oz = g_rm[1].pos[2] * g_bg_inv;

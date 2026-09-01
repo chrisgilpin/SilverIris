@@ -12,6 +12,7 @@
 #include "fs/stage.h"
 #include "fs/prop.h"
 #include "player/move.h"
+#include "player/gun.h"
 #include "player/stan_walk.h"
 #include "gfx/gbi_interp.h"
 #include "gfx/tmem.h"
@@ -3583,14 +3584,14 @@ static int test_door_open_pose(void)
     printf("door_open_pose closed x=%.1f mag=%u cx=%.1f drawn=%d\n", (double)x1,
            mag_closed, (double)cx_closed, port_stage_props_drawn());
 
-    /* Face +X and press Z. */
+    /* Face +X and press A (use). */
     port_player_set_pose(250.f, y, 0.f, 90.f);
     port_api_set_pad(0, 0, 0, 0);
     if (port_api_sim_tick(1000) != 0)
         return fail("open-pose face idle");
-    port_api_set_pad(0, 0, 0, 0x2000);
+    port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_api_sim_tick(1001) != 0)
-        return fail("open-pose face z");
+        return fail("open-pose face a");
     if (!port_stan_door_is_open(0))
         return fail("open-pose did not open");
 
@@ -3638,15 +3639,15 @@ static int test_door_open_pose(void)
     printf("door_open_pose open x=%.1f mag=%u cx=%.1f drawn=%d\n", (double)x1, mag_open,
            (double)cx_open, port_stage_props_drawn());
 
-    /* Second Z closes. Reverse-swing over the same ticks; first
+    /* Second A closes. Reverse-swing over the same ticks; first
      * close frame must not snap to the closed centroid. */
     port_player_set_pose(250.f, y, 0.f, 90.f);
     port_api_set_pad(0, 0, 0, 0);
     if (port_api_sim_tick(1100) != 0)
         return fail("open-pose close idle");
-    port_api_set_pad(0, 0, 0, 0x2000);
+    port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
     if (port_api_sim_tick(1101) != 0)
-        return fail("open-pose close z");
+        return fail("open-pose close a");
     if (port_stan_door_is_open(0))
         return fail("open-pose did not close");
     {

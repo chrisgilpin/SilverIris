@@ -45,7 +45,14 @@
 #define PORT_MP5K_HOLD_X 11.f
 #define PORT_MP5K_HOLD_Y (-26.4f)
 #define PORT_MP5K_HOLD_Z (-35.f)
-#define PORT_Z_TRIG 0x2000u
+#define PORT_A_BUTTON 0x8000u /* CONT_A: use door / interact (not fire). */
+#define PORT_B_BUTTON 0x4000u /* CONT_B: fire. */
+#define PORT_Z_TRIG 0x2000u /* CONT_G / Z-trig: fire. */
+#define PORT_FIRE_MASK (PORT_Z_TRIG | PORT_B_BUTTON)
+#define PORT_GUN_ACT_NONE 0
+#define PORT_GUN_ACT_SHOT 1
+#define PORT_GUN_ACT_DRY 2
+#define PORT_GUN_ACT_RELOAD 3
 /* SKEL_FLASH cards stay visible this many ticks after a spent shot. */
 #define PORT_MUZZLE_FLASH_FRAMES 3
 /* Fake PORT wall. Hitscan uses this only when no stan tiles/doors
@@ -73,5 +80,7 @@ int port_gun_hits(void);
 int port_gun_last_hit(float *x, float *y, float *z);
 /* Remaining viewmodel SKEL_FLASH frames (0 = hidden). Visual only. */
 int port_gun_flash_frames(void);
+/* Last rising-edge gun action: shot / dry-click / reload. */
+int port_gun_last_action(void);
 
 #endif

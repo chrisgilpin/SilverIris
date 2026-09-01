@@ -850,6 +850,61 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 P0 empty-mag / fire≠use / walk FB / SFX)
+
+P0 playtest slice on top of door-leaf interiors `fedf44f` (KEEP). SHA pending.
+Chris live: HUD PP7 0/0 with click still flashing white + fire beep; Z/Space
+both fired and opened doors; walking could leave a permanent black frame
+while CSS pew still flashed.
+
+**A — empty mag / starting ammo.** Facility start is PP7 mag 7 / reserve 21.
+Rising fire (Z-trig / B) with mag==0 reloads if reserve remains, else dry
+click: no mag drain, no SKEL_FLASH, no hitscan. Shell no longer `bang()`s
+a fire SFX + CSS pew on every click/Z; pew only when C flash_frames rises.
+
+**B — fire ≠ use.** N64 Facility 1P map:
+- click / gamepad B or LT/RT → CONT_G 0x2000 fire (B / Z-trig)
+- Z / Space / gamepad A → CONT_A 0x8000 use door (A)
+- WASD → stick, mouse → look, Shift → run
+Use does not fire. Fire does not unlatch. 2P corridor tape tick 9 is A.
+
+**C — walk black frame.** wasm `ALLOW_MEMORY_GROWTH` detached HEAPU8, so
+HUD i32 and G1 blit read zeros (PP7 0/0 + black canvas) while C still
+ticked. `liveHeapU8` rebinds from `wasmMemory`. Stage draw keeps the last
+good room if the eye leaves the walked set.
+
+**D — SFX.** Pack `sfx.ctl`/`sfx.tbl` are N64 banks (no ASP HLE yet). Mixer
+placeholders: shot = noise crack + 140 Hz thud; dry = 2.1 kHz click; door
+= 78 Hz thud. Queued from C on shot / dry / successful A-use. Not ROM PCM.
+
+KEEP `fedf44f` door-leaf interiors, `21cbd0a` portal scale, `30db967`
+door/camo albedo, `f3414ae` floor KF7, `6666c32` death-across, `a756d97`
+pad hits, `7886c41` PP7 rest Rx, `e01e97f` spawn FPS.
+
+**1 — ammo / fire / use.** `play_spawn` mag=7/21. `pad_fire_no_unlatch`
+mag=7→6 flash=3 open=0→0 act=1. `pad_use_no_fire` mag=6→6 flash=0 open=1
+sfx=3. `dry_fire` mag=0→0 flash=0 act=2 sfx=2 n=22. `play_shoot_after`
+kills=2 mag 7/14.
+
+**2 — walk / hitch / doors.** `long_walk fb=76079→76084 dark=1385` (not a
+full-FB black). `fire_hitch miss_ms=3.53 hit_ms=3.29 hits=1`. `play_spawn`
+spawn_fill dark=38 metal=10782. `play_hall_a` dark=0 metal=12898.
+`play_clip_door` clipdoor_fill dark=53 metal=4446 `clipdoor_olive n=34`.
+`path_unlatch r8-r7 local=650.7,-1753.0` OK.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=27.33 (36.6 fps) — `e01e97f`
+35ms class kept. y=29.12.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Pack SFX banks not HLE'd (placeholders only).
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 door-leaf interiors `fedf44f`)
 
 N64-feel slice on top of portal geom in G1/stan space `21cbd0a` (KEEP). SHA `fedf44f`.

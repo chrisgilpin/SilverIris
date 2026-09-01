@@ -265,8 +265,8 @@ int main(int argc, char **argv)
                 if (ev.type == SDL_QUIT) {
                     running = 0;
                 } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
-                    if (ev.key.keysym.sym == SDLK_z || ev.key.keysym.sym == SDLK_SPACE)
-                        port_audio_play_gun();
+                    /* Fire SFX is queued from port_gun_tick on a spent shot. */
+                    (void)ev;
                 }
             }
             run_tick(t++);

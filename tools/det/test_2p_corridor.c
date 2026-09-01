@@ -92,7 +92,7 @@ static int setup_world(void)
 }
 
 /* Tick 0 idle (delay-1). Walk is ~13.5 u/tick. Door at 150, guard at
- * 200, P0 starts at 60 facing +X. 1–8 walk to the slab. 9 Z-unlatch.
+ * 200, P0 starts at 60 facing +X. 1–8 walk to the slab. 9 A-unlatch.
  * 10–15 idle while it swings. 16–21 walk through (stop short of the
  * guard). 22 Z kills the on-axis guard. 23 idle. 24 PvP Z. Rest idle. */
 static void pads_for(uint32_t t, PortPad out[2])
@@ -101,7 +101,7 @@ static void pads_for(uint32_t t, PortPad out[2])
     if (t >= 1 && t <= 8)
         out[0].stick_y = (int8_t)-70;
     else if (t == 9)
-        out[0].buttons = (uint16_t)PORT_Z_TRIG;
+        out[0].buttons = (uint16_t)PORT_A_BUTTON;
     else if (t >= 16 && t <= 21)
         out[0].stick_y = (int8_t)-70;
     else if (t == 22 || t == 24)

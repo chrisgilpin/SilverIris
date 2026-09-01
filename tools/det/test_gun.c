@@ -337,7 +337,7 @@ static int test_world_hitscan(void)
         return fail("open-space still spends mag");
     printf("hitscan_miss mag=%d hits=0 (door-only look -Z)\n", port_gun_mag());
 
-    /* Use-door still does not fire (corridor + facing door). */
+    /* Use-door (A) still does not fire (corridor + facing door). */
     if (load_corridor() != 0)
         return 1;
     port_stan_add_door(300.0f, 0.0f, 1.0f, 0.0f);
@@ -349,9 +349,9 @@ static int test_world_hitscan(void)
     {
         int mag0 = port_gun_mag();
         int hits0 = port_gun_hits();
-        port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        port_set_local_pad(0, 0, 0, (int)PORT_A_BUTTON);
         if (port_sim_tick(151) != 0)
-            return fail("use z");
+            return fail("use a");
         if (!port_stan_door_is_open(0))
             return fail("use did not open");
         if (port_gun_mag() != mag0)
@@ -359,6 +359,19 @@ static int test_world_hitscan(void)
         if (port_gun_hits() != hits0)
             return fail("use scored hit");
         printf("hitscan_use_nofire mag=%d hits=%d\n", mag0, hits0);
+        port_set_local_pad(0, 0, 0, 0);
+        if (port_sim_tick(152) != 0)
+            return fail("use idle2");
+        mag0 = port_gun_mag();
+        port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        if (port_sim_tick(153) != 0)
+            return fail("fire facing door");
+        if (!port_stan_door_is_open(0))
+            return fail("fire closed the door");
+        if (port_gun_mag() != mag0 - 1)
+            return fail("fire facing open door did not spend mag");
+        printf("hitscan_fire_no_unlatch mag=%d open=%d\n", port_gun_mag(),
+               port_stan_door_is_open(0));
     }
     port_stan_unload();
     return 0;
@@ -795,7 +808,7 @@ int main(void)
 {
     SimChecksum a, b;
     float hx, hy, hz;
-    int i;
+    int i, mag0;
 
     port_rng_begin_match(1);
     port_player_spawn();
@@ -863,6 +876,34 @@ int main(void)
         return fail("reload is not a shot");
     if (port_gun_flash_frames() == PORT_MUZZLE_FLASH_FRAMES)
         return fail("reload is not a flash");
+
+    /* Drain remaining 9mm, then dry-fire: no flash, mag stays 0. */
+    for (;;) {
+        if (port_gun_mag() <= 0 && port_gun_reserve() <= 0)
+            break;
+        port_set_local_pad(0, 0, 0, 0);
+        port_sim_tick(30);
+        port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+        port_sim_tick(31);
+    }
+    port_set_local_pad(0, 0, 0, 0);
+    port_sim_tick(40);
+    port_sim_tick(41);
+    port_sim_tick(42);
+    port_sim_tick(43);
+    if (port_gun_flash_frames() != 0)
+        return fail("flash still on before dry");
+    mag0 = port_gun_mag();
+    port_set_local_pad(0, 0, 0, (int)PORT_Z_TRIG);
+    port_sim_tick(44);
+    if (port_gun_mag() != mag0)
+        return fail("dry spent mag");
+    if (port_gun_flash_frames() != 0)
+        return fail("dry muzzle flash");
+    if (port_gun_last_action() != PORT_GUN_ACT_DRY)
+        return fail("dry action");
+    printf("dry_fire mag=%d flash=%d act=%d\n", port_gun_mag(),
+           port_gun_flash_frames(), port_gun_last_action());
 
     printf("gun ok mag=%d reserve=%d hits=%d hitz=%g crc=%08x (no_assets z=-50)\n",
            port_gun_mag(), port_gun_reserve(), port_gun_hits(), (double)hz,

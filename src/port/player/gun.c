@@ -9,6 +9,8 @@
 #include <string.h>
 
 __attribute__((weak)) void port_prop_hear_player_shot(void) {}
+__attribute__((weak)) void port_audio_play_gun(void) {}
+__attribute__((weak)) void port_audio_play_dry(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -51,6 +53,7 @@ typedef struct {
     int have_hit;
     int suppress_fire;
     int flash_frames;
+    int last_action;
 } PortGun;
 
 static PortGun g_gun[PORT_MAX_PLAYERS];
@@ -214,7 +217,7 @@ void port_gun_reset(void)
 void port_gun_tick(uint16_t buttons)
 {
     PortGun *g = G();
-    int rising = ((buttons & PORT_Z_TRIG) != 0) && ((g->prev_buttons & PORT_Z_TRIG) == 0);
+    int rising = ((buttons & PORT_FIRE_MASK) != 0) && ((g->prev_buttons & PORT_FIRE_MASK) == 0);
     int suppress = g->suppress_fire;
     g->suppress_fire = 0;
     g->prev_buttons = buttons;
@@ -222,23 +225,38 @@ void port_gun_tick(uint16_t buttons)
         g->flash_frames--;
     if (!rising)
         return;
-    /* Door use consumed this Z (Rare B-activate vs fire). Still latch prev. */
+    /* Door use used to share Z; A is interact now. Keep suppress for
+     * a same-tick fire+use mash. Still latch prev. */
     if (suppress)
         return;
     if (port_player_health() <= 0)
         return;
     if (g->mag <= 0) {
         reload();
+        if (g->mag > 0) {
+            g->last_action = PORT_GUN_ACT_RELOAD;
+            return;
+        }
+        /* Empty mag + empty reserve: dry click, no muzzle, no shot. */
+        g->last_action = PORT_GUN_ACT_DRY;
+        g->flash_frames = 0;
+        if (port_audio_play_dry)
+            port_audio_play_dry();
         return;
     }
     g->mag -= 1;
     g->flash_frames = PORT_MUZZLE_FLASH_FRAMES;
+    g->last_action = PORT_GUN_ACT_SHOT;
     fire_hitscan();
+    if (port_audio_play_gun)
+        port_audio_play_gun();
     if (port_prop_hear_player_shot)
         port_prop_hear_player_shot();
 }
 
 int port_gun_flash_frames(void) { return G()->flash_frames; }
+
+int port_gun_last_action(void) { return G()->last_action; }
 
 int32_t *port_ammoheldarr(void) { return G()->ammo; }
 int port_gun_weapon(void) { return G()->weapon; }

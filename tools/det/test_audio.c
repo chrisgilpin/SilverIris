@@ -129,6 +129,36 @@ int main(int argc, char **argv)
     printf("gun sha256=%s\n", hex);
     if (check_hash(dir, "gun.pcm.sha256", hex) != 0)
         return 1;
+    if (port_audio_last_sfx() != PORT_SFX_GUN)
+        return fail("gun last_sfx");
+
+    {
+        char gun_hex[65];
+        memcpy(gun_hex, hex, 65);
+        port_audio_init();
+        port_audio_play_dry();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("dry was silence");
+        if (port_audio_last_sfx() != PORT_SFX_DRY)
+            return fail("dry last_sfx");
+        hash_pcm(pcm, hex);
+        printf("dry sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("dry pcm matches gun");
+
+        port_audio_init();
+        port_audio_play_door();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("door was silence");
+        if (port_audio_last_sfx() != PORT_SFX_DOOR)
+            return fail("door last_sfx");
+        hash_pcm(pcm, hex);
+        printf("door sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("door pcm matches gun");
+    }
 
     port_audio_init();
     for (i = 0; i < 100; i++) {

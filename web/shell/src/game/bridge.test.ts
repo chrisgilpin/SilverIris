@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatStageDebug, lastDrawLabel, packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, readHeapI32, shouldBlitStageFb } from "./bridge.ts";
+import { formatStageDebug, lastDrawLabel, liveHeapU8, packHashBytes, PORT_DRAW_FALLBACK, PORT_DRAW_STAGE, readHeapI32, shouldBlitStageFb } from "./bridge.ts";
 import { presentLiveView } from "./view.ts";
 
 describe("packHashBytes", () => {
@@ -86,6 +86,20 @@ describe("stage debug line", () => {
     expect(
       formatStageDebug({ lastDraw: PORT_DRAW_STAGE, rooms: 78, gdlC0: true, fbNonzero: 4880, settex: 4, texOk: 0, texMiss: 4 }),
     ).toBe("last_draw STAGE  rooms 78  gdlC0 1  fbNonzero 4880  settex 4  texOk 0  texMiss 4");
+  });
+});
+
+describe("liveHeapU8", () => {
+  it("rebinds HEAPU8 when wasmMemory grew", () => {
+    const grown = new WebAssembly.Memory({ initial: 1, maximum: 4 });
+    grown.grow(1);
+    const mod = {
+      HEAPU8: new Uint8Array(0),
+      wasmMemory: grown,
+    };
+    const heap = liveHeapU8(mod as unknown as Parameters<typeof liveHeapU8>[0]);
+    expect(heap.byteLength).toBe(grown.buffer.byteLength);
+    expect(heap.byteLength).toBeGreaterThan(0);
   });
 });
 

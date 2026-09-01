@@ -127,6 +127,16 @@ PORT_KEEP void port_api_audio_play_gun(void)
     port_audio_play_gun();
 }
 
+PORT_KEEP void port_api_audio_play_dry(void)
+{
+    port_audio_play_dry();
+}
+
+PORT_KEEP int port_api_audio_last_sfx(void)
+{
+    return port_audio_last_sfx();
+}
+
 PORT_KEEP void port_api_audio_set_music(int on)
 {
     port_audio_set_placeholder_music(on);
@@ -245,6 +255,8 @@ PORT_KEEP int port_api_gun_mag(void) { return port_gun_mag(); }
 PORT_KEEP int port_api_gun_reserve(void) { return port_gun_reserve(); }
 PORT_KEEP int port_api_gun_weapon(void) { return port_gun_weapon(); }
 PORT_KEEP int port_api_gun_hits(void) { return port_gun_hits(); }
+PORT_KEEP int port_api_gun_flash_frames(void) { return port_gun_flash_frames(); }
+PORT_KEEP int port_api_gun_last_action(void) { return port_gun_last_action(); }
 
 PORT_KEEP int port_api_gun_have_hit(void)
 {

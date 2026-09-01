@@ -15,8 +15,16 @@ void port_audio_cb(int16_t *stereo, int nframes);
 
 void port_audio_set_placeholder_music(int on);
 void port_audio_play_gun(void);
+void port_audio_play_dry(void);
+void port_audio_play_door(void);
 int port_audio_music_on(void);
 uint32_t port_audio_rate(void);
+/* 0 none, 1 gun shot, 2 dry click, 3 door. Last one-shot queued. */
+int port_audio_last_sfx(void);
+#define PORT_SFX_NONE 0
+#define PORT_SFX_GUN 1
+#define PORT_SFX_DRY 2
+#define PORT_SFX_DOOR 3
 
 /* osAi* implementations (ai.c). Types match libultra (u32/s32). */
 uint32_t osAiGetStatus(void);

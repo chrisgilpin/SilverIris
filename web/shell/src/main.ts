@@ -66,12 +66,15 @@ const C_UP = 0x0008;
 const C_DOWN = 0x0004;
 const STRAFE = 0x0020;
 const RUN = 0x0010; /* CONT_R / hold-Shift. Lockstep pad bit. */
+const Z_TRIG = 0x2000; /* N64 B / Z-trig: fire */
+const A_BUTTON = 0x8000; /* N64 A: use door */
 
 let p1Binds = loadBinds();
 let rebindAction: BindAction | null = null;
 let mouseFire = false;
 let lastHp = 8;
 let hurtFlash = 0;
+let lastFlash = 0;
 const held = new Set<string>();
 let simN = 1;
 let accMs = 0;
@@ -111,22 +114,27 @@ function stickPad(opts: {
   left: boolean;
   right: boolean;
   fire: boolean;
+  use?: boolean;
 }): ReturnType<typeof emptyPad> {
   const pad = emptyPad();
   if (opts.up) pad.y -= 70;
   if (opts.down) pad.y += 70;
   if (opts.left) pad.x -= 70;
   if (opts.right) pad.x += 70;
-  if (opts.fire) pad.buttons |= 0x2000;
+  if (opts.fire) pad.buttons |= Z_TRIG;
+  if (opts.use) pad.buttons |= A_BUTTON;
   return pad;
 }
 
 function padFromGamepad(gp: Gamepad): ReturnType<typeof emptyPad> {
   const ax = gp.axes[0] ?? 0;
   const ay = gp.axes[1] ?? 0;
-  const fire = !!(gp.buttons[0]?.pressed || gp.buttons[6]?.pressed || gp.buttons[7]?.pressed);
+  /* Xbox/Standard: A=use (N64 A), B/LT/RT=fire (N64 B / Z-trig). */
+  const fire = !!(gp.buttons[1]?.pressed || gp.buttons[6]?.pressed || gp.buttons[7]?.pressed);
+  const use = !!gp.buttons[0]?.pressed;
   const run = !!(gp.buttons[4]?.pressed || gp.buttons[10]?.pressed);
-  let buttons = fire ? 0x2000 : 0;
+  let buttons = fire ? Z_TRIG : 0;
+  if (use) buttons |= A_BUTTON;
   if (run) buttons |= RUN;
   return {
     ...emptyPad(),
@@ -155,6 +163,7 @@ function padP1Move(): ReturnType<typeof emptyPad> {
     left: heldBind("left"),
     right: heldBind("right"),
     fire: heldBind("fire") || mouseFire,
+    use: heldBind("use"),
   });
   const oneP = !game || game.playerCount() <= 1 || !!netLock;
   if (heldBind("lookUp") || (oneP && held.has("ArrowUp"))) pad.buttons |= C_UP;
@@ -280,7 +289,7 @@ function drawDeathCue(): void {
   ctx.fillStyle = "#e8e6e1";
   ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
   const left = Math.max(0, 40 - game.deadTicks());
-  ctx.fillText(left > 20 ? `respawn in ${left} ticks` : "Z / Space to respawn", 18, Math.max(120, canvas.height * 0.42 + 26));
+  ctx.fillText(left > 20 ? `respawn in ${left} ticks` : "click or Z / Space to respawn", 18, Math.max(120, canvas.height * 0.42 + 26));
 }
 
 function flashPew(): void {
@@ -301,8 +310,7 @@ function ensurePlayer(): AudioPlayer | null {
   return player;
 }
 
-async function bang(): Promise<void> {
-  flashPew();
+async function unlockSfx(): Promise<void> {
   const p = ensurePlayer();
   if (!p) {
     const why = lastAudioError() || (!game?.ready() ? "engine not ready" : "unknown");
@@ -314,13 +322,12 @@ async function bang(): Promise<void> {
     setStatus("err", `Audio is still suspended (${lastAudioError() || "retry the click"}).`);
     return;
   }
-  game?.audioPlayGun();
   p.kick();
 }
 
 function onAudioGesture(): void {
   unlockAudio(game?.audioRate() ?? 22050);
-  void bang();
+  void unlockSfx();
 }
 
 function paint(now: number): void {
@@ -371,6 +378,12 @@ function paint(now: number): void {
     accMs -= 50;
     if (netLock?.halted)
       break;
+  }
+  {
+    const fl = game.gunFlashFrames();
+    if (fl > lastFlash)
+      flashPew();
+    lastFlash = fl;
   }
   syncHits();
   const ctx = canvas.getContext("2d");
@@ -488,7 +501,7 @@ function afterLoadStatus(packHash: string, fromIdb: boolean): string {
   const net = flags.netplay
     ? "Netplay lobby is on. Create or join by room code. Campaign is not v1."
     : "Solo (?ff_netplay=0). Campaign is not v1.";
-  return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Live G1 blit if this pack\'s room GDL is drawable, else PORT mesh. " + lastStageNote + " Click picture or Z/Space for audio. " + net;
+  return prefix + "Pack " + packHash.slice(0, 16) + "… " + src + ". Live G1 blit if this pack\'s room GDL is drawable, else PORT mesh. " + lastStageNote + " Click picture to lock + fire; Z/Space uses a door (audio unlocks on first gesture). " + net;
 }
 
 async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<void> {
@@ -514,10 +527,10 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
     if (rc === 0) {
       game.simTick(0);
       lastStageNote = game.gdlRaw()
-        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
+        ? `Facility header + synthetic Fast3D room GDL — live canvas blits that G1 FB. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD + mouse-look; click fires (N64 B/Z-trig); Z/Space opens a facing door (N64 A). P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`
         : game.gdlC0()
-        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter.`
-        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD+Z (Z/Space opens a facing door; click canvas + mouse or I/K / 1P arrows look), P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
+        ? `Inflated 1172 C0 + vtx + player look-at + G_SETTEX (IA/RGBA16-64 + RGB15 lookup + Huffman/RLE-lookup). last_draw=${game.lastDraw()} rooms=${game.bgRooms()} walked=${game.roomsWalked()} cur=${game.currentRoom()} gdlC0=1 vtx=${game.gdlVtx() ? 1 : 0}. G1 walks the current room plus portal neighbors (depth 2). Clip is w/±x/±y/±z. A 64x64 RGBA16 SETTEX no longer misses the 4KB TMEM cap. Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD + mouse-look; click fires (N64 B/Z-trig); Z/Space opens a facing door (N64 A). P2 arrows+Enter.`
+        : `Facility bg/stan loaded (${game.bgRooms()} bg rooms). Rare GDL not drawable — PORT mesh kept (no black screen). Keys 1-4 split-screen (ENV ${game.envPlayers()}). P1 WASD + mouse-look; click fires (N64 B/Z-trig); Z/Space opens a facing door (N64 A). P2 arrows+Enter. (g_ClockTimer=${game.clockTimer()}).`;
     } else {
       lastStageNote = `Stage load rc=${rc} packFiles=${game.packFiles()}. ${game.lastError()} Hard-refresh (Ctrl+Shift+R) then drop the ROM so extract shows dma-v3.`;
     }
@@ -654,7 +667,7 @@ window.addEventListener("keydown", (ev) => {
     const n = Number(ev.code.slice(5));
     if (game?.ready()) {
       game.setPlayerCount(n);
-      lastStageNote = `${n}P local  ENV ${game.envPlayers()}. P1 WASD+Z; P2 arrows+Enter or gamepad.`;
+      lastStageNote = `${n}P local  ENV ${game.envPlayers()}. P1 WASD + click-fire / Z-use; P2 arrows+Enter or gamepad.`;
       setStatus("ok", lastStageNote);
     }
     return;

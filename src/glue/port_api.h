@@ -35,8 +35,10 @@ PORT_KEEP int port_api_ready(void);
 
 PORT_KEEP void port_api_audio_cb(int16_t *stereo, int nframes);
 PORT_KEEP void port_api_audio_play_gun(void);
+PORT_KEEP void port_api_audio_play_dry(void);
 PORT_KEEP void port_api_audio_set_music(int on);
 PORT_KEEP int port_api_audio_rate(void);
+PORT_KEEP int port_api_audio_last_sfx(void);
 
 PORT_KEEP int port_api_load_stage(int level_id);
 PORT_KEEP int port_api_sim_tick(uint32_t tick);
@@ -80,6 +82,8 @@ PORT_KEEP int port_api_gun_mag(void);
 PORT_KEEP int port_api_gun_reserve(void);
 PORT_KEEP int port_api_gun_weapon(void);
 PORT_KEEP int port_api_gun_hits(void);
+PORT_KEEP int port_api_gun_flash_frames(void);
+PORT_KEEP int port_api_gun_last_action(void);
 PORT_KEEP int port_api_gun_have_hit(void);
 PORT_KEEP float port_api_gun_hit_x(void);
 PORT_KEEP float port_api_gun_hit_y(void);
