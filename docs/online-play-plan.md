@@ -850,6 +850,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 door/camo SETTEX albedo `30db967`)
+
+N64-feel slice on top of floor KF7 `f3414ae` (KEEP). SHA `30db967`.
+skip=pose identity SHADE only covered no_mtx chr verts. Door SETTEX 685
+and oliveguard camo still SHADE*TEXEL crushed when Vtx.cn was baked grey
+(room leftover / door props). Raster now skips modulate for those ids
+(rooms still modulate other textures; greyscale cn=0 path unchanged).
+Fills use a fixed +8u rim pad and a 4u toward-camera z-push instead of
+1.02×/1.15× oversize. r71 alcove stamp is actually 640 wide (slab_sized
+was capped at 450, so the G1≠stan left void stayed rim-black).
+
+KEEP `f3414ae` floor KF7, `6666c32` death-rest across look, `a32ed6a`
+brown door fills, `a106ce5` clip-door fill, `fecd44a` sealed faces,
+`e9247e9` portal cull, `e01e97f` spawn FPS.
+
+**1 — door faces / camo.** `play_spawn` spawn_fill dark=5 metal=11143
+area=13376 (was 1205/7811). `play_hall_a` dark=0 metal=13376 (was 712).
+`play_clip_door` clipdoor_fill dark=0 metal=4737 area=5120
+`clipdoor_olive n=34` `walked n=1 11`. Camo `play_spawn` olive=4084
+uniq=18 var=108.2; `play_hall_a` olive=5037 uniq=30 var=95.6 (not flat).
+`door tex albedo full=38400` (SETTEX 685 cn80 off no_mtx).
+
+**2 — hitch / jump / Hor+ / heads / gun / death.** Re-measured:
+`fire_hitch miss_ms=3.45 hit_ms=3.21 hits=1`; `play_shoot_after`
+kills=2 mag 7/14 `held=0` `drop=1`. `die_across add=90 olive=6159`
+`viewgun_lr play_spawn n=13525` `play_shoot_after_down n=2634
+top_r=1238`. A→B hopped=0 y=29.12 r71; `clipdoor hunt teleports=0`.
+Spawn `drawn=68 held=0 headj=1` frame_ms=26.51 (37.7 fps unopt) /
+`--bench` frame_ms=25.80 (38.8 fps) — `e01e97f` 35ms class kept.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- G1≠stan leftovers; some door-leaf interiors still a fill quad vs a
+  full N64 FRAME with handles.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 floor KF7 beside corpse `f3414ae`)
 
 N64-feel slice on top of death-rest across look `6666c32` (KEEP). SHA `f3414ae`.
