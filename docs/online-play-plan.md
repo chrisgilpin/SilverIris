@@ -850,6 +850,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack door-close SFX `0659cba`)
+
+SFX follow-up on pack KF7 bolt + pickup `50b07c2` (KEEP). SHA `0659cba`.
+Second A on an open door queues pack `DOOR_METAL_CLOSE` 197 instead of
+replaying open. Open stays `DOOR_METAL_OPEN` 196. Same runtime ALBankFile
+VADPCM path. Placeholders remain without a pack. Fire≠use last_sfx
+contract unchanged (PP7 gun=1, dry=2, door open=3).
+
+KEEP `50b07c2` KF7/pickup, `102237e` door-jump, `6ad59c5` flesh-hit,
+`7cd1121` idle KF7 hang, `4883173` pack gun/dry/door, `e01e97f` spawn
+FPS.
+
+**1 — door close.** `sfx_bank ready=1 gun_n=12336 dry_n=4752
+door_n=8448 fall_n=3904 hit_n=1376 kf7_n=5840 pickup_n=3824
+close_n=7104`. `sfx_door_close last=8 mix_diff=512`.
+`pad_use_no_fire mag=6→6 flash=0 open=1 sfx=3`.
+`pad_close_no_fire mag=6→6 flash=0 open=0 sfx=8`.
+`pad_fire_no_unlatch mag=7→6 flash=3 open=0→0 act=1 sfx=1`.
+`dry_fire mag=0→0 flash=0 act=2 sfx=2 n=22`. `kf7_pickup weapon=1
+mag=7 sfx=7`. `kf7_fire mag=7→6 act=1 sfx=6`. `sfx_hit last=5
+mix_diff=512`. `sfx_fall last=4 mix_diff=512`. `path_unlatch r8-r7
+local=650.7,-1753.0` OK.
+
+**2 — hang / hitch / doors.** Re-measured: `play_spawn` spawn_fill
+dark=56 metal=10501 frame_ms=27.94 (35.8 fps). `door_jump` th=249
+alcove=-219.0,-2248.3 yaw=180 d=0.0,116.0 slabs=3 frame_ms=34.27.
+`clipdoor_fill dark=53 metal=4446`. `play_hall_a` dark=0 metal=12866.
+y=29.12.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+  Music is still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 pack KF7 bolt + pickup SFX `50b07c2`)
 
 SFX follow-up on door jump on rotate `102237e` (KEEP). SHA `50b07c2`.
