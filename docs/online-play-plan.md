@@ -850,6 +850,49 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack ricochet SFX `c1b5747`)
+
+SFX follow-up on leftover camo SETTEX albedo `34e7bb9` (KEEP). SHA `c1b5747`.
+Wall / floor / fake-wall hits overlay pack `RICO_8_AFDM_A` 27 on the
+flesh-hit mixer channel so a miss still plays PP7. Body hits stay
+`HIT_BULLET_FLESH` 69. Same runtime ALBankFile VADPCM path. Placeholders
+remain without a pack. Fire≠use last_sfx contract unchanged (PP7 gun=1,
+dry=2, door open=3).
+
+KEEP `34e7bb9` leftover camo albedo, `0659cba` door-close, `50b07c2`
+KF7/pickup, `102237e` door-jump, `7cd1121` idle KF7 hang, `6ad59c5`
+flesh-hit, `4883173` pack gun/dry/door, `e01e97f` spawn FPS.
+
+**1 — wall ricochet.** `sfx_bank ready=1 gun_n=12336 dry_n=4752
+door_n=8448 fall_n=3904 hit_n=1376 kf7_n=5840 pickup_n=3824
+close_n=7104 rico_n=11936`. `sfx_rico last=9 mix_diff=512`.
+`sfx_rico_wall e=113351172710 last=1`. `pad_fire_no_unlatch mag=7→6
+flash=3 open=0→0 act=1 sfx=1`. `pad_use_no_fire mag=6→6 flash=0
+open=1 sfx=3`. `pad_close_no_fire mag=6→6 flash=0 open=0 sfx=8`.
+`dry_fire mag=0→0 flash=0 act=2 sfx=2 n=22`. `kf7_fire mag=7→6
+act=1 sfx=6`. `path_unlatch r8-r7 local=650.7,-1753.0` OK.
+
+**2 — hang / hitch / doors.** Re-measured: `play_spawn` `held=1`
+`idle_hang tan=4252`. `play_spawn` spawn_fill dark=56 metal=10501
+frame_ms=27.65 (36.2 fps). `door_jump` th=249 alcove=-219.0,-2248.3
+yaw=180 d=0.0,116.0 slabs=3 frame_ms=33.82. `long_walk
+fb=76037→76025 dark=1447`. `clipdoor_fill dark=53 metal=4446`
+`clipdoor_olive n=34`. `play_hall_a` dark=0 metal=12866. y=29.12.
+`camo play_spawn olive=4083 uniq=18 var=108.2`. `fire_hitch
+miss_ms=3.46 hit_ms=3.19 hits=1`.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+  Music is still a placeholder loop.
+- Camo SHADE-flattening (identity vs N64 lighting) / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 leftover camo SETTEX albedo `34e7bb9`)
 
 N64-feel slice on pack door-close SFX `0659cba` (KEEP). SHA `34e7bb9`.
