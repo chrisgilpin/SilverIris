@@ -850,6 +850,48 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 sealed opening fill `fecd44a`)
+
+N64-feel slice on top of closed-door portal cull `e9247e9` (KEEP). SHA `fecd44a`.
+Retail `Pgas_plant_met1_do1` is a 96-vert FRAME with a hole, so after
+portal cull a sealed opening read as a black void. Fitted path faces are
+a solid G1DL quad (SETTEX 685) sized to the Rare portal horiz × tall.
+Facility spawn r71 left alcove covers the G1 mesh that ends short of the
+stan tile (door-sized stamp left a hole).
+
+KEEP `e9247e9` closed-door portal cull, `42ba170` PP7 camera-space,
+`b56a698` per-pose Chead neck, `7f974af` Hor+, `1207531` fetal death,
+`1312936` held KF7, `999e0fc` aim joints, `e01e97f` spawn FPS.
+
+**1 — sealed face.** `play_spawn` left void gone: `spawn_fill dark=1222
+metal=3619 area=13376` (was a black rectangle). `play_hall_a`
+`dark=712 metal=3936`. `play_clip_door` `clipdoor_olive n=34`
+`clipdoor_fill dark=2525 metal=2570 area=7488` `walked n=1 11`.
+
+**2 — hitch / jump / Hor+ / heads / gun.** Re-measured: `fire_hitch
+miss_ms=3.42 hit_ms=3.77`; `play_shoot_after` kills=2 mag 7/14
+`held=0`; `aim_look have=1 bound=1` `held=1` `headj=1`; `play_aim_grip`
+held=1 `headj=1`. A→B hopped=0 y=29.12 r71; `clipdoor hunt
+teleports=0`; real stair still `-244,-2098` eye 348.2. `play_spawn`
+aspect=1.333 hfov=75.2; `play_spawn_wide` aspect=1.778 hfov=91.5.
+`play_spawn` `drawn=68 held=0 headj=1` camo olive=4172 uniq=22.
+`viewgun_lr play_spawn n=12771`; `play_shoot_after_down` phi=-40
+`viewgun_lr n=5053 top_r=1290` (no look-swing). Fetal ymin=-245.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=25.43 (39.3 fps unopt) —
+`e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Some G1 door-leaf cutouts (clip-door interior) still rim-black vs a
+  full N64 door panel.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 closed-door portal vis `e9247e9`)
 
 N64-feel slice on top of camera-space PP7 `42ba170` (KEEP). SHA `e9247e9`.
