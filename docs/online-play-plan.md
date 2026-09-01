@@ -770,3 +770,42 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 Chead neck 4x4 `b56a698`)
+
+N64-feel slice on top of Hor+ `7f974af` (KEEP). SHA `b56a698`.
+Idle/walk Chead used skip=pose Euler on a shared `Chead*Z` joint[0], so
+the last visible guard's neck won (aim face on an idle body, photo tilt).
+Rare `modelApplyHeadRelations` parents Chead RootNode to HeadPlaceholder;
+Cheadjim has no GROUP (SWITCH → DL, G_MTX slot 0). Snapshot that pose's
+neck 4x4 into the draw record (`joint_one`) so idle, aim, and death heads
+do not clobber each other. Same njoint=1 snapshot as the held KF7 (wrist
+was restored before interpret).
+
+KEEP `7f974af` Hor+, `1207531` fetal death, `1312936` held KF7, `999e0fc`
+aim joints, `e01e97f` spawn FPS, `57e8429` floor pin.
+
+**1 — heads.** `head_joint chr=0 T=5.8,520.1,-36.7 idle` (dump neck).
+`play_spawn` `headj=1` standing camo + 3D Chead on the neck. `aim_look`
+`T=-163.1,478.6,108.2 aim` `headj=1 held=1`. `play_aim_grip` Jim on the
+fire_standing neck, tan KF7 in the right-hand grip. `play_shoot_after_down`
+fetal `headj=2` hat on the tucked corpse, floor KF7.
+
+**2 — hitch / jump / Hor+.** Re-measured: `fire_hitch miss_ms=3.39
+hit_ms=3.73`; `play_shoot_after` kills=2 mag 7/14; `play_shoot_before`
+`held=0`; `aim_look have=1 bound=1` `held=1 drawn=70`. A→B hopped=0
+y=29.12 r71; `clipdoor hunt teleports=0`; real stair still `-244,-2098`
+eye 348.2 mean 65. `play_spawn` aspect=1.333 hfov=75.2;
+`play_spawn_wide` aspect=1.778 hfov=91.5.
+
+Spawn `drawn=69 held=0 headj=1` frame_ms=34.77 (28.8 fps unopt) —
+`e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1.
+
