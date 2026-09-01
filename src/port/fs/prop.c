@@ -179,6 +179,9 @@ static int g_drawn;
 static int g_emit_seen;
 static int g_emit_skip_range;
 static int g_emit_skip_leaf;
+/* 1 while emitting a dead skip=pose body/head: keep the corpse on the
+ * pad floor without crushing every limb into a ±45 pancake. */
+static int g_floor_clamp;
 static PortModel g_retail_slab;
 static int g_retail_slab_ok;
 static int g_intro_pad = -1;
@@ -3597,7 +3600,7 @@ static void vis_rad_pt(float x, float y, float z, void *ud)
 }
 
 static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, float *y0,
-                               float *h)
+                               float *h, int with_leaf)
 {
     float r1[3];
     VisSum sum;
@@ -3633,15 +3636,17 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
             sum.y0 = ey - PORT_EYE_HEIGHT;
         else
             sum.y0 = 0.f;
-        /* Same leaf push as emit so body shots match the drawn mesh. */
-        if (!port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2])) {
-            float r1[3], padx, padz, x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
+        /* Same leaf push as emit so body shots match the drawn mesh.
+         * Hitscan skips this: one fire used to walk every living pad. */
+        if (with_leaf &&
+            !port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2])) {
+            float r1b[3], padx, padz, x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
             port_stan_push_cyl_off_doors(g_prop[pi].pos[0], g_prop[pi].pos[2], 160.f,
                                          &pdx, &pdz);
-            r1[0] = r1[1] = r1[2] = 0.f;
-            (void)port_stage_room1(r1);
-            padx = g_prop[pi].pos[0] - r1[0];
-            padz = g_prop[pi].pos[2] - r1[2];
+            r1b[0] = r1b[1] = r1b[2] = 0.f;
+            (void)port_stage_room1(r1b);
+            padx = g_prop[pi].pos[0] - r1b[0];
+            padz = g_prop[pi].pos[2] - r1b[2];
             if (guard_visual_aabb_pr(&g_prop[pi], &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
@@ -3669,7 +3674,7 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
 int port_prop_guard_visual_cyl(int want, float *lx, float *lz, float *radius, float *y0,
                                float *h)
 {
-    return guard_visual_cyl_pi(guard_prop_at(want), lx, lz, radius, y0, h);
+    return guard_visual_cyl_pi(guard_prop_at(want), lx, lz, radius, y0, h, 1);
 }
 
 int port_prop_guard_visual_aabb(int want, float *x0, float *z0, float *x1, float *z1)
@@ -3713,15 +3718,37 @@ int port_prop_chr_ray_hit(float local_x, float local_y, float local_z, float dx,
 {
     int i, best_i = -1;
     float best = PORT_CHR_RAY_TMAX + 1.f;
+    float r1[3];
+    float rmax = PORT_CHR_RAY_TMAX + PORT_VIS_RMAX;
+    float rmax2 = rmax * rmax;
 
     g_chr_hit_ok = 0;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
     for (i = 0; i < g_nprop; i++) {
-        float cx, cz, r, y0, h, t;
+        float padx, padz, pdx, pdz, d2, cx, cz, r, y0, h, t, fy;
         if (g_prop[i].type != PDEF_GUARD)
             continue;
         if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
             continue;
-        if (guard_visual_cyl_pi(i, &cx, &cz, &r, &y0, &h) != 0)
+        if (!g_prop[i].mdl)
+            continue;
+        padx = g_prop[i].pos[0] - r1[0];
+        padz = g_prop[i].pos[2] - r1[2];
+        pdx = padx - local_x;
+        pdz = padz - local_z;
+        d2 = pdx * pdx + pdz * pdz;
+        if (d2 > rmax2)
+            continue;
+        /* Cheap pad cylinder (r=150 covers skip=pose torso off the 30u
+         * pad). Only then walk GDL verts for the posed viscyl. */
+        fy = 0.f;
+        if (port_stan_eye_y(padx, padz, &fy) == 0)
+            fy -= PORT_EYE_HEIGHT;
+        if (!vis_cyl_ray(local_x, local_y, local_z, dx, dy, dz, padx, padz,
+                         PORT_VIS_RMAX, fy, fy + PORT_CHR_STAND + 80.f, &t))
+            continue;
+        if (guard_visual_cyl_pi(i, &cx, &cz, &r, &y0, &h, 0) != 0)
             continue;
         if (!vis_cyl_ray(local_x, local_y, local_z, dx, dy, dz, cx, cz, r, y0, y0 + h,
                          &t))
@@ -3898,6 +3925,7 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         out[k].rz = rz;
         out[k].scale = gun_sc;
         out[k].seg5 = (uintptr_t)m->file;
+        out[k].seg5_len = m->file_len;
         out[k].seg4 = pt->vtx4;
         out[k].view = 1;
         k++;
@@ -4148,21 +4176,25 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
             ly = (ly - mdl->fit_ymin) * sc;
             lz *= sc;
         }
-        /* skip=pose death rest throws limbs through G1. Keep the dead
-         * AABB on the pad floor, not a fake ragdoll. */
-        if (mdl->id >= PORT_DIE_ID_BASE && mdl->id < PORT_DIE_ID_BASE + 256) {
-            if (lx > 45.f)
-                lx = 45.f;
-            if (lx < -45.f)
-                lx = -45.f;
-            if (lz > 45.f)
-                lz = 45.f;
-            if (lz < -45.f)
-                lz = -45.f;
-            if (ly < 0.f)
-                ly = 0.f;
-            if (ly > 40.f)
-                ly = 40.f;
+        /* skip=pose death rest: body on the pad floor (57e8429). A
+         * ±45/0..40 clamp stacked every limb into a green camo pancake
+         * and left the head unclamped. Lying length is ~stand (185u);
+         * skip exploded parts instead of crushing them onto the pad. */
+        if (g_floor_clamp) {
+            if (lx * lx + lz * lz > 200.f * 200.f || ly > 120.f || ly < -40.f)
+                continue;
+            if (lx > 100.f)
+                lx = 100.f;
+            if (lx < -100.f)
+                lx = -100.f;
+            if (lz > 100.f)
+                lz = 100.f;
+            if (lz < -100.f)
+                lz = -100.f;
+            /* Death Euler + skip=pose flattened a camo pancake and left
+             * the hat at standing neck. Bind-pose chunks on the pad floor. */
+            rx = ry = rz = 0.f;
+            ly = 14.f;
         }
         memset(&out[k], 0, sizeof out[k]);
         out[k].pri = pt->pri;
@@ -4175,6 +4207,7 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].yaw = 0.f;
         out[k].scale = pr->scale;
         out[k].seg5 = (uintptr_t)mdl->file;
+        out[k].seg5_len = mdl->file_len;
         out[k].seg4 = pt->vtx4;
         out[k].rx = rx;
         out[k].ry = ry;
@@ -4358,11 +4391,13 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             pdx += gdx;
             pdz += gdz;
         }
+        g_floor_clamp = dead;
         k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                        pdx, 0.f, pdz);
         if (pr->head && pr->head->npart)
             k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry, hrz,
                            0.f, pdx, 0.f, pdz);
+        g_floor_clamp = 0;
     }
     return k;
 }

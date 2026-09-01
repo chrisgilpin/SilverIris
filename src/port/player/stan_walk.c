@@ -868,8 +868,8 @@ int port_stan_tile_room(float local_x, float local_z)
 
 int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y)
 {
-    float wx, wz, want, best_d;
-    const StanTile *best;
+    float wx, wz, want, best_d, low_y;
+    const StanTile *best, *low;
     int i;
 
     if (g_ntile <= 0 || !(eye_y == eye_y) || eye_y > 1.0e20f || eye_y < -1.0e20f)
@@ -877,7 +877,9 @@ int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y)
     local_to_world(local_x, local_z, &wx, &wz);
     want = (eye_y + g_oy) - PORT_EYE_HEIGHT;
     best = NULL;
+    low = NULL;
     best_d = 1.0e30f;
+    low_y = 1.0e30f;
     for (i = 0; i < g_ntile; i++) {
         float fy, d;
         if (!point_in_tile(&g_tile[i], wx, wz))
@@ -885,6 +887,10 @@ int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y)
         fy = tile_floor_y(&g_tile[i], wx, wz);
         if (!finite_f(fy))
             continue;
+        if (!low || fy < low_y) {
+            low = &g_tile[i];
+            low_y = fy;
+        }
         d = fy - want;
         if (d < 0.0f)
             d = -d;
@@ -892,6 +898,15 @@ int port_stan_tile_room_at_eye(float local_x, float local_z, float eye_y)
             best_d = d;
             best = &g_tile[i];
         }
+    }
+    /* Ground hall: overlapping r12 at +319 must not win the G1 blit
+     * when the eye is still on the low floor (visual jump to landing). */
+    if (low && low->room >= 1) {
+        float ld = low_y - want;
+        if (ld < 0.0f)
+            ld = -ld;
+        if (ld <= PORT_STAN_EYE_SLACK)
+            return (int)low->room;
     }
     if (!best || best->room < 1 || best_d > PORT_STAN_EYE_SLACK)
         return port_stan_tile_room(local_x, local_z);
@@ -2535,14 +2550,6 @@ static int ray_aabb_1d(float o, float d, float lo, float hi, float *t0, float *t
     }
 }
 
-static float object_floor_local(float wx, float wz)
-{
-    const StanTile *t = tile_at_world(wx, wz);
-    if (!t)
-        return 0.0f;
-    return tile_floor_y(t, wx, wz) - g_oy;
-}
-
 static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float dz,
                         float *t_out)
 {
@@ -2564,11 +2571,9 @@ static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float 
             continue;
         if (!ray_aabb_1d(oz, odz, -d->half_w, d->half_w, &t0, &t1))
             continue;
-        {
-            float floor = object_floor_local(d->x, d->z);
-            if (!ray_aabb_1d(wy, dy, floor, floor + PORT_DOOR_HEIGHT, &t0, &t1))
-                continue;
-        }
+        if (!ray_aabb_1d(wy, dy, wy - PORT_EYE_HEIGHT, wy - PORT_EYE_HEIGHT + PORT_DOOR_HEIGHT,
+                         &t0, &t1))
+            continue;
         if (t0 < best) {
             best = t0;
             hit = 1;
@@ -2579,30 +2584,80 @@ static int door_ray_hit(float wx, float wy, float wz, float dx, float dy, float 
     return hit;
 }
 
-/* First time a ray that starts on a tile leaves walkable tiles. */
+/* Ray vs edge in xz. t along (dx,dz), u along A->B in 0..1. */
+static int ray_edge_t(float ox, float oz, float dx, float dz, float ax, float az,
+                      float bx, float bz, float *t_out)
+{
+    float ex = bx - ax, ez = bz - az;
+    float denom = dx * ez - dz * ex;
+    float rx, rz, t, u;
+    if (denom > -1.0e-6f && denom < 1.0e-6f)
+        return 0;
+    rx = ax - ox;
+    rz = az - oz;
+    t = (rx * ez - rz * ex) / denom;
+    u = (rx * dz - rz * dx) / denom;
+    if (t < PORT_RAY_TMIN || u < -0.02f || u > 1.02f)
+        return 0;
+    if (t_out)
+        *t_out = t;
+    return 1;
+}
+
+/* First time a ray that starts on a tile leaves walkable tiles.
+ * Follow Rare point.link instead of 24 full-mesh scans (Facility 2599). */
 static int tile_exit_hit(float wx, float wz, float dx, float dz, float *t_out)
 {
-    float lo, hi, mid;
-    int i;
+    const StanTile *t;
+    float tcur;
+    int steps;
 
     if (g_ntile <= 0)
         return 0;
-    if (!tile_at_world(wx + dx * PORT_RAY_TMIN, wz + dz * PORT_RAY_TMIN))
+    t = tile_for_walk(wx + dx * PORT_RAY_TMIN, wz + dz * PORT_RAY_TMIN);
+    if (!t)
         return 0;
-    if (tile_at_world(wx + dx * PORT_RAY_TMAX, wz + dz * PORT_RAY_TMAX))
-        return 0;
-    lo = PORT_RAY_TMIN;
-    hi = PORT_RAY_TMAX;
-    for (i = 0; i < 24; i++) {
-        mid = 0.5f * (lo + hi);
-        if (tile_at_world(wx + dx * mid, wz + dz * mid))
-            lo = mid;
-        else
-            hi = mid;
+    if (!g_have_links) {
+        float lo = PORT_RAY_TMIN, hi = PORT_RAY_TMAX, mid;
+        int i;
+        for (i = 0; i < 24; i++) {
+            mid = 0.5f * (lo + hi);
+            if (tile_for_walk(wx + dx * mid, wz + dz * mid))
+                lo = mid;
+            else
+                hi = mid;
+        }
+        if (t_out)
+            *t_out = hi;
+        return 1;
     }
-    if (t_out)
-        *t_out = hi;
-    return 1;
+    tcur = 0.f;
+    for (steps = 0; steps < 64; steps++) {
+        float best_t = PORT_RAY_TMAX + 1.f;
+        int best_k = -1, k;
+        for (k = 0; k < t->n; k++) {
+            int j = (k + 1 == t->n) ? 0 : k + 1;
+            float ht;
+            if (!ray_edge_t(wx, wz, dx, dz, t->x[k], t->z[k], t->x[j], t->z[j], &ht))
+                continue;
+            if (ht <= tcur + 0.05f)
+                continue;
+            if (ht < best_t) {
+                best_t = ht;
+                best_k = k;
+            }
+        }
+        if (best_k < 0)
+            return 0;
+        if (t->nb[best_k] < 0) {
+            if (t_out)
+                *t_out = best_t;
+            return 1;
+        }
+        t = &g_tile[t->nb[best_k]];
+        tcur = best_t;
+    }
+    return 0;
 }
 
 static int cyl_ray_hit(float ox, float oy, float oz, float dx, float dy, float dz,
@@ -2640,12 +2695,12 @@ static int guard_ray_hit(float wx, float wy, float wz, float dx, float dy, float
     float best = PORT_RAY_TMAX + 1.0f;
 
     for (i = 0; i < g_nguard; i++) {
-        float t, floor;
+        float t;
         if (g_guard[i].hit)
             continue;
-        floor = object_floor_local(g_guard[i].x, g_guard[i].z);
         if (!cyl_ray_hit(wx, wy, wz, dx, dy, dz, g_guard[i].x, g_guard[i].z,
-                         PORT_GUARD_RADIUS, floor, floor + PORT_GUARD_HEIGHT, &t))
+                         PORT_GUARD_RADIUS, wy - PORT_EYE_HEIGHT,
+                         wy - PORT_EYE_HEIGHT + PORT_GUARD_HEIGHT, &t))
             continue;
         if (t < best) {
             best = t;

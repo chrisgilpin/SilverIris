@@ -32,6 +32,7 @@ static float g_cam_theta;
 static float g_cam_pitch;
 static int g_cam_on;
 static int g_no_mtx;
+static uintptr_t g_dl_lo, g_dl_hi; /* skip=pose G_DL must stay in the chr file */
 #define G1_PI 3.1415927f
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
@@ -430,6 +431,15 @@ static void walk(const Gfx *start, uint32_t n_hint)
     }
 }
 
+static int dl_ptr_ok(const uint8_t *p)
+{
+    uintptr_t a;
+    if (!p || !g_dl_lo || !g_dl_hi)
+        return 0;
+    a = (uintptr_t)p;
+    return a >= g_dl_lo && a + 8u <= g_dl_hi;
+}
+
 static void walk_be(const uint8_t *start, uint32_t n_gfx)
 {
     const uint8_t *stack[G1_MAX_DEPTH];
@@ -450,6 +460,13 @@ static void walk_be(const uint8_t *start, uint32_t n_gfx)
             const uint8_t *child;
             push = (w0 >> 16) & 0xFF;
             child = (const uint8_t *)resolve_addr(w1, 0);
+            /* skip=pose: follow only in-file children (the mesh). A G_DL
+             * into leftover seg 14/15 walks another room's GDL and the
+             * view jumps to a different map area. */
+            if (g_no_mtx && !dl_ptr_ok(child)) {
+                ip += 8;
+                continue;
+            }
             if (!child) {
                 ip += 8;
                 continue;
@@ -712,15 +729,37 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             rebuild_mvp();
         }
         g_no_mtx = rooms[i].no_mtx;
+        g_dl_lo = g_dl_hi = 0;
         /* skip=pose parts share the G1 vertex cache with room DLs. A G_TRI4
          * nibble that this part did not G_VTX would paint a room clip vert
          * (ceiling slab off the extra-idle head). Rare reloads Vtx per node. */
-        if (g_no_mtx)
-            memset(g_slot, 0, sizeof g_slot);
-        walk_be(rooms[i].pri, rooms[i].pri_n);
-        if (rooms[i].sec && rooms[i].sec_n)
-            walk_be(rooms[i].sec, rooms[i].sec_n);
+        {
+            uintptr_t part_seg[16];
+            int isolated = 0;
+            if (g_no_mtx) {
+                uintptr_t keep4 = rooms[i].seg4;
+                uintptr_t keep5 = rooms[i].seg5;
+                memset(g_slot, 0, sizeof g_slot);
+                memcpy(part_seg, g_seg, sizeof part_seg);
+                isolated = 1;
+                /* Drop leftover room/BG segments so a chr G_DL cannot blit
+                 * another map area. Mesh G_VTX is seg4/seg5. */
+                g_seg[14] = 0;
+                g_seg[15] = 0;
+                g_seg[4] = keep4;
+                g_seg[5] = keep5;
+                g_dl_lo = keep5;
+                if (keep5 && rooms[i].seg5_len)
+                    g_dl_hi = keep5 + rooms[i].seg5_len;
+            }
+            walk_be(rooms[i].pri, rooms[i].pri_n);
+            if (rooms[i].sec && rooms[i].sec_n)
+                walk_be(rooms[i].sec, rooms[i].sec_n);
+            if (isolated)
+                memcpy(g_seg, part_seg, sizeof part_seg);
+        }
         g_no_mtx = 0;
+        g_dl_lo = g_dl_hi = 0;
         walked++;
     }
     g_cam_eye[0] = eye[0];

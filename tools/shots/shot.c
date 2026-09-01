@@ -2151,7 +2151,33 @@ static int playtest_chris(const char *out_dir)
         }
         {
             int s;
-            for (s = 0; s < 8; s++) {
+            struct timespec tf0, tf1;
+            double fire_ms, draw_ms;
+            /* Miss hitch: look away from the body so viscyl is a reject. */
+            port_player_set_pitch(70.f);
+            clock_gettime(CLOCK_MONOTONIC, &tf0);
+            port_gun_tick(0);
+            port_gun_tick(PORT_Z_TRIG);
+            clock_gettime(CLOCK_MONOTONIC, &tf1);
+            fire_ms = (double)(tf1.tv_sec - tf0.tv_sec) * 1000.0 +
+                      (double)(tf1.tv_nsec - tf0.tv_nsec) / 1000000.0;
+            port_player_set_pitch(0.f);
+            place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+            clock_gettime(CLOCK_MONOTONIC, &tf0);
+            port_gun_tick(0);
+            port_gun_tick(PORT_Z_TRIG);
+            clock_gettime(CLOCK_MONOTONIC, &tf1);
+            printf("fire_hitch miss_ms=%.2f hit_ms=%.2f hits=%d\n", fire_ms,
+                   (double)(tf1.tv_sec - tf0.tv_sec) * 1000.0 +
+                       (double)(tf1.tv_nsec - tf0.tv_nsec) / 1000000.0,
+                   port_gun_hits());
+            clock_gettime(CLOCK_MONOTONIC, &tf0);
+            port_api_draw();
+            clock_gettime(CLOCK_MONOTONIC, &tf1);
+            draw_ms = (double)(tf1.tv_sec - tf0.tv_sec) * 1000.0 +
+                      (double)(tf1.tv_nsec - tf0.tv_nsec) / 1000000.0;
+            printf("fire_hitch draw_after_ms=%.2f\n", draw_ms);
+            for (s = 0; s < 6; s++) {
                 port_gun_tick(0);
                 port_gun_tick(PORT_Z_TRIG);
             }

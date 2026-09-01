@@ -1,6 +1,7 @@
 #ifndef SILVERIRIS_GBI_INTERP_H
 #define SILVERIRIS_GBI_INTERP_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <ultra64.h>
 
@@ -34,8 +35,11 @@ typedef struct {
     uintptr_t seg4; /* node vertex bank (G_VTX 0x04); 0 = leave unbound */
     int view; /* 1 = camera-space viewmodel; ox/oy/oz after look pitch */
     /* 1 = ignore G_MTX/G_POPMTX. skip=pose rest=skel is already T*R_yaw*R_pose
-     * in ox/rx/ry/rz; a LOAD replaces look-at and draws a ceiling slab. */
+     * in ox/rx/ry/rz; a LOAD replaces look-at and draws a ceiling slab.
+     * G_DL may only follow into seg5 (chr file). Leftover room/BG segs
+     * would blit another map area onto the camera. */
     int no_mtx;
+    size_t seg5_len; /* model file bytes; skip=pose G_DL stays inside */
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

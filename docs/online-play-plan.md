@@ -534,3 +534,47 @@ Greyscale
 **Remaining holes**
 
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 playtest A/B/C `9d30e7b`)
+
+Chris live after `e01e97f`: (A) brief freeze every fire, (B) dead extra idle a
+bright-green floor pancake with a detached brown hat, (C) walking the Facility
+hall visually jumped to other rooms. Idle-arm / joint-matrix WIP is stashed
+(`idle-arm-wip-deferred`); not this slice.
+
+**A — shoot hitch.** `port_prop_chr_ray_hit` walked every living pad's GDL
+verts + G1 leaf push on each Z. Cheap pad cylinder (r=150) first; posed viscyl
+only for those hits, no leaf push on the fire path. `tile_exit_hit` followed
+Rare `point.link` instead of 24×2599 tile scans. Door/guard hitscan Y no longer
+calls `tile_at_world` per pad. KEEP `b1a9201` viscyl kills.
+
+Harness: `fire_hitch miss_ms=3.38 hit_ms=3.70` (was ~13ms before the stan ray
+cut); `play_shoot_after` kills=2 mag 7/14; extra idle dies.
+
+**B — death mesh splat.** `57e8429` ±45/0..40 origin clamp stacked every limb
+onto the pad and left Chead unclamped (floating hat). Dead emit now skips
+exploded parts, drops death Euler on skip=pose (bind-pose chunks), and pins
+body+head origins on the pad floor (`ly=14`). KEEP death-on-floor, not ragdoll.
+
+Harness: `play_shoot_before` standing camo body+head; `play_shoot_after` compact
+camo corpse on the tile with the hat on it (no floor pancake, no floating head).
+
+**C — visual map warps.** skip=pose chr `G_DL` resolved leftover seg 14/15 (BG
+/ last room Vtx) and walked another room's GDL. Isolate those segments for
+`no_mtx` parts; only follow in-file children. Ground-floor
+`port_stan_tile_room_at_eye` prefers the lowest tile inside eye slack so
+overlapping r12 cannot win the blit. KEEP `1601098` hall teleport refusal.
+
+Harness: `play_hall_walk` / A→B y=29.12 r71 hopped=0; `clipdoor hunt
+teleports=0`; real stair still `-244,-2098` eye 348.2 mean 65. Spawn `drawn=69`
+frame_ms=35.2 (28.4 fps unopt) — `e01e97f` kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+- Death rest is a compact on-floor pile (skip=pose), not a full N64 lie-down.
