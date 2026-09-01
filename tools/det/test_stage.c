@@ -1850,8 +1850,11 @@ static int run_two_room(int with_portal, int want_walked, unsigned min_magenta, 
     if (port_stage_rooms_walked() != want_walked)
         return fail("neighbor rooms_walked");
     mag = count_magenta();
-    if (mag < min_magenta || mag > max_magenta)
+    if (mag < min_magenta || mag > max_magenta) {
+        fprintf(stderr, "neighbor magenta got=%u want %u..%u walked=%d\n", mag,
+                min_magenta, max_magenta, port_stage_rooms_walked());
         return fail("neighbor magenta pixels");
+    }
     printf("%s rooms=%d portals=%d walked=%d cur=%d magenta=%u\n", tag,
            port_stage_bg_rooms(), port_stage_portal_count(),
            port_stage_rooms_walked(), port_stage_current_room(), mag);

@@ -578,3 +578,44 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
 - Death rest is a compact on-floor pile (skip=pose), not a full N64 lie-down.
+
+---
+
+## STATUS (2026-08-31 death rest + idle arms)
+
+N64-feel slice on top of A/B/C `6ec243b` (KEEP). Die anim last frame is a
+hierarchical 4x4 joint table (SKELETON(guard) MatrixID0/1, 20 slots on
+oliveguard), not skip=pose Euler. A ~90° lie-down gimbal-locked T*R and
+became the compact camo pile. Seg-3 G_MTX is `view * T(pad)*R_yaw*S *
+joint` so a LOAD cannot replace look-at (no ceiling slab). Standing scale
+kept; `fit_ymin` is the posed min Y so the body sits on the pad
+(`PORT_DIE_FLOOR_LIFT` 12). Hat uses the neck 4x4. Fallback skip=pose
+floor clamp only when joints are missing. Living idle uses the same table
+so palette-skinned arms are not a T-pose.
+
+Idle-arm WIP stays in `stash@{0}` (`idle-arm-wip-deferred`); this is a
+clean redo (45-slot table, die enabled). KEEP `57e8429` floor pin,
+`e01e97f` spawn FPS, `fc5214a` no green slab.
+
+**1 — death rest.** `play_shoot_after_down` (pitch −40): face-up lie-down
+on the tile, arms out, hat on the body; second corpse also down the hall.
+No green splat, no floating hat, not a compact pile.
+`die=1 … f=88 j=20 ymin=-174`.
+
+**2 — idle arms.** Spawn-hall extra idle is a standing camo body+head with
+a hanging arm (not a ceiling slab, not a T-pose cross). `rest=skel`
+`fit=0.123 h=1510`.
+
+**3 — hitch / jump.** Re-measured, no extra touch: `fire_hitch
+miss_ms=3.41 hit_ms=3.83`; `play_shoot_after` kills=2 mag 7/14;
+A→B / hall walk y=29.12 r71 hopped=0; `clipdoor hunt teleports=0`; real
+stair still `-244,-2098` eye 348.2 mean 65.
+
+Spawn `drawn=69` frame_ms=35.29 (28.3 fps unopt) — `e01e97f` kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.

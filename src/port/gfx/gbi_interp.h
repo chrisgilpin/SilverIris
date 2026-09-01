@@ -37,9 +37,16 @@ typedef struct {
     /* 1 = ignore G_MTX/G_POPMTX. skip=pose rest=skel is already T*R_yaw*R_pose
      * in ox/rx/ry/rz; a LOAD replaces look-at and draws a ceiling slab.
      * G_DL may only follow into seg5 (chr file). Leftover room/BG segs
-     * would blit another map area onto the camera. */
+     * would blit another map area onto the camera.
+     * When joints/njoints is set, seg-3 G_MTX is view*base*joint instead of
+     * skip — chr DLs palette-switch limb matrices (T-pose arms otherwise). */
     int no_mtx;
     size_t seg5_len; /* model file bytes; skip=pose G_DL stays inside */
+    /* Model-space 4x4 column-vector joints (16 floats each). 0 = skip G_MTX. */
+    const float *joints;
+    int njoints;
+    float joint_ymin; /* subtract from joint Y before scale; 0 if unused */
+    int joint0;       /* starting MatrixID (enclosing GROUP); 0 = root */
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

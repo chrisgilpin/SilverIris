@@ -33,7 +33,12 @@ static float g_cam_pitch;
 static int g_cam_on;
 static int g_no_mtx;
 static uintptr_t g_dl_lo, g_dl_hi; /* skip=pose G_DL must stay in the chr file */
+static float g_chr_view[4][4];
+static float g_chr_base[4][4];
+static const float *g_chr_joints;
+static int g_chr_njoints;
 #define G1_PI 3.1415927f
+#define G1_CHR_MTX_BYTES 64u
 
 static uint32_t gfx_w0(const Gfx *g) { return (uint32_t)g->words.w0; }
 static uint32_t gfx_w1(const Gfx *g) { return (uint32_t)g->words.w1; }
@@ -129,6 +134,24 @@ static void apply_matrix(uint32_t w0, const Mtx *src)
         else
             mtx_mul(g_mv, g_mv, nf);
     }
+    rebuild_mvp();
+}
+
+/* skip=pose chr: G_MTX LOAD of seg 3 is a joint slot, not a file Mtx.
+ * view * T(pad)*R_yaw*S * joint keeps look-at; a raw LOAD replaced it. */
+static void apply_chr_joint(int idx)
+{
+    const float *j;
+    float J[4][4], tmp[4][4];
+    int r, c;
+    if (!g_chr_joints || idx < 0 || idx >= g_chr_njoints)
+        return;
+    j = g_chr_joints + idx * 16;
+    for (r = 0; r < 4; r++)
+        for (c = 0; c < 4; c++)
+            J[r][c] = j[r * 4 + c];
+    mtx_mul(tmp, g_chr_base, J);
+    mtx_mul(g_mv, g_chr_view, tmp);
     rebuild_mvp();
 }
 
@@ -300,6 +323,8 @@ static void reset_state(void)
     mtx_ident(g_proj);
     rebuild_mvp();
     g_mvsp = 0;
+    g_chr_joints = NULL;
+    g_chr_njoints = 0;
     g_fill[0] = g_fill[1] = g_fill[2] = 0;
     g_fill[3] = 255;
     memset(&vp, 0, sizeof vp);
@@ -326,8 +351,11 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
         return 0;
     }
     if (cmd == (uint8_t)G_MTX) {
-        if (g_no_mtx)
+        if (g_no_mtx) {
+            if (g_chr_joints && ((w1 >> 24) & 0xF) == 3)
+                apply_chr_joint((int)((w1 & 0x00FFFFFFu) / G1_CHR_MTX_BYTES));
             return 0;
+        }
         if (be) {
             const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
             apply_matrix(w0, mtx_from_be(p));
@@ -640,7 +668,7 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             rooms[0].yaw == 0.f && rooms[0].seg5 == 0 && rooms[0].seg4 == 0 &&
             rooms[0].rx == 0.f && rooms[0].ry == 0.f && rooms[0].rz == 0.f &&
             (rooms[0].scale == 0.f || rooms[0].scale == 1.f) && !rooms[0].view &&
-            !rooms[0].no_mtx)
+            !rooms[0].no_mtx && !rooms[0].joints)
             return interpret_be_common(rooms[0].pri, rooms[0].pri_n, rooms[0].sec,
                                        rooms[0].sec_n);
     }
@@ -668,6 +696,8 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
             g_seg[4] = rooms[i].seg4;
         else if (rooms[i].no_mtx)
             g_seg[4] = 0;
+        g_chr_joints = NULL;
+        g_chr_njoints = 0;
         if (rooms[i].view) {
             /* Camera-space: look from the origin with the stored pitch so
              * the PP7 sits bottom-center and tilts with phi. */
@@ -686,47 +716,82 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
                 mtx_copy(g_mv, tmp);
                 rebuild_mvp();
             }
+        } else if (rooms[i].joints && rooms[i].njoints > 0 && rooms[i].no_mtx) {
+            /* skip=pose chr: pad origin + joint table. Seg-3 G_MTX
+             * switches limb matrices (upper-body DLs palette-skin arms).
+             * Die rest uses the same table so a 90° lie-down is a 4x4,
+             * not skip=pose Euler (gimbal lock → pancake). */
+            float T[4][4], RS[4][4], Y[4][4], tmp[4][4];
+            float s = rooms[i].scale != 0.f ? rooms[i].scale : 1.f;
+            float th = rooms[i].yaw * (G1_PI / 180.f);
+            float c = cosf(th), si = sinf(th);
+            g_cam_eye[0] = eye[0];
+            g_cam_eye[1] = eye[1];
+            g_cam_eye[2] = eye[2];
+            apply_stored_camera();
+            mtx_copy(g_chr_view, g_mv);
+            mtx_ident(T);
+            T[0][3] = rooms[i].ox;
+            T[1][3] = rooms[i].oy;
+            T[2][3] = rooms[i].oz;
+            mtx_ident(RS);
+            RS[0][0] = c * s;
+            RS[0][2] = si * s;
+            RS[1][1] = s;
+            RS[2][0] = -si * s;
+            RS[2][2] = c * s;
+            mtx_ident(Y);
+            Y[1][3] = -rooms[i].joint_ymin;
+            mtx_mul(tmp, RS, Y);
+            mtx_mul(g_chr_base, T, tmp);
+            mtx_mul(g_mv, g_chr_view, g_chr_base);
+            rebuild_mvp();
+            g_chr_joints = rooms[i].joints;
+            g_chr_njoints = rooms[i].njoints;
+            apply_chr_joint(rooms[i].joint0);
         } else {
             g_cam_eye[0] = eye[0] - rooms[i].ox;
             g_cam_eye[1] = eye[1] - rooms[i].oy;
             g_cam_eye[2] = eye[2] - rooms[i].oz;
             apply_stored_camera();
         }
-        if (rooms[i].rx != 0.f || rooms[i].ry != 0.f || rooms[i].rz != 0.f) {
-            /* Rare XYZ Euler, G1 column-vector layout (transpose of Mtxf rows). */
-            float R[4][4], tmp[4][4];
-            float cx = cosf(rooms[i].rx), sx = sinf(rooms[i].rx);
-            float cy = cosf(rooms[i].ry), sy = sinf(rooms[i].ry);
-            float cz = cosf(rooms[i].rz), sz = sinf(rooms[i].rz);
-            mtx_ident(R);
-            R[0][0] = cy * cz;
-            R[0][1] = (sx * cz * sy) - (cx * sz);
-            R[0][2] = (cx * cz * sy) + (sx * sz);
-            R[1][0] = cy * sz;
-            R[1][1] = (sx * sz * sy) + (cx * cz);
-            R[1][2] = (cx * sz * sy) - (sx * cz);
-            R[2][0] = -sy;
-            R[2][1] = sx * cy;
-            R[2][2] = cx * cy;
-            mtx_mul(tmp, g_mv, R);
-            mtx_copy(g_mv, tmp);
-            rebuild_mvp();
-        }
-        if (rooms[i].yaw != 0.f ||
-            (rooms[i].scale != 0.f && rooms[i].scale != 1.f)) {
-            float R[4][4], tmp[4][4];
-            float s = rooms[i].scale != 0.f ? rooms[i].scale : 1.f;
-            float th = rooms[i].yaw * (G1_PI / 180.f);
-            float c = cosf(th), si = sinf(th);
-            mtx_ident(R);
-            R[0][0] = c * s;
-            R[0][2] = si * s;
-            R[1][1] = s;
-            R[2][0] = -si * s;
-            R[2][2] = c * s;
-            mtx_mul(tmp, g_mv, R);
-            mtx_copy(g_mv, tmp);
-            rebuild_mvp();
+        if (!(rooms[i].joints && rooms[i].njoints > 0 && rooms[i].no_mtx)) {
+            if (rooms[i].rx != 0.f || rooms[i].ry != 0.f || rooms[i].rz != 0.f) {
+                /* Rare XYZ Euler, G1 column-vector layout (transpose of Mtxf rows). */
+                float R[4][4], tmp[4][4];
+                float cx = cosf(rooms[i].rx), sx = sinf(rooms[i].rx);
+                float cy = cosf(rooms[i].ry), sy = sinf(rooms[i].ry);
+                float cz = cosf(rooms[i].rz), sz = sinf(rooms[i].rz);
+                mtx_ident(R);
+                R[0][0] = cy * cz;
+                R[0][1] = (sx * cz * sy) - (cx * sz);
+                R[0][2] = (cx * cz * sy) + (sx * sz);
+                R[1][0] = cy * sz;
+                R[1][1] = (sx * sz * sy) + (cx * cz);
+                R[1][2] = (cx * sz * sy) - (sx * cz);
+                R[2][0] = -sy;
+                R[2][1] = sx * cy;
+                R[2][2] = cx * cy;
+                mtx_mul(tmp, g_mv, R);
+                mtx_copy(g_mv, tmp);
+                rebuild_mvp();
+            }
+            if (rooms[i].yaw != 0.f ||
+                (rooms[i].scale != 0.f && rooms[i].scale != 1.f)) {
+                float R[4][4], tmp[4][4];
+                float s = rooms[i].scale != 0.f ? rooms[i].scale : 1.f;
+                float th = rooms[i].yaw * (G1_PI / 180.f);
+                float c = cosf(th), si = sinf(th);
+                mtx_ident(R);
+                R[0][0] = c * s;
+                R[0][2] = si * s;
+                R[1][1] = s;
+                R[2][0] = -si * s;
+                R[2][2] = c * s;
+                mtx_mul(tmp, g_mv, R);
+                mtx_copy(g_mv, tmp);
+                rebuild_mvp();
+            }
         }
         g_no_mtx = rooms[i].no_mtx;
         g_dl_lo = g_dl_hi = 0;
@@ -760,6 +825,8 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         }
         g_no_mtx = 0;
         g_dl_lo = g_dl_hi = 0;
+        g_chr_joints = NULL;
+        g_chr_njoints = 0;
         walked++;
     }
     g_cam_eye[0] = eye[0];

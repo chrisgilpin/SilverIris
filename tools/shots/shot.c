@@ -1890,6 +1890,21 @@ static int playtest_chris(const char *out_dir)
     port_stan_debug_at(spawn_x, spawn_z);
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
+    {
+        struct timespec t0, t1;
+        double ms;
+        int fi, seen = 0, skip_r = 0, skip_l = 0;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        for (fi = 0; fi < 8; fi++)
+            port_api_draw();
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+             (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+        port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
+        printf("play_spawn frame_ms=%.2f fps=%.1f drawn=%d seen=%d skip_range=%d skip_leaf=%d\n",
+               ms / 8.0, (ms > 0.0) ? (8000.0 / ms) : 0.0, port_prop_drawn(), seen, skip_r,
+               skip_l);
+    }
     printf("walkhall spawn_shot cur=%d walked=%d c0=%d vtx=%d y=%.1f\n",
            port_stage_current_room(), port_stage_rooms_walked(),
            port_stage_gdl_c0(), port_stage_gdl_vtx(), (double)spawn_y);
@@ -2207,6 +2222,11 @@ static int playtest_chris(const char *out_dir)
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_shoot_after") != 0)
             return -1;
+        /* Look down at the corpse: lie-down vs compact pile. +pitch is up. */
+        port_player_set_pitch(-40.f);
+        if (shot_one(out_dir, "play_shoot_after_down") != 0)
+            return -1;
+        port_player_set_pitch(0.f);
         if (dead1 <= dead0) {
             fprintf(stderr, "shoot guard still up dead=%d hits=%d (want body drop)\n",
                     dead1, port_gun_hits());
@@ -2221,6 +2241,20 @@ static int playtest_chris(const char *out_dir)
                         ig, dead1, port_gun_hits());
                 return -1;
             }
+        }
+        /* Chris locker-adjacent rest look (x -564 z -742 y 29.1). */
+        {
+            float ey = 29.1f;
+            place(-564.f, -742.f, 90.f);
+            port_player_set_pitch(20.f);
+            (void)port_stan_eye_y(-564.f, -742.f, &ey);
+            printf("locker pose local=-564.0,-742.0 eye=%.1f on=%d room=%d\n", (double)ey,
+                   port_stan_on_tile(-564.f, -742.f),
+                   port_stan_tile_room_at_eye(-564.f, -742.f, ey));
+            if (shot_one(out_dir, "play_die_lockers") != 0)
+                return -1;
+            place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
+            port_player_set_pitch(0.f);
         }
     }
 

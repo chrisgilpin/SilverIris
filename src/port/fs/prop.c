@@ -29,6 +29,8 @@
 #define PORT_NODE_MAX 128
 #define PORT_GDL_MAX 512
 #define PORT_SKEL_GUARD_N 16
+/* SKELETON(guard) SkeletonSize 0x2D; oliveguard numMatrices 0x14. */
+#define PORT_CHR_MTX_N 48
 #define PORT_ANIM_IDLE_OFF 0x1Cu
 #define PORT_ANIM_WALK_OFF 0x4018u /* PTR_ANIM_walking */
 #define PORT_ANIM_WALK_FRAME 8
@@ -92,6 +94,8 @@
 #define PORT_DOOR_HALF_W 90.f
 /* Posed C*Z idle AABB is ~1510 (480 spine + ~900 legs), not 480. Fit to 185. */
 #define PORT_CHR_STAND 185.f
+/* World-Y lift after posed-ymin pin so a lie-down does not z-fight the tile. */
+#define PORT_DIE_FLOOR_LIFT 12.f
 /* GwppkZ MODELFILEHEADER: NUMSWITCHES=0x24 NUMTEXTURES=0xC. */
 #define PORT_GUN_WPPK_NSW 0x24
 #define PORT_GUN_WPPK_NTEX 0x0C
@@ -128,6 +132,7 @@ typedef struct {
     float rx, ry, rz;
     uintptr_t vtx4; /* SPSEGMENT_MODEL_VTX (4); not BaseAddr / COL1 */
     uint32_t nvtx;
+    int mtxid; /* enclosing GROUP MatrixID0; G_MTX slot */
 } PortPart;
 
 typedef struct {
@@ -143,6 +148,10 @@ typedef struct {
     int have_head;
     float fit_scale;
     float fit_ymin;
+    float joint[PORT_CHR_MTX_N][4][4];
+    int njoint;
+    int use_joints;
+    float head_mtx[4][4];
 } PortModel;
 
 typedef struct {
@@ -180,8 +189,10 @@ static int g_emit_seen;
 static int g_emit_skip_range;
 static int g_emit_skip_leaf;
 /* 1 while emitting a dead skip=pose body/head: keep the corpse on the
- * pad floor without crushing every limb into a ±45 pancake. */
+ * pad floor without crushing every limb into a ±45 pancake. Joint
+ * die rest pins via posed ymin instead. */
 static int g_floor_clamp;
+static float g_die_lift;
 static PortModel g_retail_slab;
 static int g_retail_slab_ok;
 static int g_intro_pad = -1;
@@ -269,7 +280,7 @@ static int drop_index_of(int pi)
 }
 static void maybe_spawn_death_drops(void);
 static char g_aim_info[96];
-static char g_die_info[96];
+static char g_die_info[128];
 static char g_pose_info[400];
 static const float (*g_pose_rest)[3];
 static int g_viewgun_parts;
@@ -369,6 +380,69 @@ static void mtx_euler(const float m[4][4], float *rx, float *ry, float *rz)
     *ry = atan2f(-m[2][0], sqrtf(m[0][0] * m[0][0] + m[1][0] * m[1][0]));
     *rx = atan2f(m[2][1], m[2][2]);
     *rz = atan2f(m[1][0], m[0][0]);
+}
+
+/* XYZ Euler → quat (matches mtx_local). Rare MatrixID1 is half that rot. */
+static void quat_from_xyz(float rx, float ry, float rz, float q[4])
+{
+    float cx = cosf(rx * 0.5f), sx = sinf(rx * 0.5f);
+    float cy = cosf(ry * 0.5f), sy = sinf(ry * 0.5f);
+    float cz = cosf(rz * 0.5f), sz = sinf(rz * 0.5f);
+    q[0] = sx * cy * cz + cx * sy * sz;
+    q[1] = cx * sy * cz - sx * cy * sz;
+    q[2] = cx * cy * sz + sx * sy * cz;
+    q[3] = cx * cy * cz - sx * sy * sz;
+}
+
+static void quat_half(const float q[4], float out[4])
+{
+    float w = q[3], a, ha, s, sh;
+    if (w > 1.f)
+        w = 1.f;
+    if (w < -1.f)
+        w = -1.f;
+    a = acosf(w);
+    s = sinf(a);
+    if (s < 1e-6f) {
+        out[0] = out[1] = out[2] = 0.f;
+        out[3] = 1.f;
+        return;
+    }
+    ha = a * 0.5f;
+    sh = sinf(ha);
+    out[0] = q[0] / s * sh;
+    out[1] = q[1] / s * sh;
+    out[2] = q[2] / s * sh;
+    out[3] = cosf(ha);
+}
+
+static void mtx_quat_pos(float m[4][4], const float q[4], float x, float y, float z)
+{
+    float xx = q[0] * q[0], yy = q[1] * q[1], zz = q[2] * q[2];
+    float xy = q[0] * q[1], xz = q[0] * q[2], yz = q[1] * q[2];
+    float wx = q[3] * q[0], wy = q[3] * q[1], wz = q[3] * q[2];
+    mtx_ident4(m);
+    m[0][0] = 1.f - 2.f * (yy + zz);
+    m[0][1] = 2.f * (xy - wz);
+    m[0][2] = 2.f * (xz + wy);
+    m[1][0] = 2.f * (xy + wz);
+    m[1][1] = 1.f - 2.f * (xx + zz);
+    m[1][2] = 2.f * (yz - wx);
+    m[2][0] = 2.f * (xz - wy);
+    m[2][1] = 2.f * (yz + wx);
+    m[2][2] = 1.f - 2.f * (xx + yy);
+    m[0][3] = x;
+    m[1][3] = y;
+    m[2][3] = z;
+}
+
+static void store_joint(PortModel *m, int slot, const float mtx[4][4])
+{
+    if (!m || slot < 0 || slot >= PORT_CHR_MTX_N)
+        return;
+    memcpy(m->joint[slot], mtx, sizeof m->joint[slot]);
+    if (slot + 1 > m->njoint)
+        m->njoint = slot + 1;
 }
 
 /* modelAnimReadBitsAsU16Angle — width bits at bitOffset, left-justified to u16. */
@@ -742,7 +816,7 @@ static uint32_t gdl_count(const uint8_t *base, size_t n, uint32_t off)
 
 static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
                         uint32_t data, float ox, float oy, float oz, float rx, float ry,
-                        float rz)
+                        float rz, int mtxid)
 {
     uint32_t p = 0, s = 0, v = 0, nv = 0;
     PortPart *pt;
@@ -789,6 +863,7 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
     pt->rx = rx;
     pt->ry = ry;
     pt->rz = rz;
+    pt->mtxid = mtxid;
     if (v) {
         pt->vtx4 = (uintptr_t)(base + v);
         pt->nvtx = nv;
@@ -806,18 +881,27 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
 {
     uint32_t q[PORT_NODE_MAX];
     float qm[PORT_NODE_MAX][4][4];
-    int qh = 0, qt = 0, i;
+    int qid[PORT_NODE_MAX];
+    int qh = 0, qt = 0, i, ji;
     const uint8_t *base = m->file;
     size_t n = m->file_len;
     uint32_t sw4 = 0;
 
     if (root + NODE_BYTES > n)
         return -1;
+    m->njoint = 0;
+    m->use_joints = 0;
+    if (use_guard) {
+        for (ji = 0; ji < PORT_CHR_MTX_N; ji++)
+            mtx_ident4(m->joint[ji]);
+        mtx_ident4(m->head_mtx);
+    }
     /* MODELFILEHEADER Switches[4] is the HeadPlaceholder (opcode 23). */
     if (m->nswitch > 4 && n >= 20)
         sw4 = file_off(be32(base + 16), n);
     q[qt] = root;
     mtx_ident4(qm[qt]);
+    qid[qt] = 0;
     qt++;
     while (qh < qt) {
         uint32_t off = q[qh];
@@ -825,6 +909,8 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
         float ox, oy, oz, rx, ry, rz;
         uint8_t op;
         uint32_t data, child, next;
+        int cur_id = qid[qh];
+        int child_id = cur_id;
         memcpy(parent, qm[qh], sizeof parent);
         qh++;
         if (off + NODE_BYTES > n)
@@ -843,13 +929,30 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
                 rest_for_group(base, n, data, use_guard, &rx, &ry, &rz);
             mtx_local(local, ox, oy, oz, rx, ry, rz);
             mtx_mul4(childm, parent, local);
+            /* SKELETON(guard) MatrixID0/1 → render_pos. Chr DLs G_MTX
+             * seg 3 by this slot (upper-body palette). MatrixID1 is the
+             * half-angle blend (elbow/knee). */
+            if (use_guard && op == 2 && data + 18 <= n) {
+                int16_t m0 = (int16_t)be16(base + data + 14);
+                int16_t m1 = (int16_t)be16(base + data + 16);
+                store_joint(m, m0, childm);
+                child_id = m0;
+                if (m1 >= 0) {
+                    float qv[4], qh2[4], half[4][4], hm[4][4];
+                    quat_from_xyz(rx, ry, rz, qv);
+                    quat_half(qv, qh2);
+                    mtx_quat_pos(half, qh2, ox, oy, oz);
+                    mtx_mul4(hm, parent, half);
+                    store_joint(m, m1, hm);
+                }
+            }
         }
         ox = childm[0][3];
         oy = childm[1][3];
         oz = childm[2][3];
         mtx_euler(childm, &rx, &ry, &rz);
         if ((op == 4 || op == 22 || op == 24) && data)
-            add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz);
+            add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz, cur_id);
         /* Rare modelApplyHeadRelations: HeadPlaceholder.Child = Chead*Z
          * RootNode. Walking the original child DL draws a default-head
          * card at the neck (ceiling slab) under the attached Jim/Sally. */
@@ -861,6 +964,7 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
                 m->head_rx = rx;
                 m->head_ry = ry;
                 m->head_rz = rz;
+                memcpy(m->head_mtx, childm, sizeof m->head_mtx);
                 m->have_head = 1;
             }
             if (use_guard)
@@ -880,6 +984,7 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
             if (!have && qt < PORT_NODE_MAX) {
                 q[qt] = c;
                 memcpy(qm[qt], i ? parent : childm, sizeof qm[qt]);
+                qid[qt] = i ? cur_id : child_id;
                 qt++;
             }
         }
@@ -960,6 +1065,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
     m->head_rx = m->head_ry = m->head_rz = 0.f;
     m->fit_scale = 1.f;
     m->fit_ymin = 0.f;
+    m->njoint = 0;
+    m->use_joints = 0;
     if (!m->file || m->file_len < 8)
         return -1;
     if (be32(m->file) == PORT_BG_MAGIC_G1DL) {
@@ -992,8 +1099,12 @@ static int bind_model_gdl(PortModel *m, int use_guard)
             float h = ymax - ymin;
             /* Exploded 16-joint Euler (stretched head / collapsed torso):
              * drop rest and keep RST1 / identity so the C*Z mesh still
-             * stands at 185u. Do not invent a capsule. Aim stays skip=pose. */
-            if (g_pose_rest && (h > 2500.f || h < 40.f)) {
+             * stands at 185u. Do not invent a capsule. Aim stays skip=pose.
+             * Death rest can be a thin lie-down (h<40) or a 90° root swing
+             * — keep it; skip=pose Euler extract is what pancaked, not the
+             * hierarchical 4x4. */
+            if (g_pose_rest && g_pose_rest != g_die_rest &&
+                (h > 2500.f || h < 40.f)) {
                 const float (*save)[3] = g_pose_rest;
                 g_pose_rest = NULL;
                 m->npart = 0;
@@ -1008,6 +1119,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
                 fit_chr_stand(m, ymin, ymax, g_pose_rest ? "rest=skel" : "rest=rst1");
             }
         }
+        if (m->njoint >= 8)
+            m->use_joints = 1;
     }
     return m->npart ? 0 : -1;
 }
@@ -1126,12 +1239,26 @@ static PortModel *load_chr_walk(int body)
                       g_walk_rest);
 }
 
+/* Keep standing scale (lying AABB must not become a 185u-tall blob) but
+ * pin fit_ymin to the posed min Y so the lie-down sits on the pad. */
+static void pin_die_floor(PortModel *m, float stand_scale)
+{
+    float ymin = 0.f, ymax = 0.f;
+    if (!m)
+        return;
+    if (stand_scale != 0.f)
+        m->fit_scale = stand_scale;
+    if (chr_part_span(m, &ymin, &ymax))
+        m->fit_ymin = ymin;
+}
+
 /* Separate model id so a death rest does not flatten every living clone. */
 static PortModel *load_chr_die(int body)
 {
     PortModel *m, *live;
     int use_guard = body >= 0 && body < PORT_CHR_HEAD_START;
     int i;
+    float stand = 0.f;
     if (!g_have_die || !use_guard)
         return NULL;
     m = load_named(PORT_DIE_ID_BASE + body, "chr", "C", chr_by_id(body), 1, g_die_rest);
@@ -1145,13 +1272,11 @@ static PortModel *load_chr_die(int body)
                 break;
         }
     }
-    if (live && live->fit_scale != 0.f) {
-        m->fit_scale = live->fit_scale;
-        m->fit_ymin = live->fit_ymin;
-    } else if (g_walk_fit_scale != 0.f) {
-        m->fit_scale = g_walk_fit_scale;
-        m->fit_ymin = g_walk_fit_ymin;
-    }
+    if (live && live->fit_scale != 0.f)
+        stand = live->fit_scale;
+    else if (g_walk_fit_scale != 0.f)
+        stand = g_walk_fit_scale;
+    pin_die_floor(m, stand);
     return m;
 }
 
@@ -2380,27 +2505,23 @@ static int any_guard_dead(void)
     return 0;
 }
 
-/* Rebind an already-loaded unique death model. Restore the standing fit so a
- * lying AABB cannot become a 1510u blob. Head follows the death neck. */
+/* Rebind an already-loaded unique death model. Restore the standing scale so a
+ * lying AABB cannot become a 1510u blob; keep posed ymin so the body sits on
+ * the pad (not a compact skip=pose pile). Head follows the death neck. */
 static int apply_die_bind(PortModel *m)
 {
     const float (*save)[3];
-    float fs, fy;
+    float fs;
 
     if (!m || !m->file)
         return -1;
     fs = m->fit_scale;
-    fy = m->fit_ymin;
     save = g_pose_rest;
     g_pose_rest = g_die_rest;
     bind_model_gdl(m, 1);
-    if (fs != 0.f) {
-        m->fit_scale = fs;
-        m->fit_ymin = fy;
-    } else if (g_walk_fit_scale != 0.f) {
-        m->fit_scale = g_walk_fit_scale;
-        m->fit_ymin = g_walk_fit_ymin;
-    }
+    if (fs == 0.f && g_walk_fit_scale != 0.f)
+        fs = g_walk_fit_scale;
+    pin_die_floor(m, fs);
     g_pose_rest = save;
     return m->npart ? 0 : -1;
 }
@@ -2453,6 +2574,19 @@ static int set_die_frame(int frame)
                  addr, off, frames, width, last);
         (void)rebind_die_models();
         return -1;
+    }
+    {
+        int di;
+        for (di = 0; di < g_nmdl; di++) {
+            if (g_mdl[di].id >= PORT_DIE_ID_BASE &&
+                g_mdl[di].id < PORT_DIE_ID_BASE + 256 && g_mdl[di].npart) {
+                snprintf(g_die_info, sizeof g_die_info,
+                         "die=1 addr=0x%x off=%u fr=%u w=%u f=%d j=%d ymin=%.0f",
+                         addr, off, frames, width, frame, g_mdl[di].njoint,
+                         (double)g_mdl[di].fit_ymin);
+                break;
+            }
+        }
     }
     return 0;
 }
@@ -4136,6 +4270,14 @@ static PortModel *slab_door(void)
     return slab_quad();
 }
 
+/* Guard C*Z with a full SKELETON(guard) table. Head models copy one
+ * neck matrix (njoint=1) and set use_joints. Synthetic rest tests stay
+ * skip=pose (njoint < 8, flag off). */
+static int mdl_use_joints(const PortModel *mdl)
+{
+    return mdl && mdl->use_joints && mdl->njoint > 0;
+}
+
 static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const PortModel *mdl,
                       const float room1[3], float extra_x, float extra_y, float extra_z,
                       float extra_rx, float extra_ry, float extra_rz, float add_yaw,
@@ -4176,11 +4318,10 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
             ly = (ly - mdl->fit_ymin) * sc;
             lz *= sc;
         }
-        /* skip=pose death rest: body on the pad floor (57e8429). A
-         * ±45/0..40 clamp stacked every limb into a green camo pancake
-         * and left the head unclamped. Lying length is ~stand (185u);
-         * skip exploded parts instead of crushing them onto the pad. */
-        if (g_floor_clamp) {
+        /* skip=pose death rest fallback: body on the pad floor (57e8429).
+         * Joint die rest does not come through here — a ±45/0..40 clamp
+         * stacked every limb into a green camo pancake. */
+        if (g_floor_clamp && !mdl_use_joints(mdl)) {
             if (lx * lx + lz * lz > 200.f * 200.f || ly > 120.f || ly < -40.f)
                 continue;
             if (lx > 100.f)
@@ -4191,8 +4332,6 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
                 lz = 100.f;
             if (lz < -100.f)
                 lz = -100.f;
-            /* Death Euler + skip=pose flattened a camo pancake and left
-             * the hat at standing neck. Bind-pose chunks on the pad floor. */
             rx = ry = rz = 0.f;
             ly = 14.f;
         }
@@ -4214,6 +4353,21 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rz = rz;
         if (pr->type == PDEF_GUARD)
             out[k].no_mtx = 1;
+        if (pr->type == PDEF_GUARD && mdl_use_joints(mdl)) {
+            /* Pad origin + joint table. Seg-3 G_MTX poses limbs; part
+             * Euler alone left T-pose arms and pancaked a 90° death rest. */
+            out[k].ox = pr->pos[0] - room1[0] + extra_x + wdx;
+            out[k].oy = pr->pos[1] - room1[1] + extra_y + wdy + g_die_lift;
+            out[k].oz = pr->pos[2] - room1[2] + extra_z + wdz;
+            out[k].yaw = pr->yaw + add_yaw;
+            out[k].rx = 0.f;
+            out[k].ry = 0.f;
+            out[k].rz = 0.f;
+            out[k].joints = &mdl->joint[0][0][0];
+            out[k].njoints = mdl->njoint;
+            out[k].joint_ymin = mdl->fit_ymin;
+            out[k].joint0 = pt->mtxid;
+        }
         k++;
     }
     return k;
@@ -4391,13 +4545,31 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             pdx += gdx;
             pdz += gdz;
         }
-        g_floor_clamp = dead;
-        k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
-                       pdx, 0.f, pdz);
-        if (pr->head && pr->head->npart)
-            k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry, hrz,
-                           0.f, pdx, 0.f, pdz);
-        g_floor_clamp = 0;
+        {
+            int use_j = mdl_use_joints(mdl);
+            g_floor_clamp = dead && !use_j;
+            g_die_lift = (dead && use_j) ? PORT_DIE_FLOOR_LIFT : 0.f;
+            if (dead && use_j && pr->head && mdl->have_head) {
+                /* Neck 4x4, not skip=pose Euler (gimbal at ~90° lie-down). */
+                memcpy(pr->head->joint[0], mdl->head_mtx, sizeof pr->head->joint[0]);
+                pr->head->njoint = 1;
+                pr->head->use_joints = 1;
+                pr->head->fit_scale = mdl->fit_scale;
+                pr->head->fit_ymin = mdl->fit_ymin;
+            }
+            k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                           pdx, 0.f, pdz);
+            if (pr->head && pr->head->npart) {
+                if (mdl_use_joints(pr->head))
+                    k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
+                                   0.f, 0.f, 0.f, pdx, 0.f, pdz);
+                else
+                    k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry,
+                                   hrz, 0.f, pdx, 0.f, pdz);
+            }
+            g_floor_clamp = 0;
+            g_die_lift = 0.f;
+        }
     }
     return k;
 }
