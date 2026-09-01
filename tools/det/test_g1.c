@@ -45,7 +45,8 @@ int main(int argc, char **argv)
     printf("g1 ok painted=%u grey_sha256=%s\n", painted, hex);
 
     /* Camera-space viewmodel: a red tri below center, in front of the eye.
-     * Must paint the bottom-middle, not the top-left, and pitch must move it. */
+     * Must paint the bottom-middle, not the top-left. Look pitch does not
+     * swing it (N64 gun stays put). */
     {
         uint8_t blob[128];
         G1RoomDl room;
@@ -111,7 +112,7 @@ int main(int argc, char **argv)
         }
         {
             unsigned long sy0 = 0, n0 = 0, sy1 = 0, n1 = 0;
-            /* Mean screen Y at phi=0 versus look-up: +phi tucks the mesh down. */
+            /* Look pitch is not applied to camera-space viewmodels. */
             g1_set_pitch(0.f);
             if (g1_interpret_rooms(&room, 1) != 0)
                 return fail("viewgun geom2");
@@ -144,8 +145,8 @@ int main(int argc, char **argv)
                 return fail("viewgun painted top-left");
             if (!n0 || !n1)
                 return fail("viewgun pitch empty");
-            if (sy1 / n1 <= sy0 / n0)
-                return fail("viewgun pitch did not tuck");
+            if (sy1 / n1 != sy0 / n0)
+                return fail("viewgun pitch swung with look");
             printf("g1 viewgun geom bot=%u top=%u mean_y %lu -> %lu\n", bot, top,
                    sy0 / n0, sy1 / n1);
         }

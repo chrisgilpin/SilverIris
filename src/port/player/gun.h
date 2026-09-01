@@ -32,6 +32,12 @@
 #define PORT_PP7_HOLD_X 11.f
 #define PORT_PP7_HOLD_Y (-20.8f)
 #define PORT_PP7_HOLD_Z (-33.5f)
+/* Camera-space rest Rx around the eye. Rare PosXYZ + bind-pose Euler hangs
+ * GwppkZ below the G1 near plane at phi=0 (only a muzzle sliver). The old
+ * .view path applied look pitch, so phi=-35 put the PP7 on-screen like N64.
+ * Lock that product (View(-35°) ≡ Rx(+35°) at identity look) and do not
+ * swing the gun with look. Hold XYZ stays Rare. */
+#define PORT_GUN_VIEW_RX (35.f * 3.14159265f / 180.f)
 #define PORT_KF7_HOLD_X 11.f
 #define PORT_KF7_HOLD_Y (-19.f)
 #define PORT_KF7_HOLD_Z (-16.f)

@@ -1211,6 +1211,42 @@ static int camo_not_flat(const uint8_t *rgba, int w, int h, const char *tag)
     return 0;
 }
 
+/* First-person PP7: skin + dark metal in the lower-right. Pitch 0 used to
+ * leave only a muzzle sliver (n<80) because .view followed look. */
+static unsigned viewgun_lr(const uint8_t *rgba, int w, int h)
+{
+    int x, y, x0 = w / 2, y0 = h / 2;
+    unsigned n = 0;
+    for (y = y0; y < h; y++) {
+        for (x = x0; x < w; x++) {
+            const uint8_t *p = rgba + ((y * w) + x) * 4;
+            unsigned r = p[0], g = p[1], b = p[2];
+            int skin = (r > 90u && g > 40u && r > b + 15u && r > g);
+            unsigned d_rg = r > g ? r - g : g - r;
+            unsigned d_gb = g > b ? g - b : b - g;
+            int metal = (r + g + b < 90u && r + g + b > 20u && d_rg < 30u && d_gb < 30u);
+            if (skin || metal)
+                n++;
+        }
+    }
+    return n;
+}
+
+static unsigned viewgun_top_right(const uint8_t *rgba, int w, int h)
+{
+    int x, y;
+    unsigned n = 0;
+    for (y = 0; y < h / 3; y++) {
+        for (x = w / 2; x < w; x++) {
+            const uint8_t *p = rgba + ((y * w) + x) * 4;
+            unsigned r = p[0], g = p[1], b = p[2];
+            if (r > 90u && g > 40u && r > b + 15u && r > g)
+                n++;
+        }
+    }
+    return n;
+}
+
 /* clip_step from the stairs foot. 8-way greedy toward room 13, preferring
  * a rising floor. Must reach a high upstairs tile (eye ~737) and not snap
  * back to 86.8. Bathroom xz is not a stair link and must stay low. */
@@ -2927,6 +2963,23 @@ static int shot_one(const char *out_dir, const char *tag)
         !strcmp(tag, "aim_look")) {
         if (camo_not_flat(fb, port_api_fb_width(), port_api_fb_height(), tag) != 0)
             return -1;
+    }
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_wide") ||
+        !strcmp(tag, "spawn_lookdown") || !strcmp(tag, "play_shoot_after_down")) {
+        unsigned lr = viewgun_lr(fb, port_api_fb_width(), port_api_fb_height());
+        unsigned top = viewgun_top_right(fb, port_api_fb_width(), port_api_fb_height());
+        printf("viewgun_lr %s n=%u top_r=%u\n", tag, lr, top);
+        if (lr < 400u) {
+            fprintf(stderr, "%s viewgun_lr=%u (PP7 not in lower-right)\n", tag, lr);
+            return -1;
+        }
+        /* Look-down used to swing the PP7 into the top half. Rest Rx keeps
+         * it lower-right; corpse flesh is left/center, not top-right. */
+        if (!strcmp(tag, "play_shoot_after_down") && top > lr / 3u) {
+            fprintf(stderr, "%s viewgun top_r=%u lr=%u (look-down swung the PP7 up)\n",
+                    tag, top, lr);
+            return -1;
+        }
     }
     snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);
     if (write_png(png, fb, port_api_fb_width(), port_api_fb_height()) != 0) {

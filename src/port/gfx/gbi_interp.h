@@ -33,7 +33,7 @@ typedef struct {
     uintptr_t seg5; /* model file base (0x05) */
     float rx, ry, rz; /* radians; Rare XYZ Euler rest/joint, identity=0 */
     uintptr_t seg4; /* node vertex bank (G_VTX 0x04); 0 = leave unbound */
-    int view; /* 1 = camera-space viewmodel; ox/oy/oz after look pitch */
+    int view; /* 1 = camera-space viewmodel; look pitch is not applied */
     /* 1 = ignore G_MTX/G_POPMTX. skip=pose rest=skel is already T*R_yaw*R_pose
      * in ox/rx/ry/rz; a LOAD replaces look-at and draws a ceiling slab.
      * G_DL may only follow into seg5 (chr file). Leftover room/BG segs

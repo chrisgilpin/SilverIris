@@ -715,13 +715,17 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         g_chr_joints = NULL;
         g_chr_njoints = 0;
         if (rooms[i].view) {
-            /* Camera-space: look from the origin with the stored pitch so
-             * the PP7 sits bottom-center and tilts with phi. */
+            /* Camera-space: look from the origin. Do not apply player look
+             * pitch — N64's gun stays put while the world tilts. Rest Rx
+             * that puts Rare PosXYZ on-screen lives in fill_viewgun. */
             float save_th = g_cam_theta;
+            float save_pitch = g_cam_pitch;
             g_cam_eye[0] = g_cam_eye[1] = g_cam_eye[2] = 0.f;
             g_cam_theta = 0.f;
+            g_cam_pitch = 0.f;
             apply_stored_camera();
             g_cam_theta = save_th;
+            g_cam_pitch = save_pitch;
             {
                 float T[4][4], tmp[4][4];
                 mtx_ident(T);

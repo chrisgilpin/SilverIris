@@ -4101,8 +4101,10 @@ int port_prop_viewgun_id(void) { return g_viewgun_id; }
 /*
  * Static first-person pack gun (GwppkZ, Gak47Z after KF7, Gmp5kZ after MP5K).
  * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
- * -Z so hold * R180 * S(0.1) * part. Camera-space via .view. Hold is
- * Rare PosXYZ; scale is IDO_POINT_ONE (gunfire.c gunmtx).
+ * -Z so Rx(rest) * hold * R180 * S(0.1) * part. Camera-space via .view
+ * (look pitch is not applied). Hold is Rare PosXYZ; scale is IDO_POINT_ONE
+ * (gunfire.c gunmtx). Rest Rx is the camera-space product that used to
+ * appear at phi=-35 when .view followed look.
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -4128,9 +4130,12 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         gun_sc = PORT_GUN_MODEL_SCALE * (PORT_GUN_WPPK_RADIUS / PORT_GUN_AK47_RADIUS);
     show_flash = port_gun_flash_frames() > 0;
     {
-        float hx, hy, hz;
+        float hx, hy, hz, rest[4][4], held[4][4];
         port_gun_hold(&hx, &hy, &hz);
-        mtx_local(hold, hx, hy, hz, 0.f, 0.f, 0.f);
+        mtx_local(held, hx, hy, hz, 0.f, 0.f, 0.f);
+        /* View(-35°) at identity look ≡ Rx(+35°) around the eye. */
+        mtx_local(rest, 0.f, 0.f, 0.f, PORT_GUN_VIEW_RX, 0.f, 0.f);
+        mtx_mul4(hold, rest, held);
     }
     mtx_local(r180, 0.f, 0.f, 0.f, 0.f, PI_F, 0.f);
     for (p = 0; p < m->npart && k < cap; p++) {
