@@ -731,3 +731,42 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 Hor+ G1 `7f974af`)
+
+N64-feel slice on top of death fetal `1207531` (KEEP). SHA `7f974af`.
+Live widescreen (`ff_widescreen` default on, lockstep 640×360) was
+blitting a 4:3 G1 320×240 buffer — anamorphic stretch, not Hor+. G1
+look-at now takes `port_persp` fovy/aspect (default 60° / 4:3 so
+greyscale and the 320×240 harness stay bit-identical). Vertical FOV
+stays native; 16:9 widens hfov 75.2° → 91.5°. Presenter-only; near
+stays G1 10; checksum unchanged.
+
+KEEP `1207531` fetal death, `1312936` held KF7, `999e0fc` aim joints,
+`c0277f9` idle/death, `fc5214a` no ceiling slab, `e01e97f` spawn FPS,
+`57e8429` floor pin.
+
+**1 — Hor+.** `play_spawn` aspect=1.333 hfov=75.2 drawn=69 held=0.
+`play_spawn_wide` aspect=1.778 hfov=91.5; extra-idle olive_cx 91 → 108
+(left body packed toward center; more stall on the left). g1-test
+`hor+ mean_x 279 → 249`. player-test hfov 4:3=75.18 16:9=91.49.
+
+**2 — hitch / jump / aim / death.** Re-measured: `fire_hitch
+miss_ms=3.76 hit_ms=3.91`; `play_shoot_after` kills=2 mag 7/14;
+`play_shoot_before` `held=0`; `aim_look have=1 bound=1` `held=1
+drawn=70`; `play_aim_grip` tan KF7 in the fire_standing grip.
+`play_shoot_after_down` fetal ymin=-245, floor KF7, hat on the body.
+A→B hopped=0 y=29.12 r71; `clipdoor hunt teleports=0`; real stair
+still `-244,-2098` eye 348.2 mean 65.
+
+Spawn `drawn=69 held=0` frame_ms=36.27 (27.6 fps unopt) — `e01e97f`
+35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1.
+
