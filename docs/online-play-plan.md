@@ -659,9 +659,9 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-08-31 held KF7)
+## STATUS (2026-08-31 held KF7 `1312936`)
 
-N64-feel slice on top of aim joints `999e0fc` (KEEP). In-box fire_standing
+N64-feel slice on top of aim joints `999e0fc` (KEEP). SHA `1312936`. In-box fire_standing
 guards parent dump `PchrkalashZ` (ASSIGNEDTOCHR model 184) to Rare
 `Switches[3]` (right-wrist GROUP MatrixID0=15) via the same hierarchical
 4x4 path as the hat. Native `process_15` attach * T(GROUPSIMPLE Origin).
