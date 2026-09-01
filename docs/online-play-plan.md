@@ -478,3 +478,59 @@ real stair still `-244,-2098` eye 348.2. Native player/gun/lockstep/
 **Remaining holes**
 
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 FPS `e01e97f`)
+
+Chris live `007.goodhouseinc.com` felt 2–3 FPS after skip=pose / door-leaf
+ships. Cause: `emit_guard_body` walked G1 door-leaf triangles (vis AABB +
+4-iter `chr_push` + `leaf_blocks`) for every `near_room` living pad
+*before* the 380u skip-draw cap. Spawn considered 25 of 65 guards × ~8
+rooms × 5 scans.
+
+`e01e97f` range-culls first (extra idle still drawn; guard 36 at 469u still
+skip-draw). Door-like G1 planes are cached per room. `walk_step` stderr is
+once. KEEP gameplay SHAs unchanged.
+
+Mac harness spawn: **1316ms/frame (0.8 fps, unopt HEAD)** → **35ms (28 fps
+unopt) / 27.6ms (36 fps -O2)**. `drawn=69` unchanged.
+
+Harness: `play_spawn` / `play_hall_a` / `play_hall_walk` / `play_shoot_*`
+y=29.12; camo olive (uniq≥21, var≥93); `play_clip_door` leaf solid, hunt
+teleports=0; `play_shoot_after` kills=1 mag 7/14; real stair still
+`-244,-2098` eye 348.2. Native player/gun/lockstep/2p-corridor/g1 green.
+Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 FPS `e01e97f`)
+
+Chris live `007.goodhouseinc.com` felt 2–3 FPS after skip=pose / door-leaf
+ships. Cause: `emit_guard_body` walked G1 door-leaf triangles (vis AABB +
+4-iter `chr_push` + `leaf_blocks`) for every `near_room` living pad
+*before* the 380u skip-draw cap. Spawn considered 25 of 65 guards × ~8
+rooms × 5 scans.
+
+`e01e97f` range-culls first (extra idle still drawn; guard 36 at 469u still
+skip-draw). Door-like G1 planes are cached per room. `walk_step` stderr is
+once. KEEP gameplay SHAs unchanged.
+
+Mac harness spawn: **1316ms/frame (0.8 fps, unopt HEAD)** → **35ms (28 fps
+unopt) / 27.6ms (36 fps -O2)**. `drawn=69` unchanged.
+
+Harness: `play_spawn` / `play_hall_a` / `play_hall_walk` / `play_shoot_*`
+y=29.12; camo olive (uniq≥21, var≥93); `play_clip_door` leaf solid, hunt
+teleports=0; `play_shoot_after` kills=1 mag 7/14; real stair still
+`-244,-2098` eye 348.2. Native player/gun/lockstep/2p-corridor/g1 green.
+Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
