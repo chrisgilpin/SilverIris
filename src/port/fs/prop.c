@@ -176,6 +176,9 @@ static int g_nprop;
 static PortModel g_mdl[PORT_MAX_MODELS];
 static int g_nmdl;
 static int g_drawn;
+static int g_emit_seen;
+static int g_emit_skip_range;
+static int g_emit_skip_leaf;
 static PortModel g_retail_slab;
 static int g_retail_slab_ok;
 static int g_intro_pad = -1;
@@ -1861,11 +1864,17 @@ void port_prop_tick_walk(void)
          * clip through a G1 wall or write a NaN Y. */
         g_walk_going_b = !g_walk_going_b;
         g_walk_blocked = 1;
-        fprintf(stderr,
-                "walk_step blocked local=%.1f,%.1f -> %.1f,%.1f (path %.1f,%.1f-%.1f,%.1f)\n",
-                (double)lx, (double)lz, (double)nx, (double)nz,
-                (double)g_walk_path_ax, (double)g_walk_path_az,
-                (double)g_walk_path_bx, (double)g_walk_path_bz);
+        {
+            static int s_walk_block_log;
+            if (s_walk_block_log < 1) {
+                s_walk_block_log = 1;
+                fprintf(stderr,
+                        "walk_step blocked local=%.1f,%.1f -> %.1f,%.1f (path %.1f,%.1f-%.1f,%.1f)\n",
+                        (double)lx, (double)lz, (double)nx, (double)nz,
+                        (double)g_walk_path_ax, (double)g_walk_path_az,
+                        (double)g_walk_path_bx, (double)g_walk_path_bz);
+            }
+        }
         return;
     }
     g_walk_blocked = 0;
@@ -3260,6 +3269,16 @@ int port_prop_models(void) { return g_nmdl; }
 
 int port_prop_drawn(void) { return g_drawn; }
 
+void port_prop_last_emit_stats(int *seen, int *skip_range, int *skip_leaf)
+{
+    if (seen)
+        *seen = g_emit_seen;
+    if (skip_range)
+        *skip_range = g_emit_skip_range;
+    if (skip_leaf)
+        *skip_leaf = g_emit_skip_leaf;
+}
+
 int port_prop_intro_pad(void) { return g_have_intro ? g_intro_pad : -1; }
 
 int port_prop_intro_count(void) { return g_nintro; }
@@ -4314,25 +4333,30 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             float padx = pr->pos[0] - room1[0];
             float padz = pr->pos[2] - room1[2];
             float x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
+            int idle = (g_idle_prop >= 0 && pr == &g_prop[g_idle_prop]);
+            g_emit_seen++;
+            /* Cheap pad distance before G1 triangle walks / vis AABB.
+             * Extra idle stays drawn (spawn hall). Other living pads
+             * farther than 380u are skip-draw (guard 36 at 469u). */
+            if (!idle) {
+                float dx = padx - port_player_x();
+                float dz = padz - port_player_z();
+                if (dx * dx + dz * dz > 380.f * 380.f) {
+                    g_emit_skip_range++;
+                    return k;
+                }
+                if (port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx,
+                                              padz)) {
+                    g_emit_skip_leaf++;
+                    return k;
+                }
+            }
             port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], 160.f, &pdx, &pdz);
             if (guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;
             pdz += gdz;
-            /* Closed G1 door leaf. Never skip the spawn-hall extra idle. */
-            if (!(g_idle_prop >= 0 && pr == &g_prop[g_idle_prop])) {
-                float dx, dz;
-                if (port_stage_g1_leaf_blocks(port_player_x(), port_player_z(), padx,
-                                              padz))
-                    return k;
-                /* Guard 36 pad -360,-1680 (469u) skip=pose-painted through
-                 * the r11 leaf. Extra idle is exempt and sits ~260u. */
-                dx = padx - port_player_x();
-                dz = padz - port_player_z();
-                if (dx * dx + dz * dz > 380.f * 380.f)
-                    return k;
-            }
         }
         k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                        pdx, 0.f, pdz);
@@ -4348,6 +4372,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
 {
     int i, k = 0;
     g_drawn = 0;
+    g_emit_seen = 0;
+    g_emit_skip_range = 0;
+    g_emit_skip_leaf = 0;
     g_pickup_drawn = 0;
     g_drop_drawn = 0;
     maybe_spawn_death_drops();

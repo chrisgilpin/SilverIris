@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define PACK_DEFAULT "/home/grok/GoldenEye/.local/pack/ge.u.c0pack"
 #define OUT_DEFAULT "/home/grok/GoldenEye/.local/shots"
@@ -887,7 +888,60 @@ static int hinge_width_park_proof(void)
 
 static void usage(void)
 {
-    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots\n");
+    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N]\n");
+}
+
+static int bench_fps(int n)
+{
+    struct timespec t0, t1;
+    float r1[3], px, pz;
+    int i, ng, n380 = 0, seen = 0, skip_r = 0, skip_l = 0;
+    double total_ms;
+
+    if (n < 1)
+        n = 20;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    px = port_api_player_x();
+    pz = port_api_player_z();
+    ng = port_prop_guard_count();
+    printf("bench spawn=%.1f,%.1f y=%.1f guards=%d doors=%d props=%d r1=%.1f,%.1f idle=%d\n",
+           (double)px, (double)pz, (double)port_api_player_y(), ng, port_prop_door_count(),
+           port_prop_count(), (double)r1[0], (double)r1[2], port_prop_idle_guard());
+    for (i = 0; i < ng; i++) {
+        float x = 0.f, y = 0.f, z = 0.f, lx, lz, dx, dz, d;
+        if (port_prop_guard_xyz(i, &x, &y, &z) != 0)
+            continue;
+        lx = x - r1[0];
+        lz = z - r1[2];
+        dx = lx - px;
+        dz = lz - pz;
+        d = sqrtf(dx * dx + dz * dz);
+        if (d <= 380.f)
+            n380++;
+        if (i < 12)
+            printf("bench_guard %d world=%.1f,%.1f local=%.1f,%.1f d=%.1f\n", i, (double)x,
+                   (double)z, (double)lx, (double)lz, (double)d);
+    }
+    printf("bench within380=%d of %d\n", n380, ng);
+    port_api_draw();
+    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
+    printf("bench warmup drawn=%d seen=%d skip_range=%d skip_leaf=%d rooms=%d settex=%u\n",
+           port_prop_drawn(), seen, skip_r, skip_l, port_api_rooms_walked(),
+           port_api_settex());
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (i = 0; i < n; i++)
+        port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    total_ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+               (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
+    printf("bench frames=%d total_ms=%.1f frame_ms=%.2f fps=%.1f drawn=%d seen=%d "
+           "skip_range=%d skip_leaf=%d rooms=%d settex=%u\n",
+           n, total_ms, total_ms / (double)n, (total_ms > 0.0) ? (1000.0 * n / total_ms) : 0.0,
+           port_prop_drawn(), seen, skip_r, skip_l, port_api_rooms_walked(),
+           port_api_settex());
+    return 0;
 }
 
 static uint8_t *read_all(const char *path, size_t *n)
@@ -2821,7 +2875,10 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--playtest") == 0)
             ; /* handled after stage load */
-        else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
+        else if (strcmp(argv[a], "--bench") == 0) {
+            if (a + 1 < argc && argv[a + 1][0] != '-')
+                a++;
+        } else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0) {
             usage();
             return 0;
         } else {
@@ -2887,6 +2944,22 @@ int main(int argc, char **argv)
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int bench = 0, nframes = 20, aa;
+            for (aa = 1; aa < argc; aa++) {
+                if (strcmp(argv[aa], "--bench") == 0) {
+                    bench = 1;
+                    if (aa + 1 < argc && argv[aa + 1][0] != '-')
+                        nframes = atoi(argv[aa + 1]);
+                }
+            }
+            if (bench) {
+                int brc = bench_fps(nframes);
+                port_api_shutdown();
+                free(pack);
+                return brc != 0 ? 3 : 0;
             }
         }
         if (doors) {

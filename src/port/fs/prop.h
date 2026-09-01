@@ -16,6 +16,8 @@ void port_prop_scale_world(float s);
 int port_prop_count(void);
 int port_prop_models(void);
 int port_prop_drawn(void);
+/* Last fill_rooms living-guard emit: considered / 380u skips / leaf skips. */
+void port_prop_last_emit_stats(int *seen, int *skip_range, int *skip_leaf);
 int port_prop_guard_count(void);
 /* 1 if ANIM_idle frame 0 decoded from the pack. */
 int port_prop_have_idle(void);

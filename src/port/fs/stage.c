@@ -164,6 +164,8 @@ static int copy_named(const char *name, uint8_t **out, size_t *out_len)
     return PORT_STAGE_OK;
 }
 
+static void g1_clear_planes(void);
+
 static void clear_rooms(void)
 {
     int i;
@@ -179,6 +181,7 @@ static void clear_rooms(void)
     g_cur_room = 0;
     g_rooms_walked = 0;
     memset(g_walked, 0, sizeof g_walked);
+    g1_clear_planes();
     port_prop_unload();
 }
 
@@ -1393,6 +1396,31 @@ typedef struct {
     int ray;
 } G1LeafHit;
 
+#define PORT_G1_PLANE_MAX 384
+#define PORT_G1_PLANE_PER 32
+
+typedef struct {
+    float pcx, pcz;
+    float wx, wz;
+    float tx, tz;
+    float half_w;
+    float thick;
+} G1LeafPlane;
+
+static G1LeafPlane g_planes[PORT_G1_PLANE_MAX];
+static int g_nplanes;
+static uint16_t g_rm_p0[PORT_MAX_BG_ROOMS];
+static uint8_t g_rm_pn[PORT_MAX_BG_ROOMS];
+static uint8_t g_rm_ph[PORT_MAX_BG_ROOMS];
+
+static void g1_clear_planes(void)
+{
+    g_nplanes = 0;
+    memset(g_rm_p0, 0, sizeof g_rm_p0);
+    memset(g_rm_pn, 0, sizeof g_rm_pn);
+    memset(g_rm_ph, 0, sizeof g_rm_ph);
+}
+
 static int g1_add_room(int *rooms, int n, int max, int r)
 {
     int j;
@@ -1435,18 +1463,14 @@ static int g1_chr_rooms(float pad_lx, float pad_lz, float cam_lx, float cam_lz, 
     return n;
 }
 
-static int g1_leaf_from_tri(float x0, float y0, float z0, float x1, float y1, float z1,
-                            float x2, float y2, float z2, float sc, float ox, float oz,
-                            float cam_lx, float cam_lz, float pad_lx, float pad_lz,
-                            float ax0, float az0, float ax1, float az1, G1LeafHit *out)
+static int g1_plane_from_tri(float x0, float y0, float z0, float x1, float y1, float z1,
+                             float x2, float y2, float z2, float sc, float ox, float oz,
+                             G1LeafPlane *out)
 {
     float e1x, e1y, e1z, e2x, e2y, e2z, nx, ny, nz, nlen, wlen, wx, wz;
     float pcx, pcz, ymin, ymax, yspan;
     float vx[3], vz[3], along[3], thick, half_w, tx, tz;
-    float pad_along, amin, amax, tmin, tmax, side, min_pad, need;
-    float rdx, rdz, denom, t, hx, hz, across;
-    float pax, paz, fpx, fpz;
-    int i, both, straddle, ray;
+    int i;
 
     e1x = x1 - x0;
     e1y = y1 - y0;
@@ -1515,6 +1539,28 @@ static int g1_leaf_from_tri(float x0, float y0, float z0, float x1, float y1, fl
      * sat behind a ~159 half-w wall. Extra idle cam-pad is hall-parallel. */
     if (half_w < 20.f || half_w > 220.f)
         return 0;
+    out->pcx = pcx;
+    out->pcz = pcz;
+    out->wx = wx;
+    out->wz = wz;
+    out->tx = tx;
+    out->tz = tz;
+    out->half_w = half_w;
+    out->thick = thick;
+    return 1;
+}
+
+static int g1_hit_from_plane(const G1LeafPlane *pl, float cam_lx, float cam_lz,
+                             float pad_lx, float pad_lz, float ax0, float az0, float ax1,
+                             float az1, G1LeafHit *out)
+{
+    float pcx = pl->pcx, pcz = pl->pcz, wx = pl->wx, wz = pl->wz;
+    float tx = pl->tx, tz = pl->tz, half_w = pl->half_w, thick = pl->thick;
+    float pad_along, amin, amax, tmin, tmax, side, min_pad, need;
+    float rdx, rdz, denom, t, hx, hz, across;
+    float pax, paz, fpx, fpz;
+    int i, both, straddle, ray;
+
     pad_along = (pad_lx - pcx) * wx + (pad_lz - pcz) * wz;
     pax = pcx + wx * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
     paz = pcz + wz * ((pad_along >= 0.f) ? PORT_G1_LEAF_PROBE : -PORT_G1_LEAF_PROBE);
@@ -1596,10 +1642,7 @@ static int g1_leaf_from_tri(float x0, float y0, float z0, float x1, float y1, fl
     return 1;
 }
 
-static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_lx,
-                                float pad_lz, float ax0, float az0, float ax1, float az1,
-                                G1LeafHit *hits, int *nhits, int max_hits, float *best_need,
-                                float *bnx, float *bnz, int *blocks)
+static void g1_collect_room_planes(int room)
 {
     const PortBgRoom *rm;
     const uint8_t *dl, *vtxbase;
@@ -1608,8 +1651,13 @@ static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_
     float slot[PORT_G1_VTX_CACHE][3];
     int have[PORT_G1_VTX_CACHE];
 
-    if (room < 1 || room > g_bg_rooms)
+    if (room < 1 || room > g_bg_rooms || room >= PORT_MAX_BG_ROOMS)
         return;
+    if (g_rm_ph[room])
+        return;
+    g_rm_ph[room] = 1;
+    g_rm_p0[room] = (uint16_t)g_nplanes;
+    g_rm_pn[room] = 0;
     rm = &g_rm[room];
     dl = room_pri(rm);
     if (!dl || rm->pri_ngfx == 0 || !rm->vtx)
@@ -1665,7 +1713,7 @@ static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_
             tris[3][1] = (w1 >> 28) & 0xF;
             tris[3][2] = (w0 >> 12) & 0xF;
             for (t = 0; t < 4; t++) {
-                G1LeafHit hit;
+                G1LeafPlane pl;
                 float x0, y0, z0, x1, y1, z1, x2, y2, z2;
                 int a, b, c;
                 a = (int)tris[t][0];
@@ -1687,22 +1735,45 @@ static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_
                 x2 = slot[c][0];
                 y2 = slot[c][1];
                 z2 = slot[c][2];
-                if (!g1_leaf_from_tri(x0, y0, z0, x1, y1, z1, x2, y2, z2, sc, ox, oz,
-                                      cam_lx, cam_lz, pad_lx, pad_lz, ax0, az0, ax1, az1,
-                                      &hit))
+                if (g_nplanes >= PORT_G1_PLANE_MAX || g_rm_pn[room] >= PORT_G1_PLANE_PER)
+                    return;
+                if (!g1_plane_from_tri(x0, y0, z0, x1, y1, z1, x2, y2, z2, sc, ox, oz,
+                                       &pl))
                     continue;
-                if (hit.ray && blocks)
-                    *blocks = 1;
-                if (hit.need > *best_need) {
-                    *best_need = hit.need;
-                    *bnx = hit.nx;
-                    *bnz = hit.nz;
-                }
-                if (hits && nhits && *nhits < max_hits) {
-                    hits[*nhits] = hit;
-                    (*nhits)++;
-                }
+                g_planes[g_nplanes++] = pl;
+                g_rm_pn[room]++;
             }
+        }
+    }
+}
+
+static void g1_scan_room_leaves(int room, float cam_lx, float cam_lz, float pad_lx,
+                                float pad_lz, float ax0, float az0, float ax1, float az1,
+                                G1LeafHit *hits, int *nhits, int max_hits, float *best_need,
+                                float *bnx, float *bnz, int *blocks)
+{
+    int i, p0, pn;
+
+    g1_collect_room_planes(room);
+    if (room < 1 || room >= PORT_MAX_BG_ROOMS)
+        return;
+    p0 = (int)g_rm_p0[room];
+    pn = (int)g_rm_pn[room];
+    for (i = 0; i < pn; i++) {
+        G1LeafHit hit;
+        if (!g1_hit_from_plane(&g_planes[p0 + i], cam_lx, cam_lz, pad_lx, pad_lz, ax0, az0,
+                               ax1, az1, &hit))
+            continue;
+        if (hit.ray && blocks)
+            *blocks = 1;
+        if (hit.need > *best_need) {
+            *best_need = hit.need;
+            *bnx = hit.nx;
+            *bnz = hit.nz;
+        }
+        if (hits && nhits && *nhits < max_hits) {
+            hits[*nhits] = hit;
+            (*nhits)++;
         }
     }
 }
