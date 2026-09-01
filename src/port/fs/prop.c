@@ -178,6 +178,9 @@ typedef struct {
     int chrnum;
     int held_model;
     int dropped;
+    /* 1 = death-drop Pchr*Z: skip=pose + catalog scale, not a pad-centered
+     * G_MTX smear buried in the fetal rest. */
+    int floor_gun;
     /* Snapshot: extra yaw so fetal long axis (model +Z) lies across the
      * shooter, not along the look. 1 once a dead emit has locked it. */
     float die_add_yaw;
@@ -260,6 +263,10 @@ static char g_walk_info[96];
 #define PORT_PICKUP_AMMO_ADD 7
 #define PORT_PICKUP_GROUND_EYE 86.8f
 #define PORT_PICKUP_GROUND_SLACK 50.0f
+/* Beside the corpse, inside PORT_PICKUP_RADIUS (80). Toward the shooter
+ * so look-down sees the rifle instead of a pad-centered mesh in the body. */
+#define PORT_DROP_BESIDE 48.f
+#define PORT_DROP_LIFT 10.f
 
 typedef struct {
     int type;
@@ -3107,34 +3114,6 @@ static void choose_pickup(void)
     }
 }
 
-static int on_spawn_look_slab(float lx, float lz)
-{
-    float sx, sz, dx, dz, fwd, dist;
-
-    if (g_have_spawn_xz) {
-        sx = g_walk_spawn_x;
-        sz = g_walk_spawn_z;
-    } else {
-        sx = port_player_x();
-        sz = port_player_z();
-    }
-    dx = lx - sx;
-    dz = lz - sz;
-    dist = sqrtf(dx * dx + dz * dz);
-    if (dist < PORT_PICKUP_SLAB)
-        return 1;
-    /* Same cone as walker_offslab / spawn look 270 (-X). */
-    fwd = -dx;
-    if (dx <= 40.f) {
-        if (fwd < 80.f && dist < 180.f)
-            return 1;
-        if (fwd > 0.f && fwd < 700.f &&
-            dz * dz < (0.65f * fwd) * (0.65f * fwd))
-            return 1;
-    }
-    return 0;
-}
-
 /* Floor collectable at world xz. Does not touch g_pickup_prop (vest 215). */
 static int spawn_floor_collectable(int model, int kind, float world_x, float world_z)
 {
@@ -3175,7 +3154,7 @@ static int spawn_floor_collectable(int model, int kind, float world_x, float wor
 
 static int spawn_death_drop_at(PortProp *guard)
 {
-    float r1[3], lx, lz;
+    float r1[3], lx, lz, padx, padz;
     int pi;
 
     if (!guard || guard->held_model <= 0 || guard->dropped)
@@ -3184,11 +3163,20 @@ static int spawn_death_drop_at(PortProp *guard)
     (void)port_stage_room1(r1);
     lx = guard->pos[0] - r1[0];
     lz = guard->pos[2] - r1[2];
-    if (on_spawn_look_slab(lx, lz)) {
-        printf("drop_skip chr=%d model=%d slab local=%.1f,%.1f\n",
-               guard->chrnum, guard->held_model, (double)lx, (double)lz);
-        guard->dropped = 1;
-        return -1;
+    padx = lx;
+    padz = lz;
+    /* Stall tile only (80u). The spawn-look cone covers the extra idle
+     * down the hall, which is exactly where the first death-drop lives. */
+    {
+        float sx = g_have_spawn_xz ? g_walk_spawn_x : port_player_x();
+        float sz = g_have_spawn_xz ? g_walk_spawn_z : port_player_z();
+        float ddx = lx - sx, ddz = lz - sz;
+        if (ddx * ddx + ddz * ddz < PORT_PICKUP_SLAB * PORT_PICKUP_SLAB) {
+            printf("drop_skip chr=%d model=%d stall local=%.1f,%.1f\n",
+                   guard->chrnum, guard->held_model, (double)lx, (double)lz);
+            guard->dropped = 1;
+            return -1;
+        }
     }
     if (!port_stan_on_tile(lx, lz)) {
         float ny = 0.f;
@@ -3197,6 +3185,41 @@ static int spawn_death_drop_at(PortProp *guard)
                    guard->chrnum, guard->held_model);
             guard->dropped = 1;
             return -1;
+        }
+        padx = lx;
+        padz = lz;
+    }
+    /* Offset toward the shooter (else look-right / look-left) so the
+     * catalog-scale rifle sits beside the fetal rest, not inside it. */
+    {
+        float px = port_player_x();
+        float pz = port_player_z();
+        float dx = px - lx, dz = pz - lz;
+        float dist = sqrtf(dx * dx + dz * dz);
+        if (dist > 1.f) {
+            float inv = PORT_DROP_BESIDE / dist;
+            float rx = -dz / dist, rz = dx / dist;
+            float cand[3][2];
+            int c, placed = 0;
+            cand[0][0] = lx + dx * inv;
+            cand[0][1] = lz + dz * inv;
+            cand[1][0] = lx + rx * PORT_DROP_BESIDE;
+            cand[1][1] = lz + rz * PORT_DROP_BESIDE;
+            cand[2][0] = lx - rx * PORT_DROP_BESIDE;
+            cand[2][1] = lz - rz * PORT_DROP_BESIDE;
+            for (c = 0; c < 3; c++) {
+                float sx = g_have_spawn_xz ? g_walk_spawn_x : port_player_x();
+                float sz = g_have_spawn_xz ? g_walk_spawn_z : port_player_z();
+                float ddx = cand[c][0] - sx, ddz = cand[c][1] - sz;
+                if (port_stan_on_tile(cand[c][0], cand[c][1]) &&
+                    ddx * ddx + ddz * ddz >= PORT_PICKUP_SLAB * PORT_PICKUP_SLAB) {
+                    lx = cand[c][0];
+                    lz = cand[c][1];
+                    placed = 1;
+                    break;
+                }
+            }
+            (void)placed;
         }
     }
     pi = spawn_floor_collectable(guard->held_model,
@@ -3212,10 +3235,23 @@ static int spawn_death_drop_at(PortProp *guard)
         g_drops[g_ndrop++] = pi;
     {
         PortProp *pr = &g_prop[pi];
-        printf("drop_spawn chr=%d model=%d world=%.1f,%.1f,%.1f local=%.1f,%.1f\n",
+        PortModel *gm = pr->mdl;
+        pr->floor_gun = 1;
+        pr->pos[1] += PORT_DROP_LIFT;
+        printf("drop_spawn chr=%d model=%d world=%.1f,%.1f,%.1f local=%.1f,%.1f "
+               "pad=%.1f,%.1f npart=%d p0=%.1f,%.1f,%.1f gun_off=%d %.1f,%.1f,%.1f\n",
                guard->chrnum, pr->model,
                (double)pr->pos[0], (double)pr->pos[1], (double)pr->pos[2],
-               (double)(pr->pos[0] - r1[0]), (double)(pr->pos[2] - r1[2]));
+               (double)(pr->pos[0] - r1[0]), (double)(pr->pos[2] - r1[2]),
+               (double)padx, (double)padz,
+               gm ? gm->npart : 0,
+               (double)(gm && gm->npart ? gm->part[0].ox : 0.f),
+               (double)(gm && gm->npart ? gm->part[0].oy : 0.f),
+               (double)(gm && gm->npart ? gm->part[0].oz : 0.f),
+               gm ? gm->have_gun_off : 0,
+               (double)(gm ? gm->gun_off[0] : 0.f),
+               (double)(gm ? gm->gun_off[1] : 0.f),
+               (double)(gm ? gm->gun_off[2] : 0.f));
     }
     return 0;
 }
@@ -4522,7 +4558,7 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         mtx_euler(world, &rx, &ry, &rz);
         if (rx * rx + ry * ry + rz * rz < 1e-8f)
             rx = ry = rz = 0.f;
-        if (mdl->fit_scale != 1.f || mdl->fit_ymin != 0.f) {
+        if (mdl->fit_scale != 1.f || mdl->fit_ymin != 0.f || pr->floor_gun) {
             float sc = (pr->scale != 0.f) ? pr->scale : 1.f;
             lx *= sc;
             ly = (ly - mdl->fit_ymin) * sc;
@@ -4561,7 +4597,7 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rx = rx;
         out[k].ry = ry;
         out[k].rz = rz;
-        if (pr->type == PDEF_GUARD)
+        if (pr->type == PDEF_GUARD || pr->floor_gun)
             out[k].no_mtx = 1;
         {
             const float *use_jtab = jtab;

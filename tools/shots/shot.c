@@ -1276,6 +1276,36 @@ static unsigned count_metal_rect(const uint8_t *rgba, int w, int h, int x0, int 
     return n;
 }
 
+/* Death-drop KF7 wood/metal: tan, not olive camo, not grey tile. */
+static unsigned count_tan_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                               int y1)
+{
+    unsigned n = 0;
+    int x, y;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2];
+            if (pr < 70u || pr > 210u)
+                continue;
+            if (pg < 30u || pg + 6u > pr)
+                continue;
+            if (pb > pg + 8u)
+                continue;
+            n++;
+        }
+    }
+    return n;
+}
+
 /* Extra-idle camo: olive pixels must not be one SHADE slab. SETTEX 1916
  * is splotchy CI8; greyscale cn flattening used ~a handful of greens. */
 static int camo_not_flat(const uint8_t *rgba, int w, int h, const char *tag)
@@ -3094,7 +3124,7 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d held=%d headj=%d viewgun=%d viewid=%d flash=%d pickup=%d "
+             "guards=%d parts=%d drawn=%d held=%d headj=%d viewgun=%d viewid=%d flash=%d pickup=%d drop=%d "
              "aspect=%.3f hfov=%.1f",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
@@ -3109,6 +3139,7 @@ static int shot_one(const char *out_dir, const char *tag)
              port_prop_viewgun_parts(),
              port_prop_viewgun_id(),
              port_gun_flash_frames(), port_prop_pickup_drawn(),
+             port_prop_drop_drawn(),
              (double)port_persp_aspect(), (double)port_view_hfov());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
@@ -3144,6 +3175,18 @@ static int shot_one(const char *out_dir, const char *tag)
         if (metal < area / 4u) {
             fprintf(stderr, "%s G1 opening has no door face metal=%u/%u\n", tag, metal,
                     area);
+            return -1;
+        }
+    }
+    if (!strcmp(tag, "play_shoot_after") || !strcmp(tag, "play_shoot_after_down")) {
+        unsigned tan;
+        int w = port_api_fb_width(), h = port_api_fb_height();
+        /* Floor around the extra-idle corpse; skip the left door leaf. */
+        tan = count_tan_rect(fb, w, h, w / 4, h / 3, (w * 2) / 3, (h * 7) / 8);
+        printf("drop_floor %s drawn=%d tan=%u\n", tag, port_prop_drop_drawn(), tan);
+        if (port_prop_drop_drawn() < 1) {
+            fprintf(stderr, "%s floor KF7 not drawn drop=%d\n", tag,
+                    port_prop_drop_drawn());
             return -1;
         }
     }
