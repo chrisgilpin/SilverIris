@@ -695,3 +695,39 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 death fetal rest `1207531`)
+
+N64-feel slice on top of held KF7 `1312936` (KEEP). SHA `1207531`.
+`play_shoot_after_down` after `1312936` was a face-up lie-down whose last
+frame of `PTR_ANIM_death_forward_face_down` is ~1500u along model Z with
+BASE at the origin, so the shoot-pad −40° look saw soles in the near
+plane (legs-up). Bind pack `PTR_ANIM_death_fetal_position_right` (86
+frames, last 85) instead — a tucked on-tile rest, not an invented curl.
+`pin_die_floor` also XZ-centers posed joint translations on the pad (same
+Y floor pin, not a ragdoll). Hierarchical 4x4 joint table unchanged.
+
+KEEP `1312936` held KF7, `999e0fc` aim joints, `c0277f9` idle/death,
+`fc5214a` no ceiling slab, `e01e97f` spawn FPS, `57e8429` floor pin.
+
+**1 — death rest.** `play_shoot_after_down` (pitch −40): tucked camo
+corpse on the tile, hat on the body, no two vertical legs into the
+camera; second corpse also down the hall. Floor KF7 beside the corpse.
+`die=1 addr=0x4c59c off=312732 fr=86 w=12 f=85 j=20 ymin=-245`.
+
+**2 — hitch / jump / aim.** Re-measured: `fire_hitch miss_ms=3.37
+hit_ms=3.74`; `play_shoot_after` kills=2 mag 7/14; `play_shoot_before`
+`held=0`; `aim_look have=1 bound=1` `held=1 drawn=70`; `play_aim_grip`
+tan KF7 in the fire_standing grip. A→B hopped=0 y=29.12 r71; `clipdoor
+hunt teleports=0`; real stair still `-244,-2098` eye 348.2 mean 65.
+
+Spawn `drawn=69 held=0` frame_ms=35.06 (28.5 fps unopt) — `e01e97f` kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1.
+
