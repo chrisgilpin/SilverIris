@@ -850,9 +850,9 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-01 P0 empty-mag / fire≠use / walk FB / SFX)
+## STATUS (2026-09-01 P0 empty-mag / fire≠use / walk FB / SFX `9b7b6e6`)
 
-P0 playtest slice on top of door-leaf interiors `fedf44f` (KEEP). SHA pending.
+P0 playtest slice on top of door-leaf interiors `fedf44f` (KEEP). SHA `9b7b6e6`.
 Chris live: HUD PP7 0/0 with click still flashing white + fire beep; Z/Space
 both fired and opened doors; walking could leave a permanent black frame
 while CSS pew still flashed.
