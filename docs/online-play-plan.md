@@ -850,6 +850,50 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 idle KF7 hang `7cd1121`)
+
+N64-feel slice on top of pack body-fall overlay `c92f7bb` (KEEP). SHA `7cd1121`.
+Living idle/walk/aim with joints parent dump `PchrkalashZ` to Rare
+`Switches[3]` (right-wrist GROUP MatrixID0=15). Same hierarchical 4x4
+as the fire_standing grip — idle hang was empty. Dead bodies still drop
+the floor KF7 (not a held emit). Mutate/restore of the shared drop model
+unchanged.
+
+KEEP `c92f7bb` pack body-fall, `4883173` pack gun/dry/door, `9b7b6e6` P0
+ammo/fire≠use/walk FB, `1312936` held KF7, `f3414ae` floor KF7,
+`e01e97f` spawn FPS.
+
+**1 — idle hang.** `held_emit chr=0 model=184 slot=15`. `play_spawn`
+`held=1` `idle_hang tan=4252` (was held=0 empty hands). `play_spawn_wide`
+held=1 tan=7572. `play_shoot_before` held=1 tan=5037. `play_aim_look`
+held=1; `play_aim_grip` held=1 (fire_standing grip kept). `play_shoot_after`
+held=0 drop=1 tan=3275 (dead still drops). `play_hall_a` held=1.
+
+**2 — hitch / doors / walk / ammo.** Re-measured: `fire_hitch miss_ms=3.44
+hit_ms=3.14 hits=1`. `play_shoot_after` kills=2 mag 7/14. `pad_fire_no_unlatch`
+mag=7→6 flash=3 open=0→0 act=1. `pad_use_no_fire` mag=6→6 flash=0 open=1
+sfx=3. `dry_fire` mag=0→0 flash=0 act=2 sfx=2 n=22. `sfx_bank ready=1
+gun_n=12336 dry_n=4752 door_n=8448 fall_n=3904`. `play_spawn` spawn_fill
+dark=56 metal=10501. `play_hall_a` dark=0 metal=12898. `clipdoor_fill
+dark=53 metal=4446` `clipdoor_olive n=34`. `long_walk fb=76037→76025
+dark=1447`. A→B hopped=0 y=29.12 r71. `die_across add=90 olive=6159`.
+Camo `play_spawn` olive=4084 uniq=18 var=108.2.
+
+Spawn `drawn=69 held=1 headj=1` frame_ms=28.30 (35.3 fps) — `e01e97f`
+35ms class kept. y=29.12.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, other SFX IDs). Music is
+  still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 pack body-fall overlay `c92f7bb`)
 
 SFX follow-up on pack VADPCM gun/dry/door `4883173` (KEEP). SHA `c92f7bb`.
