@@ -452,3 +452,29 @@ body+head, no ceiling plane; `play_clip_door` leaf solid (md5 unchanged);
 
 - Remaining G1 clip while walking. Chr camo still SHADE-flattened vs brick.
   Aim `skip=pose`. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 hall floor + camo `9bb17ae`)
+
+Chris live A y=29.1 → B y=409.6 r12: overlapping r12 under the spawn hall
+could still win if the tile cache held the high polygon. Ground-floor
+clip now prefers the lowest tile and refuses a hall-band launch except
+at the dump-verified stair foot. Analog-sized A→B steps stay y=29.1 r71.
+
+skip=pose Vtx.cn is baked greyscale, not RSP lighting. SHADE*TEXEL
+flattened oliveguard SETTEX 1916 (CI8 camo) to a slab. Identity SHADE on
+no_mtx parts keeps texel albedo. Rooms still modulate. skip=pose standing
+body+head unchanged (no green slab). Door-leaf skip / idle exempt / death
+clamp / shooting unchanged.
+
+Harness: `play_spawn` / `play_hall_a` / `play_hall_walk` / `play_shoot_before`
+standing camo (olive uniq≥21, var≥93); A→B 4u/12u y=29.1 r71 hopped=0;
+`play_clip_door` leaf solid; `play_shoot_after` kills=1; hunt teleports=0;
+real stair still `-244,-2098` eye 348.2. Native player/gun/lockstep/
+2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
