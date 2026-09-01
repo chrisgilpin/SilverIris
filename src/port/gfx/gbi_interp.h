@@ -54,6 +54,12 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 void g1_set_lookat(float x, float y, float z, float theta_deg);
 void g1_set_pitch(float pitch_deg);
 void g1_clear_lookat(void);
+/* Hor+: vertical FOV stays native; aspect widens hfov. Default 60° / 4:3 so
+ * G1 greyscale and the 320x240 harness stay bit-identical until the
+ * presenter calls this (live 16:9). */
+void g1_set_perspective(float fovy_deg, float aspect);
+float g1_persp_fovy(void);
+float g1_persp_aspect(void);
 /* SHADE*TEXEL (Vtx.cn). Default on. cn=0 skips modulate (G1/SETTEX no-light). */
 void g1_set_shade_modulate(int on);
 int g1_shade_modulate(void);

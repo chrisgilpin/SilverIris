@@ -1003,8 +1003,8 @@ function publishLobbyCfg(nseats: number): void {
   signal?.send({ v: 1, t: "cfg", cfg: packed.cfg, cfgHash: packed.cfgHash });
 }
 
-function applyRemoteView(): void {
-  if (!game?.ready() || !netLock)
+function applyPresenterView(): void {
+  if (!game?.ready())
     return;
   if (flags.widescreen) {
     canvas.width = 640;
@@ -1015,10 +1015,12 @@ function applyRemoteView(): void {
   }
   const w = canvas.width;
   const h = canvas.height;
-  game.setViewSeat(mySeat);
+  if (netLock)
+    game.setViewSeat(mySeat);
   game.setScreenSize(w, h);
   game.setScreenPosition(0, 0);
-  game.setPerspective(30, PORT_NATIVE_FOVY, w / h);
+  /* Hor+: G1 uses this aspect (not a 4:3 stretch). Near stays G1 10. */
+  game.setPerspective(10, PORT_NATIVE_FOVY, w / h);
 }
 
 function lockEngine(): LockstepEngine {
@@ -1075,7 +1077,7 @@ function startLockstep(): void {
   seenHits = 0;
   hitMarks.length = 0;
   checksumLog.length = 0;
-  applyRemoteView();
+  applyPresenterView();
   void startMatchHold();
   lastStageNote = `${nseats}P lockstep delay ${delay} Hor+ seat ${mySeat}. WASD+Z this seat (P${mySeat + 1}). Keep tab visible.`;
   setStatus("ok", lastStageNote);

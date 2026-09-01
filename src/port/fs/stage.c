@@ -1924,6 +1924,7 @@ int port_stage_draw(void)
     {
         float vx = port_player_x(), vz = port_player_z();
         port_stan_visual_xz(vx, vz, &vx, &vz);
+        g1_set_perspective(port_persp_fovy(), port_persp_aspect());
         g1_set_lookat(vx, port_player_y(), vz, port_player_theta());
     }
     g1_set_pitch(port_player_phi());

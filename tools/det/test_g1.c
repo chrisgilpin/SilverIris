@@ -151,5 +151,84 @@ int main(int argc, char **argv)
         }
         g1_clear_lookat();
     }
+
+    /* Hor+: 16:9 aspect (same vfov) pulls a right-side camera-space tri
+     * toward center vs 4:3. Stretching 4:3 into 16:9 is not this. */
+    {
+        uint8_t blob[128];
+        G1RoomDl room;
+        unsigned long sx43 = 0, n43 = 0, sx169 = 0, n169 = 0;
+        int x, y;
+        memset(blob, 0, sizeof blob);
+        blob[0] = 0x04;
+        blob[1] = 0x20;
+        blob[4] = 0x05;
+        blob[7] = 32;
+        blob[8] = 0xBF;
+        blob[12] = 0x00;
+        blob[13] = 0x00;
+        blob[14] = 0x0A;
+        blob[15] = 0x14;
+        blob[16] = 0xB8;
+        {
+            int16_t v[3][3] = { { 18, -6, -40 }, { 28, -6, -40 }, { 23, 6, -40 } };
+            int vi;
+            for (vi = 0; vi < 3; vi++) {
+                uint8_t *q = blob + 32 + vi * 16;
+                int16_t vx = v[vi][0], vy = v[vi][1], vz = v[vi][2];
+                q[0] = (uint8_t)(vx >> 8);
+                q[1] = (uint8_t)vx;
+                q[2] = (uint8_t)(vy >> 8);
+                q[3] = (uint8_t)vy;
+                q[4] = (uint8_t)(vz >> 8);
+                q[5] = (uint8_t)vz;
+                q[12] = 40;
+                q[13] = 220;
+                q[14] = 40;
+                q[15] = 255;
+            }
+        }
+        memset(&room, 0, sizeof room);
+        room.pri = blob;
+        room.pri_n = 3;
+        room.seg5 = (uintptr_t)blob;
+        room.view = 1;
+        g1_set_lookat(0.f, 0.f, 0.f, 0.f);
+        g1_set_pitch(0.f);
+        g1_set_perspective(60.f, 320.f / 240.f);
+        if (g1_interpret_rooms(&room, 1) != 0)
+            return fail("hor+ 4:3");
+        fb = g1_fb_rgba();
+        for (y = 0; y < G1_FB_H; y++) {
+            for (x = 0; x < G1_FB_W; x++) {
+                const uint8_t *px = fb + ((y * G1_FB_W) + x) * 4;
+                if (px[1] > 80) {
+                    sx43 += (unsigned long)x;
+                    n43++;
+                }
+            }
+        }
+        g1_set_perspective(60.f, 16.f / 9.f);
+        if (g1_interpret_rooms(&room, 1) != 0)
+            return fail("hor+ 16:9");
+        fb = g1_fb_rgba();
+        for (y = 0; y < G1_FB_H; y++) {
+            for (x = 0; x < G1_FB_W; x++) {
+                const uint8_t *px = fb + ((y * G1_FB_W) + x) * 4;
+                if (px[1] > 80) {
+                    sx169 += (unsigned long)x;
+                    n169++;
+                }
+            }
+        }
+        g1_set_perspective(60.f, 320.f / 240.f);
+        g1_clear_lookat();
+        if (!n43 || !n169)
+            return fail("hor+ empty");
+        if (sx169 / n169 >= sx43 / n43)
+            return fail("hor+ did not widen (right tri should move toward center)");
+        printf("g1 hor+ mean_x %lu -> %lu (n %lu -> %lu)\n", sx43 / n43, sx169 / n169, n43,
+               n169);
+    }
     return 0;
 }

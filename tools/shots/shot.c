@@ -1890,6 +1890,58 @@ static int playtest_chris(const char *out_dir)
     port_stan_debug_at(spawn_x, spawn_z);
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
+    /* Hor+ 16:9 (same vfov): anamorphic 320x240. Live blit stretches to 640x360
+     * so circles stay circles. 4:3 play_spawn is the bit-stable default. */
+    {
+        unsigned long cx43 = 0, n43 = 0, cx169 = 0, n169 = 0;
+        const uint8_t *fb;
+        int px, py, w, h;
+        w = port_api_fb_width();
+        h = port_api_fb_height();
+        fb = port_api_fb();
+        if (fb) {
+            for (py = 0; py < h; py++) {
+                for (px = 0; px < w; px++) {
+                    const uint8_t *p = fb + ((py * w) + px) * 4;
+                    if (p[1] > 50u && p[1] > p[0] + 8u && p[1] > p[2] + 8u) {
+                        cx43 += (unsigned long)px;
+                        n43++;
+                    }
+                }
+            }
+        }
+        currentPlayerSetPerspective(10.f, 60.f, 16.f / 9.f);
+        if (shot_one(out_dir, "play_spawn_wide") != 0)
+            return -1;
+        fb = port_api_fb();
+        if (fb) {
+            for (py = 0; py < h; py++) {
+                for (px = 0; px < w; px++) {
+                    const uint8_t *p = fb + ((py * w) + px) * 4;
+                    if (p[1] > 50u && p[1] > p[0] + 8u && p[1] > p[2] + 8u) {
+                        cx169 += (unsigned long)px;
+                        n169++;
+                    }
+                }
+            }
+        }
+        printf("hor+ spawn olive_cx %lu n=%lu -> %lu n=%lu aspect=%.3f hfov=%.1f\n",
+               n43 ? cx43 / n43 : 0ul, n43, n169 ? cx169 / n169 : 0ul, n169,
+               (double)port_persp_aspect(), (double)port_view_hfov());
+        if (n43 < 80u || n169 < 80u) {
+            fprintf(stderr, "hor+ spawn olive empty n43=%lu n169=%lu\n", n43, n169);
+            currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
+            return -1;
+        }
+        /* Wider hfov packs the left extra-idle toward center (higher mean x). */
+        if (cx169 / n169 <= cx43 / n43) {
+            fprintf(stderr, "hor+ spawn did not widen olive_cx %lu -> %lu\n",
+                    cx43 / n43, cx169 / n169);
+            currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
+            return -1;
+        }
+        currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
+    }
     {
         struct timespec t0, t1;
         double ms;
@@ -2820,7 +2872,7 @@ static int cam_open_floor(float x, float z)
 
 static int shot_one(const char *out_dir, const char *tag)
 {
-    char png[512], hud[512], extra[256];
+    char png[512], hud[768], extra[256];
     const uint8_t *fb;
     FILE *hf;
     int mag, reserve, tiles, on, hp;
@@ -2840,7 +2892,8 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d held=%d viewgun=%d viewid=%d flash=%d pickup=%d",
+             "guards=%d parts=%d drawn=%d held=%d viewgun=%d viewid=%d flash=%d pickup=%d "
+             "aspect=%.3f hfov=%.1f",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
@@ -2852,7 +2905,8 @@ static int shot_one(const char *out_dir, const char *tag)
              port_prop_guard_parts(), port_prop_drawn(), port_prop_held_drawn(),
              port_prop_viewgun_parts(),
              port_prop_viewgun_id(),
-             port_gun_flash_frames(), port_prop_pickup_drawn());
+             port_gun_flash_frames(), port_prop_pickup_drawn(),
+             (double)port_persp_aspect(), (double)port_view_hfov());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);

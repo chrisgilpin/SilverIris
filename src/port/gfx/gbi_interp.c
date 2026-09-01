@@ -31,6 +31,8 @@ static float g_cam_eye[3];
 static float g_cam_theta;
 static float g_cam_pitch;
 static int g_cam_on;
+static float g_persp_fovy_deg = 60.f;
+static float g_persp_aspect = 320.f / 240.f;
 static int g_no_mtx;
 static uintptr_t g_dl_lo, g_dl_hi; /* skip=pose G_DL must stay in the chr file */
 static float g_chr_view[4][4];
@@ -566,8 +568,8 @@ static void apply_stored_camera(void)
         V[2][2] = -fz;
         V[2][3] = fx * g_cam_eye[0] + fy * g_cam_eye[1] + fz * g_cam_eye[2];
     }
-    fovy = 60.f * (G1_PI / 180.f);
-    aspect = 320.f / 240.f;
+    fovy = g_persp_fovy_deg * (G1_PI / 180.f);
+    aspect = g_persp_aspect;
     n = 10.f;
     f = 8000.f;
     ft = 1.f / tanf(fovy * 0.5f);
@@ -608,6 +610,20 @@ void g1_clear_lookat(void)
     g_cam_on = 0;
     g_cam_pitch = 0.f;
 }
+
+void g1_set_perspective(float fovy_deg, float aspect)
+{
+    if (fovy_deg < 1.f)
+        fovy_deg = 1.f;
+    if (aspect < 0.05f)
+        aspect = 0.05f;
+    g_persp_fovy_deg = fovy_deg;
+    g_persp_aspect = aspect;
+}
+
+float g1_persp_fovy(void) { return g_persp_fovy_deg; }
+
+float g1_persp_aspect(void) { return g_persp_aspect; }
 
 unsigned g1_fb_nonzero(void) { return sw_fb_nonzero(); }
 

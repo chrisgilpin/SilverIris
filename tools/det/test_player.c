@@ -1582,5 +1582,22 @@ int main(void)
         return 1;
     if (test_player_health() != 0)
         return 1;
+    {
+        float a43, a169;
+        currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
+        a43 = port_view_hfov();
+        currentPlayerSetPerspective(10.f, 60.f, 16.f / 9.f);
+        a169 = port_view_hfov();
+        currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
+        if (!(a43 > 74.f && a43 < 76.f)) {
+            fprintf(stderr, "hfov 4:3=%g want ~75\n", (double)a43);
+            return fail("hor+ 4:3 hfov");
+        }
+        if (!(a169 > 90.f && a169 < 93.f) || !(a169 > a43)) {
+            fprintf(stderr, "hfov 16:9=%g 4:3=%g\n", (double)a169, (double)a43);
+            return fail("hor+ 16:9 hfov");
+        }
+        printf("player hor+ hfov 4:3=%.2f 16:9=%.2f\n", (double)a43, (double)a169);
+    }
     return 0;
 }
