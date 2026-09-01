@@ -850,6 +850,43 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 door-face brightness `a32ed6a`)
+
+N64-feel slice on top of pad-cylinder hitscan `a756d97` (KEEP). SHA `a32ed6a`.
+Chris live: brown door fills looked like black slabs / strange panels.
+SETTEX 685 verts were shaded (118,112,98), so shade×texel crushed the
+door tile to a near-black rectangle. Full-bright verts let 685 show as
+a brown panel. Path/cutout oversize 1.15×/1.12× read as oversized
+slabs; 1.02× still covers the G1 rim. r71 alcove stamp stays 640×360
+so the mesh gap does not reopen. Closed-door portal cull unchanged
+(`e9247e9`).
+
+KEEP `a756d97` pad hitscan, `7886c41` forward PP7, `a106ce5` clip-door
+fill, `fecd44a` sealed faces, `e9247e9` portal cull, `42ba170`
+camera-space lock, `b1a9201` setup-chr hitscan, `e01e97f` spawn FPS.
+
+**1 — door faces.** `play_spawn` spawn_fill dark=1205 metal=7811
+area=13376 (was 1222/3619). `play_hall_a` dark=712 metal=11390 (was
+3936). `play_clip_door` clipdoor_fill dark=0 metal=4737 area=5120
+(was 3546) `clipdoor_olive n=34` `walked n=1 11`. Hunt teleports=0.
+
+**2 — hitch / jump / Hor+ / heads / gun.** Re-measured: `fire_hitch
+miss_ms=3.38 hit_ms=3.19 hits=1`; `play_shoot_after` kills=2 mag 7/14.
+`viewgun_lr play_spawn n=13525`. Spawn `drawn=68 held=0 headj=1`
+frame_ms=25.31 (39.5 fps unopt) / `--bench` frame_ms=25.41 (39.3 fps)
+— `e01e97f` 35ms class kept.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Look-down death still awkward; idle KF7 empty / death floor KF7 polish;
+  camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 pad-cylinder hitscan `a756d97`)
 
 N64-feel slice on top of PP7 rest Rx `7886c41` (KEEP). SHA `a756d97`.
