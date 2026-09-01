@@ -850,6 +850,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 death-rest across look `6666c32`)
+
+N64-feel slice on top of door-face brightness `a32ed6a` (KEEP). SHA `6666c32`.
+Fetal last frame is recumbent along model +Z. Aiming-guard pad yaw faces
+the player, so look-down at −40° was along the body (head in the near
+plane). Extra 0/±90 so +Z is most perpendicular to player→pad;
+snapshot on first dead emit so walking does not spin it. Floor pin,
+tucked rest, and camera-space PP7 unchanged.
+
+KEEP `a32ed6a` brown door fills, `a756d97` pad hitscan, `7886c41`
+forward PP7, `a106ce5` clip-door fill, `fecd44a` sealed faces,
+`e9247e9` portal cull, `42ba170` camera-space lock, `1207531` fetal
+death, `e01e97f` spawn FPS.
+
+**1 — look-down death.** `play_shoot_after_down` phi=-40 `die_across
+add=90 olive=6278 bbox=59,0-204,204` `viewgun_lr n=2634 top_r=1228`
+(no look-swing). Fetal ymin=-245 `held=0` `headj=2`. Floor KF7 beside
+the corpse.
+
+**2 — hitch / jump / Hor+ / heads / gun / doors.** Re-measured:
+`fire_hitch miss_ms=3.43 hit_ms=3.18 hits=1`; `play_shoot_after`
+kills=2 mag 7/14. `aim_look have=1 bound=1` `held=1` `headj=1`;
+`play_aim_grip` held=1. A→B hopped=0 y=29.12 r71; `clipdoor hunt
+teleports=0`; `clipdoor_olive n=34` `walked n=1 11` `clipdoor_fill
+dark=0 metal=4737 area=5120`. `play_spawn` spawn_fill dark=1205
+metal=7811; `play_hall_a` dark=712 metal=11390. `viewgun_lr play_spawn
+n=13525`. Spawn `drawn=68 held=0 headj=1` camo olive=4172 uniq=22
+frame_ms=25.26 (39.6 fps unopt) / `--bench` frame_ms=25.12 (39.8 fps)
+— `e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Idle KF7 empty / death floor KF7 polish; camo SHADE-flattening /
+  G1≠stan leftovers; door-leaf rim leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 door-face brightness `a32ed6a`)
 
 N64-feel slice on top of pad-cylinder hitscan `a756d97` (KEEP). SHA `a32ed6a`.
