@@ -3086,17 +3086,18 @@ static int shot_one(const char *out_dir, const char *tag)
             fprintf(stderr, "%s clipdoor_olive=%u (see-through closed door)\n", tag, olive);
             return -1;
         }
-        /* Head-on r11 doorway. Retail frame left this rect black. */
-        dark = count_dark_rect(fb, w, h, 48, 72, 120, 176);
-        metal = count_metal_rect(fb, w, h, 48, 72, 120, 176);
-        area = (unsigned)((120 - 48) * (176 - 72));
+        /* G1 mesh hole (not a Rare path portal). Was ~2525/7488 black at
+         * 48,72..120,176; the hole itself is ~x=64-128 y=96-176. */
+        dark = count_dark_rect(fb, w, h, 64, 96, 128, 176);
+        metal = count_metal_rect(fb, w, h, 64, 96, 128, 176);
+        area = (unsigned)((128 - 64) * (176 - 96));
         printf("clipdoor_fill dark=%u metal=%u area=%u\n", dark, metal, area);
-        if (dark > (area * 9u) / 20u) {
-            fprintf(stderr, "%s sealed opening still black dark=%u/%u\n", tag, dark, area);
+        if (dark > area / 5u) {
+            fprintf(stderr, "%s G1 opening still black dark=%u/%u\n", tag, dark, area);
             return -1;
         }
-        if (metal < area / 10u) {
-            fprintf(stderr, "%s sealed opening has no door face metal=%u/%u\n", tag, metal,
+        if (metal < area / 4u) {
+            fprintf(stderr, "%s G1 opening has no door face metal=%u/%u\n", tag, metal,
                     area);
             return -1;
         }
@@ -3289,6 +3290,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--playtest") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--clipmap") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "--bench") == 0) {
             if (a + 1 < argc && argv[a + 1][0] != '-')
                 a++;
@@ -3358,6 +3361,32 @@ int main(int argc, char **argv)
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int clipmap = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--clipmap") == 0)
+                    clipmap = 1;
+            if (clipmap) {
+                float ey = 29.1f;
+                const float cx = -651.1f, cz = -1311.4f, th = 24.0f;
+                place(cx, cz, th);
+                port_player_set_pitch(3.f);
+                (void)port_stan_eye_y(cx, cz, &ey);
+                printf("clipmap pose local=%.1f,%.1f eye=%.1f on=%d room=%d\n", (double)cx,
+                       (double)cz, (double)ey, port_stan_on_tile(cx, cz),
+                       port_stan_tile_room_at_eye(cx, cz, ey));
+                port_api_draw();
+                port_stage_dump_g1_cutouts(cx, ey, cz, th, 3.f);
+                if (shot_one(out_dir, "play_clip_door") != 0) {
+                    port_api_shutdown();
+                    free(pack);
+                    return 3;
+                }
+                port_api_shutdown();
+                free(pack);
+                return 0;
             }
         }
         {

@@ -4236,7 +4236,7 @@ static int g_slab_ok;
 #define SLAB_RETAIL_HALF_W 350.f
 #define SLAB_RETAIL_BOTTOM -787.f
 #define SLAB_FILE_SIZE 192
-#define SLAB_POOL 24
+#define SLAB_POOL 48
 #define SLAB_V1 (4 + 7 * 8)
 #define SLAB_V2 (4 + 7 * 8 + 48)
 static uint8_t g_slab_pool[SLAB_POOL][SLAB_FILE_SIZE];
@@ -4990,6 +4990,86 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 /* Cover the G1≠stan left void: room 71 mesh ends short of the
                  * stan tile, so a door-sized stamp left a black hole. */
                 slab = slab_sized(640.f, 360.f);
+                tmp.mdl = slab;
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                               0.f, 0.f, 0.f, 0.f);
+            }
+        }
+        /* G1 wall-mesh door cutouts (not Rare path portals). After closed-door
+         * portal cull the far room is not drawn, so the hole reads black.
+         * Skip if the through-point is already a walked tile (open archway). */
+        {
+            int c, nc = port_stage_g1_cutout_count();
+            for (c = 0; c < nc && k < cap; c++) {
+                float pos[3], yaw = 0.f, width = 0.f, tall = 0.f;
+                float lx, lz, d2, along, farx, farz;
+                PortProp tmp;
+                PortModel *slab;
+                int j, covered = 0, o, far_rm;
+                if (port_stage_g1_cutout(c, pos, &yaw, &width, &tall) != 0)
+                    continue;
+                lx = pos[0] - pwx;
+                lz = pos[2] - pwz;
+                d2 = lx * lx + lz * lz;
+                if (d2 > 900.f * 900.f)
+                    continue;
+                along = lx * lookx + lz * lookz;
+                if (along < 40.f)
+                    continue;
+                for (j = 0; j < g_nprop; j++) {
+                    float dx, dy, dz;
+                    if (g_prop[j].type != PDEF_DOOR)
+                        continue;
+                    dx = g_prop[j].pos[0] - pos[0];
+                    dy = g_prop[j].pos[1] - pos[1];
+                    dz = g_prop[j].pos[2] - pos[2];
+                    if (dx * dx + dy * dy + dz * dz < 250.f * 250.f) {
+                        covered = 1;
+                        break;
+                    }
+                }
+                if (covered)
+                    continue;
+                for (o = 0; o < no; o++) {
+                    float op[3], oyaw = 0.f, ow = 0.f, dx, dz;
+                    int ra = 0, rb = 0;
+                    if (port_stage_opening(o, op, &oyaw, &ow, &ra, &rb) != 0)
+                        continue;
+                    if (!port_stage_path_opening(ra, rb))
+                        continue;
+                    dx = op[0] - pos[0];
+                    dz = op[2] - pos[2];
+                    if (dx * dx + dz * dz < 180.f * 180.f) {
+                        covered = 1;
+                        break;
+                    }
+                }
+                if (covered)
+                    continue;
+                farx = pos[0] - room1[0];
+                farz = pos[2] - room1[2];
+                if (yaw == 90.f || yaw == -90.f)
+                    farx += (pwx > pos[0]) ? -50.f : 50.f;
+                else
+                    farz += (pwz > pos[2]) ? -50.f : 50.f;
+                far_rm = port_stan_tile_room(farx, farz);
+                /* Same-room mesh holes are the black cutout. Only skip if the
+                 * through-point is a different room that is already drawn. */
+                if (far_rm > 0 && far_rm != port_stage_current_room() &&
+                    port_stage_walked_has(far_rm))
+                    continue;
+                if (tall < 80.f)
+                    tall = PORT_DOOR_HEIGHT;
+                slab = slab_sized(width * 1.12f, tall * 1.08f);
+                memset(&tmp, 0, sizeof tmp);
+                tmp.pos[0] = pos[0];
+                tmp.pos[1] = pos[1];
+                tmp.pos[2] = pos[2];
+                if (yaw == 90.f || yaw == -90.f)
+                    tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
+                else
+                    tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
+                tmp.scale = 1.f;
                 tmp.mdl = slab;
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);

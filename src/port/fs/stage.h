@@ -61,6 +61,13 @@ int port_stage_g1_leaf_blocks(float cam_lx, float cam_lz, float pad_lx, float pa
 /* Harness: print AABB vs nearby G1 door leaves (straddle / ray-rect). */
 void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
                                float x0, float z0, float x1, float z1);
+/* Door-sized holes in the G1 wall mesh (not Rare portals). pos is world
+ * (room1-scaled + player-local sill). yaw faces the camera-side. */
+int port_stage_g1_cutout_count(void);
+int port_stage_g1_cutout(int i, float pos[3], float *yaw, float *width, float *tall);
+/* Scan walked rooms; print screen-mapped G1 tris + cutouts at this camera. */
+void port_stage_dump_g1_cutouts(float cam_lx, float cam_ly, float cam_lz,
+                                float theta_deg, float pitch_deg);
 /* 1 if a portal lists both rooms (either order). 0 if a==b or none. */
 int port_stage_rooms_adjacent(int a, int b);
 int port_stage_rooms_walked(void);

@@ -165,6 +165,7 @@ static int copy_named(const char *name, uint8_t **out, size_t *out_len)
 }
 
 static void g1_clear_planes(void);
+static void g1_clear_cutouts(void);
 
 static void clear_rooms(void)
 {
@@ -182,6 +183,7 @@ static void clear_rooms(void)
     g_rooms_walked = 0;
     memset(g_walked, 0, sizeof g_walked);
     g1_clear_planes();
+    g1_clear_cutouts();
     port_prop_unload();
 }
 
@@ -1917,6 +1919,543 @@ void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float p
                (double)h->half_w, (double)h->thick, (double)h->pad_along, (double)h->amin,
                (double)h->amax, h->straddle, h->ray, h->both, (double)h->dcam,
                (double)h->need);
+    }
+}
+
+/* Door-sized holes in G1 walls. Rare portals sit elsewhere; after closed-door
+ * portal cull these cutouts read as black. Player-local verts (v*inv + ox). */
+#define PORT_G1_CUT_MAX 24
+#define PORT_G1_VTRI_MAX 768
+#define PORT_G1_CLUS_MAX 48
+
+typedef struct {
+    float px, py, pz;
+    float yaw;
+    float width, tall;
+    int room;
+} G1Cutout;
+
+typedef struct {
+    float amin, amax, ymin, ymax;
+    float nx, nz, d, tx, tz;
+    float cx, cy, cz;
+} G1VTri;
+
+static G1Cutout g_cuts[PORT_G1_CUT_MAX];
+static int g_ncuts;
+static uint8_t g_rm_ch[PORT_MAX_BG_ROOMS];
+
+static void g1_clear_cutouts(void)
+{
+    g_ncuts = 0;
+    memset(g_rm_ch, 0, sizeof g_rm_ch);
+}
+
+static int g1_project(float x, float y, float z, float ex, float ey, float ez, float th,
+                      float ph, float fovy, float aspect, float *sx, float *sy, float *tz)
+{
+    float rad = 3.14159265f / 180.f;
+    float cph, sph, fx, fy, fz, rx, rz, ux, uy, uz, relx, rely, relz;
+    float vx, vy, vz, ft, ndx, ndy, cw;
+
+    th *= rad;
+    ph *= rad;
+    cph = cosf(ph);
+    sph = sinf(ph);
+    fx = sinf(th) * cph;
+    fy = sph;
+    fz = -cosf(th) * cph;
+    rx = cosf(th);
+    rz = sinf(th);
+    ux = -sinf(th) * sph;
+    uy = cph;
+    uz = cosf(th) * sph;
+    relx = x - ex;
+    rely = y - ey;
+    relz = z - ez;
+    vx = rx * relx + rz * relz;
+    vy = ux * relx + uy * rely + uz * relz;
+    /* View Z is negative in front (look-at V[2] = -forward). */
+    vz = -(fx * relx + fy * rely + fz * relz);
+    cw = -vz;
+    if (tz)
+        *tz = cw;
+    if (cw < 8.f)
+        return 0;
+    ft = 1.f / tanf((fovy * rad) * 0.5f);
+    ndx = (ft / aspect) * vx / cw;
+    /* P[1][1] = -ft so +Y world is up (small sy). */
+    ndy = -ft * vy / cw;
+    *sx = ndx * 160.f + 160.f;
+    *sy = ndy * 120.f + 120.f;
+    return 1;
+}
+
+static int g1_cut_add(float px, float py, float pz, float yaw, float width, float tall,
+                      int room)
+{
+    int i;
+    if (width < 80.f || width > 450.f || tall < 80.f || tall > 500.f)
+        return 0;
+    for (i = 0; i < g_ncuts; i++) {
+        float dx = g_cuts[i].px - px, dz = g_cuts[i].pz - pz;
+        if (dx * dx + dz * dz < 60.f * 60.f)
+            return 0;
+    }
+    if (g_ncuts >= PORT_G1_CUT_MAX)
+        return 0;
+    g_cuts[g_ncuts].px = px;
+    g_cuts[g_ncuts].py = py;
+    g_cuts[g_ncuts].pz = pz;
+    g_cuts[g_ncuts].yaw = yaw;
+    g_cuts[g_ncuts].width = width;
+    g_cuts[g_ncuts].tall = tall;
+    g_cuts[g_ncuts].room = room;
+    g_ncuts++;
+    return 1;
+}
+
+static void g1_cluster_cutouts(int room, const G1VTri *tri, int ntri, float camx, float camz)
+{
+    int used[PORT_G1_VTRI_MAX];
+    int c, i, j;
+
+    if (ntri < 4)
+        return;
+    memset(used, 0, sizeof(int) * (size_t)ntri);
+    for (c = 0; c < PORT_G1_CLUS_MAX; c++) {
+        int idx[PORT_G1_VTRI_MAX], nn = 0;
+        float nx, nz, d, tx, tz, amin, amax, ymin, ymax;
+        int seed = -1;
+        for (i = 0; i < ntri; i++) {
+            if (!used[i]) {
+                seed = i;
+                break;
+            }
+        }
+        if (seed < 0)
+            break;
+        nx = tri[seed].nx;
+        nz = tri[seed].nz;
+        d = tri[seed].d;
+        tx = tri[seed].tx;
+        tz = tri[seed].tz;
+        for (i = 0; i < ntri; i++) {
+            float dn, dd;
+            if (used[i])
+                continue;
+            dn = nx * tri[i].nx + nz * tri[i].nz;
+            dd = tri[i].d - d;
+            if (dd < 0.f)
+                dd = -dd;
+            if (dn < 0.92f || dd > 18.f)
+                continue;
+            used[i] = 1;
+            idx[nn++] = i;
+        }
+        if (nn < 4)
+            continue;
+        amin = tri[idx[0]].amin;
+        amax = tri[idx[0]].amax;
+        ymin = tri[idx[0]].ymin;
+        ymax = tri[idx[0]].ymax;
+        for (i = 1; i < nn; i++) {
+            const G1VTri *t = &tri[idx[i]];
+            if (t->amin < amin)
+                amin = t->amin;
+            if (t->amax > amax)
+                amax = t->amax;
+            if (t->ymin < ymin)
+                ymin = t->ymin;
+            if (t->ymax > ymax)
+                ymax = t->ymax;
+        }
+        if (amax - amin < 140.f || ymax - ymin < 120.f)
+            continue;
+        /* Interior band: look for an along-gap the jambs enclose. */
+        {
+            float y0 = ymin + 0.28f * (ymax - ymin);
+            float y1 = ymin + 0.72f * (ymax - ymin);
+            float iv0[32], iv1[32];
+            int niv = 0, g;
+            for (i = 0; i < nn; i++) {
+                const G1VTri *t = &tri[idx[i]];
+                if (t->ymax < y0 || t->ymin > y1)
+                    continue;
+                if (niv < 32) {
+                    iv0[niv] = t->amin;
+                    iv1[niv] = t->amax;
+                    niv++;
+                }
+            }
+            for (i = 0; i < niv; i++) {
+                int best = i;
+                for (j = i + 1; j < niv; j++) {
+                    if (iv0[j] < iv0[best])
+                        best = j;
+                }
+                if (best != i) {
+                    float a = iv0[i], b = iv1[i];
+                    iv0[i] = iv0[best];
+                    iv1[i] = iv1[best];
+                    iv0[best] = a;
+                    iv1[best] = b;
+                }
+            }
+            {
+                float m0[32], m1[32];
+                int nm = 0;
+                for (i = 0; i < niv; i++) {
+                    if (nm == 0 || iv0[i] > m1[nm - 1] + 12.f) {
+                        if (nm < 32) {
+                            m0[nm] = iv0[i];
+                            m1[nm] = iv1[i];
+                            nm++;
+                        }
+                    } else if (iv1[i] > m1[nm - 1])
+                        m1[nm - 1] = iv1[i];
+                }
+                for (g = 0; g + 1 < nm; g++) {
+                    float g0 = m1[g], g1 = m0[g + 1], gw = g1 - g0, amid, sill, lint;
+                    float pcx, pcz, tocam, yaw, hx, hz;
+                    int k, nsill = 0, nlint = 0;
+                    if (gw < 80.f || gw > 420.f)
+                        continue;
+                    amid = 0.5f * (g0 + g1);
+                    sill = ymin;
+                    lint = ymax;
+                    for (k = 0; k < nn; k++) {
+                        const G1VTri *t = &tri[idx[k]];
+                        if (t->amax < amid - 8.f || t->amin > amid + 8.f)
+                            continue;
+                        if (t->ymax < y0) {
+                            if (!nsill || t->ymax > sill)
+                                sill = t->ymax;
+                            nsill = 1;
+                        }
+                        if (t->ymin > y1) {
+                            if (!nlint || t->ymin < lint)
+                                lint = t->ymin;
+                            nlint = 1;
+                        }
+                    }
+                    if (!nsill)
+                        sill = ymin;
+                    if (!nlint)
+                        lint = ymax;
+                    if (lint - sill < 80.f || lint - sill > 500.f)
+                        continue;
+                    /* Plane point at along=amid: origin is not stored; recover
+                     * from any tri centroid projected onto the plane. */
+                    {
+                        const G1VTri *s = &tri[idx[0]];
+                        float a0 = (s->cx * tx + s->cz * tz);
+                        pcx = s->cx + (amid - a0) * tx;
+                        pcz = s->cz + (amid - a0) * tz;
+                    }
+                    hx = camx - pcx;
+                    hz = camz - pcz;
+                    tocam = hx * nx + hz * nz;
+                    if (tocam < 0.f) {
+                        nx = -nx;
+                        nz = -nz;
+                        tocam = -tocam;
+                    }
+                    /* Face the camera so the XY slab is not edge-on. */
+                    if (fabsf(nx) >= fabsf(nz))
+                        yaw = (pcx < camx) ? 90.f : -90.f;
+                    else
+                        yaw = (pcz < camz) ? 0.f : 180.f;
+                    (void)tocam;
+                    g1_cut_add(pcx, sill, pcz, yaw, gw, lint - sill, room);
+                }
+            }
+        }
+    }
+}
+
+static void g1_collect_room_cutouts(int room)
+{
+    const PortBgRoom *rm;
+    const uint8_t *dl, *vtxbase;
+    uint32_t ncmd, i;
+    float ox, oy, oz, sc, r1x, r1y, r1z;
+    float slot[PORT_G1_VTX_CACHE][3];
+    int have[PORT_G1_VTX_CACHE];
+    G1VTri tri[PORT_G1_VTRI_MAX];
+    int ntri = 0;
+    float camx, camz;
+
+    if (room < 1 || room > g_bg_rooms || room >= PORT_MAX_BG_ROOMS)
+        return;
+    if (g_rm_ch[room])
+        return;
+    g_rm_ch[room] = 1;
+    rm = &g_rm[room];
+    dl = room_pri(rm);
+    if (!dl || rm->pri_ngfx == 0 || !rm->vtx)
+        return;
+    vtxbase = rm->vtx;
+    sc = (g_bg_inv != 0.f) ? g_bg_inv : 1.f;
+    r1x = g_rm[1].pos[0] * sc;
+    r1y = g_rm[1].pos[1] * sc;
+    r1z = g_rm[1].pos[2] * sc;
+    ox = rm->pos[0] * sc - r1x;
+    oy = rm->pos[1] * sc - r1y;
+    oz = rm->pos[2] * sc - r1z;
+    camx = port_player_x();
+    camz = port_player_z();
+    memset(have, 0, sizeof have);
+    ncmd = rm->pri_ngfx;
+    for (i = 0; i < ncmd; i++) {
+        const uint8_t *p = dl + i * 8u;
+        uint8_t cmd = p[0];
+        uint32_t w0 = be32(p);
+        uint32_t w1 = be32(p + 4);
+        if (cmd == 0x04) {
+            uint32_t param = (w0 >> 16) & 0xFFu;
+            uint32_t n = (param >> 4) + 1u;
+            uint32_t v0 = param & 0xFu;
+            uint32_t seg = w1 >> 24;
+            uint32_t off = w1 & 0x00FFFFFFu;
+            uint32_t k;
+            const uint8_t *src;
+            if (seg != 14 || off + n * 16u > rm->vtx_len)
+                continue;
+            src = vtxbase + off;
+            for (k = 0; k < n && v0 + k < PORT_G1_VTX_CACHE; k++) {
+                const uint8_t *s = src + k * 16u;
+                slot[v0 + k][0] = (float)dump_be16(s);
+                slot[v0 + k][1] = (float)dump_be16(s + 2);
+                slot[v0 + k][2] = (float)dump_be16(s + 4);
+                have[v0 + k] = 1;
+            }
+            continue;
+        }
+        if (cmd != 0xB1)
+            continue;
+        {
+            uint32_t tris[4][3];
+            int t;
+            tris[0][0] = w1 & 0xF;
+            tris[0][1] = (w1 >> 4) & 0xF;
+            tris[0][2] = w0 & 0xF;
+            tris[1][0] = (w1 >> 8) & 0xF;
+            tris[1][1] = (w1 >> 12) & 0xF;
+            tris[1][2] = (w0 >> 4) & 0xF;
+            tris[2][0] = (w1 >> 16) & 0xF;
+            tris[2][1] = (w1 >> 20) & 0xF;
+            tris[2][2] = (w0 >> 8) & 0xF;
+            tris[3][0] = (w1 >> 24) & 0xF;
+            tris[3][1] = (w1 >> 28) & 0xF;
+            tris[3][2] = (w0 >> 12) & 0xF;
+            for (t = 0; t < 4; t++) {
+                float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+                float e1x, e1y, e1z, e2x, e2y, e2z, nx, ny, nz, nlen, wlen, wx, wz;
+                float px0, py0, pz0, px1, py1, pz1, px2, py2, pz2;
+                float tx, tz, amin, amax, ymin, ymax;
+                int a, b, c;
+                a = (int)tris[t][0];
+                b = (int)tris[t][1];
+                c = (int)tris[t][2];
+                if (a == 0 && b == 0 && c == 0)
+                    continue;
+                if (a >= PORT_G1_VTX_CACHE || b >= PORT_G1_VTX_CACHE ||
+                    c >= PORT_G1_VTX_CACHE)
+                    continue;
+                if (!have[a] || !have[b] || !have[c])
+                    continue;
+                x0 = slot[a][0];
+                y0 = slot[a][1];
+                z0 = slot[a][2];
+                x1 = slot[b][0];
+                y1 = slot[b][1];
+                z1 = slot[b][2];
+                x2 = slot[c][0];
+                y2 = slot[c][1];
+                z2 = slot[c][2];
+                e1x = x1 - x0;
+                e1y = y1 - y0;
+                e1z = z1 - z0;
+                e2x = x2 - x0;
+                e2y = y2 - y0;
+                e2z = z2 - z0;
+                nx = e1y * e2z - e1z * e2y;
+                ny = e1z * e2x - e1x * e2z;
+                nz = e1x * e2y - e1y * e2x;
+                nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+                if (nlen < 1.f)
+                    continue;
+                if (fabsf(ny) > 0.35f * nlen)
+                    continue;
+                wx = nx;
+                wz = nz;
+                wlen = sqrtf(wx * wx + wz * wz);
+                if (wlen < 1e-3f)
+                    continue;
+                wx /= wlen;
+                wz /= wlen;
+                px0 = x0 * sc + ox;
+                py0 = y0 * sc + oy;
+                pz0 = z0 * sc + oz;
+                px1 = x1 * sc + ox;
+                py1 = y1 * sc + oy;
+                pz1 = z1 * sc + oz;
+                px2 = x2 * sc + ox;
+                py2 = y2 * sc + oy;
+                pz2 = z2 * sc + oz;
+                tx = -wz;
+                tz = wx;
+                amin = amax = px0 * tx + pz0 * tz;
+                ymin = ymax = py0;
+                {
+                    float aa = px1 * tx + pz1 * tz;
+                    if (aa < amin)
+                        amin = aa;
+                    if (aa > amax)
+                        amax = aa;
+                    aa = px2 * tx + pz2 * tz;
+                    if (aa < amin)
+                        amin = aa;
+                    if (aa > amax)
+                        amax = aa;
+                    if (py1 < ymin)
+                        ymin = py1;
+                    if (py1 > ymax)
+                        ymax = py1;
+                    if (py2 < ymin)
+                        ymin = py2;
+                    if (py2 > ymax)
+                        ymax = py2;
+                }
+                if (ymax - ymin < 20.f)
+                    continue;
+                if (ntri >= PORT_G1_VTRI_MAX)
+                    goto clustered;
+                tri[ntri].amin = amin;
+                tri[ntri].amax = amax;
+                tri[ntri].ymin = ymin;
+                tri[ntri].ymax = ymax;
+                tri[ntri].nx = wx;
+                tri[ntri].nz = wz;
+                tri[ntri].d = wx * px0 + wz * pz0;
+                tri[ntri].tx = tx;
+                tri[ntri].tz = tz;
+                tri[ntri].cx = (px0 + px1 + px2) / 3.f;
+                tri[ntri].cy = (py0 + py1 + py2) / 3.f;
+                tri[ntri].cz = (pz0 + pz1 + pz2) / 3.f;
+                ntri++;
+            }
+        }
+    }
+clustered:
+    g1_cluster_cutouts(room, tri, ntri, camx, camz);
+}
+
+static void g1_ensure_cutouts(void)
+{
+    int i, r;
+    /* Synthetic 1-room G1DL packs have no Facility wall cutouts; filling
+     * them covered magenta prop tests. Retail C0 Facility has many rooms. */
+    if (g_bg_rooms < 8 || !g_gdl_c0)
+        return;
+    r = g_cur_room;
+    if (r < 1)
+        r = port_stan_tile_room(port_player_x(), port_player_z());
+    if (r >= 1)
+        g1_collect_room_cutouts(r);
+    for (i = 0; i < g_rooms_walked; i++)
+        g1_collect_room_cutouts((int)g_walked[i]);
+}
+
+int port_stage_g1_cutout_count(void)
+{
+    g1_ensure_cutouts();
+    return g_ncuts;
+}
+
+int port_stage_g1_cutout(int i, float pos[3], float *yaw, float *width, float *tall)
+{
+    float r1[3];
+    g1_ensure_cutouts();
+    if (i < 0 || i >= g_ncuts)
+        return -1;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    /* World = player-local + room1 (same as spawn-alcove fill). */
+    if (pos) {
+        pos[0] = g_cuts[i].px + r1[0];
+        pos[1] = g_cuts[i].py + r1[1];
+        pos[2] = g_cuts[i].pz + r1[2];
+    }
+    if (yaw)
+        *yaw = g_cuts[i].yaw;
+    if (width)
+        *width = g_cuts[i].width;
+    if (tall)
+        *tall = g_cuts[i].tall;
+    return 0;
+}
+
+void port_stage_dump_g1_cutouts(float cam_lx, float cam_ly, float cam_lz, float theta_deg,
+                                float pitch_deg)
+{
+    int i;
+    float fovy = port_persp_fovy();
+    float aspect = port_persp_aspect();
+    float vx = cam_lx, vz = cam_lz;
+
+    port_stan_visual_xz(vx, vz, &vx, &vz);
+    g_cur_room = port_stan_tile_room_at_eye(cam_lx, cam_lz, cam_ly);
+    if (g_cur_room < 1)
+        g_cur_room = port_stan_tile_room(cam_lx, cam_lz);
+    g1_ensure_cutouts();
+    printf("g1cut cam=%.1f,%.1f,%.1f vis=%.1f,%.1f th=%.1f ph=%.1f cur=%d n=%d "
+           "fovy=%.1f aspect=%.3f\n",
+           (double)cam_lx, (double)cam_ly, (double)cam_lz, (double)vx, (double)vz,
+           (double)theta_deg, (double)pitch_deg, g_cur_room, g_ncuts, (double)fovy,
+           (double)aspect);
+    for (i = 0; i < g_ncuts; i++) {
+        float sx, sy, tz, dx, dz, d;
+        int onscr;
+        dx = g_cuts[i].px - cam_lx;
+        dz = g_cuts[i].pz - cam_lz;
+        d = sqrtf(dx * dx + dz * dz);
+        onscr = g1_project(g_cuts[i].px, g_cuts[i].py + 0.5f * g_cuts[i].tall, g_cuts[i].pz,
+                           vx, cam_ly, vz, theta_deg, pitch_deg, fovy, aspect, &sx, &sy, &tz);
+        {
+            float lookx = sinf(theta_deg * (3.14159265f / 180.f));
+            float lookz = -cosf(theta_deg * (3.14159265f / 180.f));
+            float along = dx * lookx + dz * lookz;
+            float c0x, c0y, c1x, c1y, c2x, c2y, c3x, c3y, tz0;
+            float hw = 0.5f * g_cuts[i].width;
+            float tx, tz2, y0, y1;
+            if (g_cuts[i].yaw == 90.f || g_cuts[i].yaw == -90.f) {
+                tx = 0.f;
+                tz2 = 1.f;
+            } else {
+                tx = 1.f;
+                tz2 = 0.f;
+            }
+            y0 = g_cuts[i].py;
+            y1 = g_cuts[i].py + g_cuts[i].tall;
+            (void)g1_project(g_cuts[i].px - hw * tx, y0, g_cuts[i].pz - hw * tz2, vx, cam_ly,
+                             vz, theta_deg, pitch_deg, fovy, aspect, &c0x, &c0y, &tz0);
+            (void)g1_project(g_cuts[i].px + hw * tx, y0, g_cuts[i].pz + hw * tz2, vx, cam_ly,
+                             vz, theta_deg, pitch_deg, fovy, aspect, &c1x, &c1y, &tz0);
+            (void)g1_project(g_cuts[i].px - hw * tx, y1, g_cuts[i].pz - hw * tz2, vx, cam_ly,
+                             vz, theta_deg, pitch_deg, fovy, aspect, &c2x, &c2y, &tz0);
+            (void)g1_project(g_cuts[i].px + hw * tx, y1, g_cuts[i].pz + hw * tz2, vx, cam_ly,
+                             vz, theta_deg, pitch_deg, fovy, aspect, &c3x, &c3y, &tz0);
+            printf("g1cut[%d] r%d local=%.1f,%.1f,%.1f yaw=%.0f w=%.1f h=%.1f d=%.1f "
+                   "along=%.1f mid=%.0f,%.0f on=%d corners=%.0f,%.0f %.0f,%.0f %.0f,%.0f "
+                   "%.0f,%.0f\n",
+                   i, g_cuts[i].room, (double)g_cuts[i].px, (double)g_cuts[i].py,
+                   (double)g_cuts[i].pz, (double)g_cuts[i].yaw, (double)g_cuts[i].width,
+                   (double)g_cuts[i].tall, (double)d, (double)along, (double)sx, (double)sy,
+                   onscr, (double)c0x, (double)c0y, (double)c1x, (double)c1y, (double)c2x,
+                   (double)c2y, (double)c3x, (double)c3y);
+        }
     }
 }
 
