@@ -1804,9 +1804,13 @@ static int snap_ok(float ox, float oz, float snap_x, float snap_z, float want_x,
 }
 
 /* Dest sitting only in stacked r12 would raise eye +319 on a 12u hall
- * step. Unit tests hop +319 on 2–4 tiles; Facility only at the foot. */
+ * step. Unit tests hop +319 on 2–4 tiles; Facility only at the foot.
+ * Hall eye (~29) must not launch to overlapping r12 (~409). */
 static int climb_ok(float ox, float oz, float from_y, float to_y)
 {
+    if (g_ntile > 100 && from_y < 120.0f && to_y > 200.0f &&
+        !near_stair_foot(ox, oz))
+        return 0;
     if (!(to_y > from_y + 80.0f))
         return 1;
     if (g_ntile <= 100)
@@ -1927,6 +1931,13 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
         const StanTile *ot, *dt;
         local_to_world(cx, cz, &cwx2, &cwz2);
         ot = (follow && g_have_links) ? tile_for_walk(owx, owz) : NULL;
+        /* Hall eye on overlapping r12 cache would keep y=409. Prefer the
+         * lowest tile while the current eye is still on the ground floor. */
+        if (follow && ot && from_y < 120.0f && g_ntile > 100) {
+            const StanTile *lo = tile_at_world(owx, owz);
+            if (lo && tile_avg_y(ot) > tile_avg_y(lo) + 80.0f)
+                ot = lo;
+        }
         dt = (follow && g_have_links && ot) ? walk_tiles(ot, owx, owz, cwx2, cwz2) : NULL;
         if (follow && ot) {
             const StanTile *rise = enter_rise_tile(ot, owx, owz, cwx2, cwz2);

@@ -1112,6 +1112,51 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
              rgba[cx + 1], rgba[cx + 2]);
 }
 
+/* Extra-idle camo: olive pixels must not be one SHADE slab. SETTEX 1916
+ * is splotchy CI8; greyscale cn flattening used ~a handful of greens. */
+static int camo_not_flat(const uint8_t *rgba, int w, int h, const char *tag)
+{
+    unsigned n = 0, uniq = 0, bits[128];
+    unsigned long sum = 0, sq = 0;
+    int i;
+    memset(bits, 0, sizeof bits);
+    for (i = 0; i < w * h; i++) {
+        unsigned pr = rgba[i * 4], pg = rgba[i * 4 + 1], pb = rgba[i * 4 + 2];
+        unsigned key, luma;
+        if (pg < 50u || pg <= pr + 8u || pg <= pb + 8u)
+            continue;
+        if (pr + pb > pg + 40u)
+            continue;
+        n++;
+        luma = (pr + pg + pb) / 3u;
+        sum += luma;
+        sq += (unsigned long)luma * luma;
+        key = ((pr >> 4) << 8) | ((pg >> 4) << 4) | (pb >> 4);
+        if (key < 128u * 32u) {
+            unsigned *wrd = &bits[key >> 5];
+            unsigned bit = 1u << (key & 31u);
+            if (!(*wrd & bit)) {
+                *wrd |= bit;
+                uniq++;
+            }
+        }
+    }
+    printf("camo %s olive=%u uniq=%u", tag, n, uniq);
+    if (n >= 80u) {
+        double mean = (double)sum / (double)n;
+        double var = (double)sq / (double)n - mean * mean;
+        printf(" luma=%.1f var=%.1f", mean, var);
+        if (uniq < 10u || var < 20.0) {
+            printf(" FLAT\n");
+            fprintf(stderr, "%s camo flat olive=%u uniq=%u var=%.1f\n", tag, n, uniq,
+                    var);
+            return -1;
+        }
+    }
+    printf("\n");
+    return 0;
+}
+
 /* clip_step from the stairs foot. 8-way greedy toward room 13, preferring
  * a rising floor. Must reach a high upstairs tile (eye ~737) and not snap
  * back to 86.8. Bathroom xz is not a stair link and must stay low. */
@@ -1900,6 +1945,49 @@ static int playtest_chris(const char *out_dir)
                     (double)ny, port_stan_tile_room(nx, nz));
             return -1;
         }
+        /* Chris live A→B: -233.7,-2312.1 y=29 → -246.6,-2347.8 y=409.6.
+         * Look-264 walk is -X; B is -Z. Analog ticks are ~5u. */
+        {
+            float tdx = PLAY_HALL_B_X - ax, tdz = PLAY_HALL_B_Z - az;
+            float tlen = sqrtf(tdx * tdx + tdz * tdz);
+            float step, wx, wz, wy;
+            int s, hopped_b = 0;
+            if (tlen < 1.f)
+                tlen = 1.f;
+            for (step = 4.f; step <= 12.f + 0.1f; step += 8.f) {
+                tdx = (PLAY_HALL_B_X - ax) / tlen * step;
+                tdz = (PLAY_HALL_B_Z - az) / tlen * step;
+                wx = ax;
+                wz = az;
+                wy = ay;
+                place(wx, wz, PLAY_HALL_B_TH);
+                for (s = 0; s < 24; s++) {
+                    float cx = wx + tdx, cz = wz + tdz, cy = wy;
+                    port_stan_clip_step(wx, wz, &cx, &cz, &cy);
+                    if (cy > 200.f) {
+                        printf("walkhall A->B hop step=%d sz=%.0f from=%.1f,%.1f y=%.1f "
+                               "to=%.1f,%.1f y=%.1f r=%d\n",
+                               s, (double)step, (double)wx, (double)wz, (double)wy,
+                               (double)cx, (double)cz, (double)cy,
+                               port_stan_tile_room_at_eye(cx, cz, cy));
+                        hopped_b = 1;
+                        break;
+                    }
+                    if ((cx - wx) * (cx - wx) + (cz - wz) * (cz - wz) < 0.01f)
+                        break;
+                    wx = cx;
+                    wz = cz;
+                    wy = cy;
+                }
+                printf("walkhall A->B step=%.0f n=%d end=%.1f,%.1f y=%.1f r=%d\n",
+                       (double)step, s, (double)wx, (double)wz, (double)wy,
+                       port_stan_tile_room_at_eye(wx, wz, wy));
+                if (hopped_b || wy > 80.f) {
+                    fprintf(stderr, "walkhall A->B y=%.1f (want stay ~29)\n", (double)wy);
+                    return -1;
+                }
+            }
+        }
         place(ax, az, PLAY_HALL_A_TH);
         port_player_set_pitch(3.f);
         if (shot_one(out_dir, "play_hall_a") != 0)
@@ -2575,6 +2663,11 @@ static int shot_one(const char *out_dir, const char *tag)
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
     printf("%s  draw=%d rooms=%d/%d %s\n", hud, port_api_last_draw(),
            port_api_rooms_walked(), port_api_current_room(), extra);
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
+        !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk")) {
+        if (camo_not_flat(fb, port_api_fb_width(), port_api_fb_height(), tag) != 0)
+            return -1;
+    }
     snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);
     if (write_png(png, fb, port_api_fb_width(), port_api_fb_height()) != 0) {
         fprintf(stderr, "write %s failed: %s\n", png, strerror(errno));

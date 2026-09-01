@@ -4545,6 +4545,81 @@ static int test_shade_modulate(void)
     return 0;
 }
 
+/* skip=pose (no_mtx) replaces baked greyscale cn with identity SHADE so
+ * SETTEX camo stays albedo. Rooms still modulate (test_shade_modulate). */
+static int test_skip_pose_camo_albedo(void)
+{
+    uint8_t vtx_be[48];
+    static Vtx vtx[3];
+    int i;
+    unsigned full = 0, mid = 0, k, n;
+    const uint8_t *fb;
+    uint8_t white[64];
+    uint8_t gdl[48];
+    uint8_t host[0x80];
+    G1RoomDl rm;
+    uint32_t ngfx;
+
+    memset(white, 0xff, sizeof white);
+    memset(vtx, 0, sizeof vtx);
+    vtx[0].v.ob[0] = -1;
+    vtx[0].v.ob[1] = -1;
+    vtx[1].v.ob[0] = 1;
+    vtx[1].v.ob[1] = -1;
+    vtx[1].v.tc[0] = 256;
+    vtx[2].v.ob[1] = 1;
+    vtx[2].v.tc[1] = 256;
+    for (i = 0; i < 3; i++) {
+        vtx[i].v.cn[0] = 80;
+        vtx[i].v.cn[1] = 80;
+        vtx[i].v.cn[2] = 80;
+        vtx[i].v.cn[3] = 255;
+        wr_be_vtx(vtx_be + (size_t)i * 16, &vtx[i]);
+    }
+    g1_tex_unload();
+    if (g1_tex_load_raw(1, G1_TEX_I8, 8, 8, white, 64, NULL, 0) != 0)
+        return fail("skip=pose camo load");
+    memcpy(host, vtx_be, 48);
+    ngfx = 0;
+    wr_be32(gdl + ngfx * 8, ((uint32_t)(uint8_t)G_VTX << 24) | (0x20 << 16));
+    wr_be32(gdl + ngfx * 8 + 4, 0x04000000u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xC0000003u);
+    wr_be32(gdl + ngfx * 8 + 4, 1);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, 0xB1000002u);
+    wr_be32(gdl + ngfx * 8 + 4, 0x00000010u);
+    ngfx++;
+    wr_be32(gdl + ngfx * 8, (uint32_t)(uint8_t)G_ENDDL << 24);
+    wr_be32(gdl + ngfx * 8 + 4, 0);
+    ngfx++;
+    memset(&rm, 0, sizeof rm);
+    rm.pri = gdl;
+    rm.pri_n = ngfx;
+    rm.seg4 = (uintptr_t)host;
+    rm.no_mtx = 1;
+    g1_clear_lookat();
+    g1_set_shade_modulate(1);
+    if (g1_interpret_rooms(&rm, 1) != 0)
+        return fail("skip=pose camo interpret");
+    fb = g1_fb_rgba();
+    n = (unsigned)G1_FB_W * (unsigned)G1_FB_H;
+    for (k = 0; k < n; k++) {
+        unsigned pr = fb[k * 4];
+        if (pr >= 200)
+            full++;
+        if (pr >= 60 && pr <= 100)
+            mid++;
+    }
+    if (full < 1000)
+        return fail("skip=pose camo must keep SETTEX albedo");
+    if (mid > 80)
+        return fail("skip=pose camo still SHADE-flattened");
+    g1_tex_unload();
+    printf("skip=pose camo albedo full=%u (cn80 ignored)\n", full);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t bg[BG_SIZE];
@@ -4781,6 +4856,8 @@ int main(int argc, char **argv)
     if (test_settex_formats() != 0)
         return 1;
     if (test_shade_modulate() != 0)
+        return 1;
+    if (test_skip_pose_camo_albedo() != 0)
         return 1;
     if (test_settex_ia_formats() != 0)
         return 1;

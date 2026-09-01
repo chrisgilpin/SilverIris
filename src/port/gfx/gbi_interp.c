@@ -150,13 +150,23 @@ static void apply_vtx(uint32_t w0, const Vtx *src)
         s->s = (float)v->tc[0];
         s->t = (float)v->tc[1];
         /* Keep Rare Vtx.cn. rgb=0 is the no-light / G1 path: raster paints
-         * grey 180 untextured and skips SHADE*TEXEL so hashes stay. */
-        s->r = v->cn[0];
-        s->g = v->cn[1];
-        s->b = v->cn[2];
-        s->a = v->cn[3];
-        if (!s->r && !s->g && !s->b && !s->a)
-            s->a = 255;
+         * grey 180 untextured and skips SHADE*TEXEL so hashes stay.
+         * skip=pose chr cn is baked greyscale (not RSP lighting). SHADE*TEXEL
+         * flattened oliveguard SETTEX 1916 camo to a slab; identity SHADE
+         * keeps texel albedo. Rooms (no_mtx=0) still modulate. */
+        if (g_no_mtx) {
+            s->r = 255;
+            s->g = 255;
+            s->b = 255;
+            s->a = v->cn[3] ? v->cn[3] : 255;
+        } else {
+            s->r = v->cn[0];
+            s->g = v->cn[1];
+            s->b = v->cn[2];
+            s->a = v->cn[3];
+            if (!s->r && !s->g && !s->b && !s->a)
+                s->a = 255;
+        }
         s->live = 1;
     }
 }
