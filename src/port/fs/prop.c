@@ -3964,7 +3964,7 @@ int port_prop_chr_ray_hit(float local_x, float local_y, float local_z, float dx,
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
     for (i = 0; i < g_nprop; i++) {
-        float padx, padz, pdx, pdz, d2, cx, cz, r, y0, h, t, fy;
+        float padx, padz, pdx, pdz, d2, t, fy;
         if (g_prop[i].type != PDEF_GUARD)
             continue;
         if (port_stan_guard_dead_at(g_prop[i].pos[0], g_prop[i].pos[2]))
@@ -3978,18 +3978,16 @@ int port_prop_chr_ray_hit(float local_x, float local_y, float local_z, float dx,
         d2 = pdx * pdx + pdz * pdz;
         if (d2 > rmax2)
             continue;
-        /* Cheap pad cylinder (r=150 covers skip=pose torso off the 30u
-         * pad). Only then walk GDL verts for the posed viscyl. */
+        /* Joint-posed bodies sit on the pad. Bind-pose viscyl can sit
+         * ~100u off, so requiring pad AND viscyl missed a crosshair on
+         * the drawn guard (hits stayed 0). r=150 already covers that
+         * skip=pose offset (b1a9201); do not walk GDL verts on fire
+         * (6ec243b hitch). */
         fy = 0.f;
         if (port_stan_eye_y(padx, padz, &fy) == 0)
             fy -= PORT_EYE_HEIGHT;
         if (!vis_cyl_ray(local_x, local_y, local_z, dx, dy, dz, padx, padz,
                          PORT_VIS_RMAX, fy, fy + PORT_CHR_STAND + 80.f, &t))
-            continue;
-        if (guard_visual_cyl_pi(i, &cx, &cz, &r, &y0, &h, 0) != 0)
-            continue;
-        if (!vis_cyl_ray(local_x, local_y, local_z, dx, dy, dz, cx, cz, r, y0, y0 + h,
-                         &t))
             continue;
         if (t < best) {
             best = t;
