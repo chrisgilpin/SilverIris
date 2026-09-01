@@ -185,6 +185,26 @@ int main(int argc, char **argv)
         if (check_hash(dir, "hit.pcm.sha256", hex) != 0)
             return 1;
 
+        {
+            char hit_hex[65];
+            memcpy(hit_hex, hex, 65);
+            port_audio_init();
+            port_audio_play_rico();
+            port_audio_cb(pcm, NFRAMES);
+            if (all_zero(pcm))
+                return fail("rico was silence");
+            if (port_audio_last_sfx() != PORT_SFX_RICO)
+                return fail("rico last_sfx");
+            hash_pcm(pcm, hex);
+            printf("rico sha256=%s\n", hex);
+            if (strcmp(hex, gun_hex) == 0)
+                return fail("rico pcm matches gun");
+            if (strcmp(hex, hit_hex) == 0)
+                return fail("rico pcm matches hit");
+            if (check_hash(dir, "rico.pcm.sha256", hex) != 0)
+                return 1;
+        }
+
         port_audio_init();
         port_audio_play_kf7();
         port_audio_cb(pcm, NFRAMES);

@@ -46,7 +46,7 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -57,9 +57,10 @@ static int sfx_bank_proof(void)
     kn = port_audio_sfx_frames(PORT_SFX_KF7);
     pn = port_audio_sfx_frames(PORT_SFX_PICKUP);
     cn = port_audio_sfx_frames(PORT_SFX_DOOR_CLOSE);
+    rn = port_audio_sfx_frames(PORT_SFX_RICO);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
-           "kf7_n=%d pickup_n=%d close_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn);
+           "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -67,13 +68,14 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_HIT) ||
         !port_audio_sfx_from_bank(PORT_SFX_KF7) ||
         !port_audio_sfx_from_bank(PORT_SFX_PICKUP) ||
-        !port_audio_sfx_from_bank(PORT_SFX_DOOR_CLOSE) || gn < 2000 || dn < 500 ||
+        !port_audio_sfx_from_bank(PORT_SFX_DOOR_CLOSE) ||
+        !port_audio_sfx_from_bank(PORT_SFX_RICO) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
-        gn <= dn) {
+        rn < 200 || gn <= dn) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
-                "kf7=%d pickup=%d close=%d\n",
-                gn, dn, on, fn, hn, kn, pn, cn);
+                "kf7=%d pickup=%d close=%d rico=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn, rn);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -200,6 +202,27 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_HIT || eh < 100000ll || diff < 16) {
             fprintf(stderr, "sfx_hit did not overlay gun last=%d e=%lld diff=%d\n",
                     port_audio_last_sfx(), eh, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t rico[512];
+        long long er = 0;
+        int diff = 0;
+        memset(rico, 0, sizeof rico);
+        port_audio_play_gun();
+        port_audio_play_rico();
+        port_audio_cb(rico, 256);
+        for (i = 0; i < 512; i++) {
+            er += (long long)rico[i] * rico[i];
+            if (rico[i] != gun[i])
+                diff++;
+        }
+        printf("sfx_rico n=%d e=%lld last=%d mix_diff=%d\n", rn, er,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_RICO || er < 100000ll || diff < 16) {
+            fprintf(stderr, "sfx_rico did not overlay gun last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), er, diff);
             return -1;
         }
     }
@@ -388,6 +411,23 @@ static int path_unlatch_proof(void)
             port_audio_last_sfx() != PORT_SFX_GUN) {
             fprintf(stderr, "pad PP7 fire sfx=%d (want gun)\n", port_audio_last_sfx());
             return -1;
+        }
+        /* Door slab is a wall hit: rico overlays gun on the hit channel.
+         * last_sfx stays GUN (play_gun after hitscan) so fire≠use holds. */
+        {
+            int16_t mix[512];
+            int i;
+            long long em = 0;
+            memset(mix, 0, sizeof mix);
+            port_audio_cb(mix, 256);
+            for (i = 0; i < 512; i++)
+                em += (long long)mix[i] * mix[i];
+            printf("sfx_rico_wall e=%lld last=%d\n", em, port_audio_last_sfx());
+            if (em < 100000ll || port_audio_last_sfx() != PORT_SFX_GUN) {
+                fprintf(stderr, "sfx_rico_wall silent or cut gun e=%lld last=%d\n",
+                        em, port_audio_last_sfx());
+                return -1;
+            }
         }
         while (port_gun_flash_frames() > 0) {
             port_api_set_pad(0, 0, 0, 0);

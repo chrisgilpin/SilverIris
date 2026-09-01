@@ -7,7 +7,7 @@
 /*
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
  * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall / hit /
- * KF7 bolt / pickup / door-close.
+ * KF7 bolt / pickup / door-close / wall ricochet.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  */
@@ -20,10 +20,11 @@
 #define PACK_SFX_DOOR_METAL_CLOSE 197
 #define PACK_SFX_BODY_FALL_C1 123
 #define PACK_SFX_HIT_FLESH 69 /* HIT_BULLET_FLESH */
+#define PACK_SFX_RICO_8_AFDM_A 27 /* ricochet_sounds_small */
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
 
-static int16_t *g_owned[9];
+static int16_t *g_owned[10];
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -59,6 +60,8 @@ static int32_t bes32(const uint8_t *p)
 
 static void drop_kind(int kind)
 {
+    if (kind < 1 || kind > 9)
+        return;
     port_audio_install_sfx(kind, NULL, 0, 0);
     free(g_owned[kind]);
     g_owned[kind] = NULL;
@@ -74,6 +77,7 @@ void port_audio_unload_pack_sfx(void)
     drop_kind(PORT_SFX_KF7);
     drop_kind(PORT_SFX_PICKUP);
     drop_kind(PORT_SFX_DOOR_CLOSE);
+    drop_kind(PORT_SFX_RICO);
 }
 
 static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
@@ -188,6 +192,9 @@ int port_audio_load_pack_sfx(void)
         n++;
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_DOOR_METAL_CLOSE,
                   PORT_SFX_DOOR_CLOSE) == 0)
+        n++;
+    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_RICO_8_AFDM_A,
+                  PORT_SFX_RICO) == 0)
         n++;
     return n;
 }

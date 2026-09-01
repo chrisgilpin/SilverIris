@@ -24,13 +24,16 @@
 #define HIT_HZ 1600u
 #define HIT_AMP 8000
 #define HIT_LEN ((PORT_AUDIO_RATE * 50u) / 1000u)
+#define RICO_HZ 2400u
+#define RICO_AMP 7000
+#define RICO_LEN ((PORT_AUDIO_RATE * 90u) / 1000u)
 #define KF7_HZ 110u
 #define KF7_AMP 12000
 #define PICKUP_HZ 880u
 #define PICKUP_AMP 8000
 #define PICKUP_LEN ((PORT_AUDIO_RATE * 80u) / 1000u)
 #define DOOR_CLOSE_HZ 62u
-#define SFX_KIND_MAX 8
+#define SFX_KIND_MAX 9
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -209,6 +212,8 @@ static uint32_t placeholder_len(int kind)
         return FALL_LEN;
     if (kind == PORT_SFX_HIT)
         return HIT_LEN;
+    if (kind == PORT_SFX_RICO)
+        return RICO_LEN;
     if (kind == PORT_SFX_PICKUP)
         return PICKUP_LEN;
     if (kind == PORT_SFX_DOOR_CLOSE)
@@ -291,6 +296,11 @@ static void queue_hit(int kind, uint32_t len)
 void port_audio_play_hit(void)
 {
     queue_hit(PORT_SFX_HIT, HIT_LEN);
+}
+
+void port_audio_play_rico(void)
+{
+    queue_hit(PORT_SFX_RICO, RICO_LEN);
 }
 
 void port_audio_play_kf7(void)
@@ -456,6 +466,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t oinc = phase_inc(DOOR_HZ);
     uint32_t finc = phase_inc(FALL_HZ);
     uint32_t hinc = phase_inc(HIT_HZ);
+    uint32_t rinc = phase_inc(RICO_HZ);
     uint32_t kinc = phase_inc(KF7_HZ);
     uint32_t pinc = phase_inc(PICKUP_HZ);
     uint32_t cinc = phase_inc(DOOR_CLOSE_HZ);
@@ -557,6 +568,10 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 int32_t v = ((int32_t)g_sfx_pcm[hkind][g_hit_pos] * vol) / 127;
                 g_hit_pos++;
                 s = (int)v;
+            } else if (hkind == PORT_SFX_RICO) {
+                int amp = (int)((uint32_t)RICO_AMP * g_hit_left / g_hit_len);
+                s = osc_tri(g_hit_phase, amp);
+                g_hit_phase += rinc;
             } else {
                 int amp = (int)((uint32_t)HIT_AMP * g_hit_left / g_hit_len);
                 s = osc_tri(g_hit_phase, amp) + osc_noise(&g_sfx_noise, amp / 2);

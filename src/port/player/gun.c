@@ -13,6 +13,7 @@ __attribute__((weak)) void port_audio_play_gun(void) {}
 __attribute__((weak)) void port_audio_play_dry(void) {}
 __attribute__((weak)) void port_audio_play_fall(void) {}
 __attribute__((weak)) void port_audio_play_hit(void) {}
+__attribute__((weak)) void port_audio_play_rico(void) {}
 __attribute__((weak)) void port_audio_play_kf7(void) {}
 __attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
@@ -174,6 +175,8 @@ static void fire_hitscan(void)
             int guard = (src == 1) ? port_stan_ray_hit_guard() : 0;
             if ((src == 2 || src == 6 || guard || src == 5) && port_audio_play_hit)
                 port_audio_play_hit();
+            else if ((src == 1 || src == 3 || src == 4) && port_audio_play_rico)
+                port_audio_play_rico();
         }
         if (src == 2) {
             port_chr_kill();
