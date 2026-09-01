@@ -47,6 +47,10 @@ typedef struct {
     int njoints;
     float joint_ymin; /* subtract from joint Y before scale; 0 if unused */
     int joint0;       /* starting MatrixID (enclosing GROUP); 0 = root */
+    /* njoints==1 snapshot. Shared Chead*Z / Pchr*Z joint[0] is overwritten
+     * per emit and restored before interpret — pointer to the model table
+     * would last-write-win (idle face on an aim neck, or a zeroed gun). */
+    float joint_one[16];
 } G1RoomDl;
 int g1_interpret_rooms(const G1RoomDl *rooms, int n);
 

@@ -1890,6 +1890,11 @@ static int playtest_chris(const char *out_dir)
     port_stan_debug_at(spawn_x, spawn_z);
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
+    if (port_prop_head_joint_drawn() < 1) {
+        fprintf(stderr, "play_spawn headj=%d (idle Chead not on neck 4x4)\n",
+                port_prop_head_joint_drawn());
+        return -1;
+    }
     /* Hor+ 16:9 (same vfov): anamorphic 320x240. Live blit stretches to 640x360
      * so circles stay circles. 4:3 play_spawn is the bit-stable default. */
     {
@@ -2251,8 +2256,13 @@ static int playtest_chris(const char *out_dir)
             port_player_set_pitch(0.f);
             if (shot_one(out_dir, "play_aim_look") != 0)
                 return -1;
-            printf("aim_held drawn=%d ig=%d %s\n", port_prop_held_drawn(), ig,
-                   port_prop_idle_info());
+            printf("aim_held drawn=%d headj=%d ig=%d %s\n", port_prop_held_drawn(),
+                   port_prop_head_joint_drawn(), ig, port_prop_idle_info());
+            if (port_prop_head_joint_drawn() < 1) {
+                fprintf(stderr, "aim_look headj=%d (aim Chead not on neck 4x4)\n",
+                        port_prop_head_joint_drawn());
+                return -1;
+            }
             if (port_prop_held_drawn() < 1) {
                 fprintf(stderr, "aim_look no held KF7 drawn=%d\n", port_prop_held_drawn());
                 return -1;
@@ -2892,7 +2902,7 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d held=%d viewgun=%d viewid=%d flash=%d pickup=%d "
+             "guards=%d parts=%d drawn=%d held=%d headj=%d viewgun=%d viewid=%d flash=%d pickup=%d "
              "aspect=%.3f hfov=%.1f",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
@@ -2903,6 +2913,7 @@ static int shot_one(const char *out_dir, const char *tag)
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
              port_prop_guard_parts(), port_prop_drawn(), port_prop_held_drawn(),
+             port_prop_head_joint_drawn(),
              port_prop_viewgun_parts(),
              port_prop_viewgun_id(),
              port_gun_flash_frames(), port_prop_pickup_drawn(),

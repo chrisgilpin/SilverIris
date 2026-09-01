@@ -86,6 +86,8 @@ float port_prop_guard_fit_scale(int i);
 int port_prop_guard_have_head(int i);
 /* Unscaled neck attach (opcode 23 / Switches[4]). -1 if none. */
 int port_prop_guard_head_off(int i, float *x, float *y, float *z);
+/* Last fill_rooms: Chead*Z parented to a posed neck 4x4 (not skip=pose Euler). */
+int port_prop_head_joint_drawn(void);
 /* Advance PTR_ANIM_death_* this many frames per sim tick (starts at 0
  * on first dead guard, holds last). 4/tick: 0->88 in 22 ticks ~ 1.1s @ 20 Hz. */
 #define PORT_DIE_FRAMES_PER_TICK 4

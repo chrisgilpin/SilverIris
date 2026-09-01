@@ -135,11 +135,11 @@ $(BUILD)/src/port/vi/sim_tick.o: $(PORT)/vi/sim_tick.c | overlay
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
-$(BUILD)/src/port/fs/stage.o: $(PORT)/fs/stage.c | overlay
+$(BUILD)/src/port/fs/stage.o: $(PORT)/fs/stage.c $(PORT)/gfx/gbi_interp.h | overlay
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 
-$(BUILD)/src/port/fs/prop.o: $(PORT)/fs/prop.c | overlay
+$(BUILD)/src/port/fs/prop.o: $(PORT)/fs/prop.c $(PORT)/gfx/gbi_interp.h | overlay
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(ROOT)/src -c $< -o $@
 

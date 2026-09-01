@@ -192,6 +192,9 @@ static PortModel g_mdl[PORT_MAX_MODELS];
 static int g_nmdl;
 static int g_drawn;
 static int g_held_drawn;
+static int g_head_joint_drawn;
+static const float *g_emit_jtab;
+static int g_emit_nj;
 static int g_emit_seen;
 static int g_emit_skip_range;
 static int g_emit_skip_leaf;
@@ -2544,6 +2547,11 @@ int port_prop_guard_head_off(int want, float *x, float *y, float *z)
     return 0;
 }
 
+int port_prop_head_joint_drawn(void)
+{
+    return g_head_joint_drawn;
+}
+
 static uint32_t rest_crc32(const float rest[PORT_SKEL_GUARD_N][3])
 {
     const uint8_t *p = (const uint8_t *)rest;
@@ -3383,6 +3391,9 @@ void port_prop_unload(void)
     memset(g_chr_gun, 0, sizeof g_chr_gun);
     g_nmdl = 0;
     g_held_drawn = 0;
+    g_head_joint_drawn = 0;
+    g_emit_jtab = NULL;
+    g_emit_nj = 0;
     g_viewgun_parts = 0;
     g_viewgun_id = PORT_GUN_WPPK_ID;
     g_drawn = 0;
@@ -4378,7 +4389,11 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
 {
     int p;
     float extra[4][4];
+    const float *jtab = g_emit_jtab;
+    int nj = g_emit_nj;
 
+    g_emit_jtab = NULL;
+    g_emit_nj = 0;
     if (!mdl)
         return k;
     mtx_local(extra, extra_x, extra_y, extra_z, extra_rx, extra_ry, extra_rz);
@@ -4446,20 +4461,34 @@ static int emit_parts(G1RoomDl *out, int cap, int k, const PortProp *pr, const P
         out[k].rz = rz;
         if (pr->type == PDEF_GUARD)
             out[k].no_mtx = 1;
-        if (pr->type == PDEF_GUARD && mdl_use_joints(mdl)) {
-            /* Pad origin + joint table. Seg-3 G_MTX poses limbs; part
-             * Euler alone left T-pose arms and pancaked a 90° death rest. */
-            out[k].ox = pr->pos[0] - room1[0] + extra_x + wdx;
-            out[k].oy = pr->pos[1] - room1[1] + extra_y + wdy + g_die_lift;
-            out[k].oz = pr->pos[2] - room1[2] + extra_z + wdz;
-            out[k].yaw = pr->yaw + add_yaw;
-            out[k].rx = 0.f;
-            out[k].ry = 0.f;
-            out[k].rz = 0.f;
-            out[k].joints = &mdl->joint[0][0][0];
-            out[k].njoints = mdl->njoint;
-            out[k].joint_ymin = mdl->fit_ymin;
-            out[k].joint0 = pt->mtxid;
+        {
+            const float *use_jtab = jtab;
+            int use_nj = nj;
+            if (!use_jtab && pr->type == PDEF_GUARD && mdl_use_joints(mdl)) {
+                use_jtab = &mdl->joint[0][0][0];
+                use_nj = mdl->njoint;
+            }
+            if (use_jtab && use_nj > 0 && pr->type == PDEF_GUARD) {
+                /* Pad origin + joint table. Seg-3 G_MTX poses limbs; part
+                 * Euler alone left T-pose arms and pancaked a 90° death rest. */
+                out[k].ox = pr->pos[0] - room1[0] + extra_x + wdx;
+                out[k].oy = pr->pos[1] - room1[1] + extra_y + wdy + g_die_lift;
+                out[k].oz = pr->pos[2] - room1[2] + extra_z + wdz;
+                out[k].yaw = pr->yaw + add_yaw;
+                out[k].rx = 0.f;
+                out[k].ry = 0.f;
+                out[k].rz = 0.f;
+                if (use_nj == 1) {
+                    memcpy(out[k].joint_one, use_jtab, sizeof out[k].joint_one);
+                    out[k].joints = out[k].joint_one;
+                    out[k].njoints = 1;
+                } else {
+                    out[k].joints = use_jtab;
+                    out[k].njoints = use_nj;
+                }
+                out[k].joint_ymin = mdl->fit_ymin;
+                out[k].joint0 = pt->mtxid;
+            }
         }
         k++;
     }
@@ -4695,23 +4724,28 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             int use_j = mdl_use_joints(mdl);
             g_floor_clamp = dead && !use_j;
             g_die_lift = (dead && use_j) ? PORT_DIE_FLOOR_LIFT : 0.f;
-            if (use_j && pr->head && mdl->have_head &&
-                (dead || mdl_is_aim(mdl))) {
-                /* Neck 4x4, not skip=pose Euler (gimbal at ~90° lie-down).
-                 * Living aim uses the same so the hat follows a tilted neck. */
-                memcpy(pr->head->joint[0], mdl->head_mtx, sizeof pr->head->joint[0]);
-                pr->head->njoint = 1;
-                pr->head->use_joints = 1;
-                pr->head->fit_scale = mdl->fit_scale;
-                pr->head->fit_ymin = mdl->fit_ymin;
-            }
             k = emit_parts(out, cap, k, pr, mdl, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                            pdx, 0.f, pdz);
             if (pr->head && pr->head->npart) {
-                if (mdl_use_joints(pr->head))
+                if (use_j && mdl->have_head) {
+                    /* Rare modelApplyHeadRelations: Chead RootNode is a child
+                     * of HeadPlaceholder, so G_MTX slot 0 is the posed neck
+                     * 4x4. Cheadjim has no GROUP (SWITCH → DL). Do not write
+                     * the shared Chead joint table — idle/aim/die necks differ
+                     * and fill restores before interpret. */
+                    pr->head->fit_scale = mdl->fit_scale;
+                    pr->head->fit_ymin = mdl->fit_ymin;
+                    if (g_head_joint_drawn == 0)
+                        printf("head_joint chr=%d T=%.1f,%.1f,%.1f %s\n", pr->chrnum,
+                               (double)mdl->head_mtx[0][3], (double)mdl->head_mtx[1][3],
+                               (double)mdl->head_mtx[2][3],
+                               dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
+                    g_emit_jtab = &mdl->head_mtx[0][0];
+                    g_emit_nj = 1;
                     k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
                                    0.f, 0.f, 0.f, pdx, 0.f, pdz);
-                else
+                    g_head_joint_drawn++;
+                } else
                     k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry,
                                    hrz, 0.f, pdx, 0.f, pdz);
             }
@@ -4730,6 +4764,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     int i, k = 0;
     g_drawn = 0;
     g_held_drawn = 0;
+    g_head_joint_drawn = 0;
+    g_emit_jtab = NULL;
+    g_emit_nj = 0;
     g_emit_seen = 0;
     g_emit_skip_range = 0;
     g_emit_skip_leaf = 0;
