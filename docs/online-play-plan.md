@@ -850,6 +850,48 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack KF7 bolt + pickup SFX `50b07c2`)
+
+SFX follow-up on door jump on rotate `102237e` (KEEP). SHA `50b07c2`.
+KF7 fire queues pack `GUN_B4_BOLTACTION` 109 instead of the PP7
+`GUN_B2_HEAVY` 107 shot. Collecting a death-drop (or armour / reserve)
+queues pack `PICKUP_GUN` 232. Same runtime ALBankFile VADPCM path.
+Placeholders remain without a pack. Fire≠use last_sfx contract
+unchanged (PP7 gun=1, dry=2, door=3).
+
+KEEP `102237e` door-jump, `6ad59c5` flesh-hit overlay, `7cd1121` idle
+KF7 hang, `c92f7bb` pack body-fall, `4883173` pack gun/dry/door,
+`9b7b6e6` P0 ammo/fire≠use/walk FB, `e01e97f` spawn FPS.
+
+**1 — KF7 / pickup.** `sfx_bank ready=1 gun_n=12336 dry_n=4752
+door_n=8448 fall_n=3904 hit_n=1376 kf7_n=5840 pickup_n=3824`.
+`sfx_kf7 last=6 mix_diff=494`. `sfx_pickup last=7 mix_diff=494`.
+`kf7_pickup weapon=1 mag=7 sfx=7`. `kf7_fire mag=7→6 act=1 sfx=6`.
+`pad_fire_no_unlatch mag=7→6 flash=3 open=0→0 act=1 sfx=1`.
+`pad_use_no_fire mag=6→6 flash=0 open=1 sfx=3`. `dry_fire mag=0→0
+flash=0 act=2 sfx=2 n=22`. `sfx_hit last=5 mix_diff=512`. `sfx_fall
+last=4 mix_diff=512`.
+
+**2 — hang / hitch / doors.** Re-measured: `play_spawn` `held=1`
+`idle_hang tan=4252`. `play_shoot_before` held=1 tan=5048.
+`play_spawn` spawn_fill dark=56 metal=10501 frame_ms=27.76 (36.0 fps).
+`door_jump` th=249 alcove=-219.0,-2248.3 yaw=180 d=0.0,116.0 slabs=3
+frame_ms=34.30. `long_walk fb=76037→76025 dark=1447`. `clipdoor_fill
+dark=53 metal=4446`. `play_hall_a` dark=0 metal=12866. y=29.12.
+`fire_hitch miss_ms=3.41 hit_ms=3.17 hits=1`.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+  Music is still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 door jump on rotate `102237e`)
 
 N64-feel slice on top of pack flesh-hit overlay `6ad59c5` (KEEP). SHA `102237e`.
