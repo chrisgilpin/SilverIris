@@ -537,7 +537,7 @@ Greyscale
 
 ---
 
-## STATUS (2026-08-31 playtest A/B/C `9d30e7b`)
+## STATUS (2026-08-31 playtest A/B/C `6ec243b`)
 
 Chris live after `e01e97f`: (A) brief freeze every fire, (B) dead extra idle a
 bright-green floor pancake with a detached brown hat, (C) walking the Facility
