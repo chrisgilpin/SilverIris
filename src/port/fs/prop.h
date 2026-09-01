@@ -18,6 +18,8 @@ int port_prop_models(void);
 int port_prop_drawn(void);
 /* Last fill_rooms: aiming guards that emitted a parented Pchr*Z. */
 int port_prop_held_drawn(void);
+/* Last r71 spawn-alcove slab in player-local xz + yaw. -1 if not emitted. */
+int port_prop_alcove_xz(float *x, float *z, float *yaw);
 /* Last fill_rooms living-guard emit: considered / 380u skips / leaf skips. */
 void port_prop_last_emit_stats(int *seen, int *skip_range, int *skip_leaf);
 int port_prop_guard_count(void);
@@ -187,5 +189,10 @@ int port_prop_drop_model(void);
 int port_prop_drop_hidden(void);
 int port_prop_drop_drawn(void);
 int port_prop_drop_xyz(float *x, float *y, float *z);
+
+/* Last fill_rooms fitted door faces (path / spawn-alcove / G1 cutout).
+ * World xz + yaw. kind 0=path 1=alcove 2=cutout. */
+int port_prop_slab_emit_count(void);
+int port_prop_slab_emit_at(int i, float *x, float *z, float *yaw, int *kind);
 
 #endif

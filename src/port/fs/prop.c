@@ -254,6 +254,8 @@ static float g_walk_path_ax, g_walk_path_az;
 static float g_walk_path_bx, g_walk_path_bz;
 static float g_walk_spawn_x, g_walk_spawn_z;
 static int g_have_spawn_xz;
+static float g_alcove_x, g_alcove_z, g_alcove_yaw;
+static int g_alcove_emitted;
 static char g_idle_info[96];
 static char g_walk_info[96];
 
@@ -3583,6 +3585,19 @@ void port_prop_last_emit_stats(int *seen, int *skip_range, int *skip_leaf)
         *skip_leaf = g_emit_skip_leaf;
 }
 
+int port_prop_alcove_xz(float *x, float *z, float *yaw)
+{
+    if (!g_alcove_emitted)
+        return -1;
+    if (x)
+        *x = g_alcove_x;
+    if (z)
+        *z = g_alcove_z;
+    if (yaw)
+        *yaw = g_alcove_yaw;
+    return 0;
+}
+
 int port_prop_intro_pad(void) { return g_have_intro ? g_intro_pad : -1; }
 
 int port_prop_intro_count(void) { return g_nintro; }
@@ -4322,6 +4337,40 @@ static int g_slab_ok;
 static uint8_t g_slab_pool[SLAB_POOL][SLAB_FILE_SIZE];
 static PortModel g_slab_pool_mdl[SLAB_POOL];
 static int g_slab_pool_n;
+#define PORT_SLAB_EMIT_MAX 24
+static int g_slab_emit_n;
+static float g_slab_emit_x[PORT_SLAB_EMIT_MAX];
+static float g_slab_emit_z[PORT_SLAB_EMIT_MAX];
+static float g_slab_emit_yaw[PORT_SLAB_EMIT_MAX];
+static int g_slab_emit_kind[PORT_SLAB_EMIT_MAX];
+
+static void slab_emit_note(float x, float z, float yaw, int kind)
+{
+    if (g_slab_emit_n >= PORT_SLAB_EMIT_MAX)
+        return;
+    g_slab_emit_x[g_slab_emit_n] = x;
+    g_slab_emit_z[g_slab_emit_n] = z;
+    g_slab_emit_yaw[g_slab_emit_n] = yaw;
+    g_slab_emit_kind[g_slab_emit_n] = kind;
+    g_slab_emit_n++;
+}
+
+int port_prop_slab_emit_count(void) { return g_slab_emit_n; }
+
+int port_prop_slab_emit_at(int i, float *x, float *z, float *yaw, int *kind)
+{
+    if (i < 0 || i >= g_slab_emit_n)
+        return -1;
+    if (x)
+        *x = g_slab_emit_x[i];
+    if (z)
+        *z = g_slab_emit_z[i];
+    if (yaw)
+        *yaw = g_slab_emit_yaw[i];
+    if (kind)
+        *kind = g_slab_emit_kind[i];
+    return 0;
+}
 
 static void wr32(uint8_t *p, uint32_t v)
 {
@@ -4580,6 +4629,29 @@ static void slab_face(PortProp *tmp, float px, float py, float pz, float yaw, fl
         tmp->yaw = (pwz > pz) ? 0.f : 180.f;
         tmp->pos[2] += (pwz > pz) ? SLAB_ZPUSH : -SLAB_ZPUSH;
     }
+}
+
+/* Spawn-hall left in player-local xz. Facility r71 intro looks 270 (-X),
+ * so left is +Z. Never use current yaw: a look-relative 640-wide stamp
+ * swings into the camera on rotate (same xz, door beside the player). */
+static void alcove_hall_left(float *leftx, float *leftz)
+{
+    float lx, lz, len;
+
+    if (g_have_intro) {
+        lx = g_intro_look[0];
+        lz = g_intro_look[2];
+        len = sqrtf(lx * lx + lz * lz);
+        if (len >= 1e-4f) {
+            lx /= len;
+            lz /= len;
+            *leftx = lz;
+            *leftz = -lx;
+            return;
+        }
+    }
+    *leftx = 0.f;
+    *leftz = 1.f;
 }
 
 static PortModel *slab_sized(float width, float tall)
@@ -5080,6 +5152,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     g_emit_skip_leaf = 0;
     g_pickup_drawn = 0;
     g_drop_drawn = 0;
+    g_alcove_emitted = 0;
     maybe_spawn_death_drops();
     if (!out || cap < 1 || !room1)
         return 0;
@@ -5113,6 +5186,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
         float th = port_player_theta() * (PI_F / 180.f);
         float lookx = sinf(th), lookz = -cosf(th);
         g_slab_pool_n = 0;
+        g_slab_emit_n = 0;
         for (o = 0; o < no && k < cap; o++) {
             float pos[3], yaw = 0.f, width = 0.f, tall;
             PortProp tmp, probe;
@@ -5158,13 +5232,17 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 float d2 = lx * lx + lz * lz;
                 int path = port_stage_path_opening(ra, rb);
                 /* Only path (collision-bound) openings get a fill face.
-                 * Other doorlike quads are archways / stacked / gas-plant. */
+                 * Other doorlike quads are archways / stacked / gas-plant.
+                 * Do not gate on look: a yaw threshold popped the leaf out
+                 * of the hole (Chris pad door-jump). */
                 if (!path)
                     continue;
                 if (d2 > 900.f * 900.f)
                     continue;
-                if (d2 >= 250.f * 250.f && tox * lookx + toz * lookz < 40.f)
-                    continue;
+                (void)tox;
+                (void)toz;
+                (void)lookx;
+                (void)lookz;
             }
             /* Upper/catwalk portals sit hundreds of units above the floor. */
             if (pos[1] > floor_y + 200.f)
@@ -5179,6 +5257,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
             slab_face(&tmp, pos[0], floor_y, pos[2], yaw, pwx, pwz);
             tmp.mdl = slab;
+            slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 0);
             {
                 float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
                 {
@@ -5198,10 +5277,12 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
         }
         /* Start alcoves are in-room GDL, not portals. One left-wall slab
          * when no door-sized portal already sits on that wall. Facility
-         * spawn r71 only — synthetic G1DL tests have no r71. */
+         * spawn r71 only — synthetic G1DL tests have no r71.
+         * Hall-left is intro look (spawn 270 → +Z), not current yaw. */
         if (k < cap && no > 0 && port_stage_current_room() == 71) {
-            float leftx = lookz, leftz = -lookx;
+            float leftx, leftz;
             int o, have_left = 0, no = port_stage_opening_count();
+            alcove_hall_left(&leftx, &leftz);
             for (o = 0; o < no; o++) {
                 float pos[3], yaw, width, tox, toz, d2;
                 int ra, rb;
@@ -5221,7 +5302,6 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.pos[0] = pwx + leftx * (120.f - SLAB_ZPUSH);
                 tmp.pos[1] = floor_y;
                 tmp.pos[2] = pwz + leftz * (120.f - SLAB_ZPUSH);
-                tmp.yaw = (pwz + leftz * 120.f > pwz) ? 0.f : 180.f;
                 /* Face the player: left wall is +Z at spawn, yaw 0 faces +Z. */
                 if (leftz > 0.f)
                     tmp.yaw = 180.f;
@@ -5236,6 +5316,11 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                  * slab_sized must keep 640 (was capped at 450). */
                 slab = slab_sized(640.f, 360.f);
                 tmp.mdl = slab;
+                g_alcove_x = tmp.pos[0] - room1[0];
+                g_alcove_z = tmp.pos[2] - room1[2];
+                g_alcove_yaw = tmp.yaw;
+                g_alcove_emitted = 1;
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }
@@ -5258,9 +5343,10 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 d2 = lx * lx + lz * lz;
                 if (d2 > 900.f * 900.f)
                     continue;
+                /* World-space hole fill. Look-along skip snapped the leaf
+                 * in/out of the jamb when yaw crossed ~40u. */
                 along = lx * lookx + lz * lookz;
-                if (along < 40.f)
-                    continue;
+                (void)along;
                 for (j = 0; j < g_nprop; j++) {
                     float dx, dy, dz;
                     if (g_prop[j].type != PDEF_DOOR)
@@ -5308,6 +5394,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
                 slab_face(&tmp, pos[0], pos[1], pos[2], yaw, pwx, pwz);
                 tmp.mdl = slab;
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 2);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }

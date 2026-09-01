@@ -2251,6 +2251,84 @@ static void dump_guard_leaf(const char *tag, int gi)
     port_stage_dump_chr_vs_g1(port_player_x(), port_player_z(), padx, padz, x0, z0, x1, z1);
 }
 
+/* Chris live 2026-09-01: same xz, slight yaw → brown door beside the
+ * player. Pad from the shot HUD (x -219 z -2364.3 y 29.1 θ 249°). */
+#define DOOR_JUMP_X (-219.0f)
+#define DOOR_JUMP_Z (-2364.3f)
+#define DOOR_JUMP_TH 249.0f
+#define DOOR_JUMP_PH (-1.0f)
+
+static int door_jump_yaw_proof(const char *out_dir)
+{
+    static const float kth[] = { 219.f, 234.f, 249.f, 264.f, 279.f };
+    float ax0 = 0.f, az0 = 0.f, ay0 = 0.f;
+    float px = DOOR_JUMP_X, pz = DOOR_JUMP_Z;
+    int i, n = (int)(sizeof kth / sizeof kth[0]);
+    struct timespec t0, t1;
+    double ms;
+
+    place(px, pz, DOOR_JUMP_TH);
+    port_player_set_pitch(DOOR_JUMP_PH);
+    if (!port_stan_on_tile(px, pz) || port_stan_tile_room(px, pz) != 71) {
+        fprintf(stderr, "door_jump pad not r71 on-tile xz=%.1f,%.1f r=%d on=%d\n",
+                (double)px, (double)pz, port_stan_tile_room(px, pz),
+                port_stan_on_tile(px, pz));
+        return -1;
+    }
+    for (i = 0; i < n; i++) {
+        float ax = 0.f, az = 0.f, ay = 0.f, dx, dz;
+        char tag[32];
+        port_player_set_pose(px, port_api_player_y(), pz, kth[i]);
+        port_player_set_pitch(DOOR_JUMP_PH);
+        snprintf(tag, sizeof tag, "door_jump_%.0f", (double)kth[i]);
+        if (shot_one(out_dir, tag) != 0)
+            return -1;
+        if (port_prop_alcove_xz(&ax, &az, &ay) != 0) {
+            fprintf(stderr, "door_jump th=%.0f alcove not emitted\n", (double)kth[i]);
+            return -1;
+        }
+        dx = ax - px;
+        dz = az - pz;
+        printf("door_jump th=%.0f alcove=%.1f,%.1f yaw=%.0f d=%.1f,%.1f slabs=%d\n",
+               (double)kth[i], (double)ax, (double)az, (double)ay, (double)dx,
+               (double)dz, port_prop_slab_emit_count());
+        /* Hall-left is spawn +Z, not current look. |dx|~0 dz~116. */
+        if (dx * dx > 20.f * 20.f || dz < 80.f || dz > 160.f) {
+            fprintf(stderr, "door_jump th=%.0f alcove swung d=%.1f,%.1f (want ~0,+116)\n",
+                    (double)kth[i], (double)dx, (double)dz);
+            return -1;
+        }
+        if (i == 0) {
+            ax0 = ax;
+            az0 = az;
+            ay0 = ay;
+        } else if ((ax - ax0) * (ax - ax0) + (az - az0) * (az - az0) > 4.f ||
+                   fabsf(ay - ay0) > 1.f) {
+            fprintf(stderr,
+                    "door_jump th=%.0f alcove jumped %.1f,%.1f yaw=%.0f -> %.1f,%.1f "
+                    "yaw=%.0f\n",
+                    (double)kth[i], (double)ax0, (double)az0, (double)ay0, (double)ax,
+                    (double)az, (double)ay);
+            return -1;
+        }
+    }
+    port_player_set_pose(px, port_api_player_y(), pz, DOOR_JUMP_TH);
+    port_player_set_pitch(DOOR_JUMP_PH);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (i = 0; i < 8; i++)
+        port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+         (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+    printf("door_jump frame_ms=%.2f fps=%.1f alcove=%.1f,%.1f yaw=%.0f\n", ms / 8.0,
+           (ms > 0.0) ? (8000.0 / ms) : 0.0, (double)ax0, (double)az0, (double)ay0);
+    if (ms / 8.0 > 40.0) {
+        fprintf(stderr, "door_jump frame_ms=%.2f (want ~27ms class)\n", ms / 8.0);
+        return -1;
+    }
+    return 0;
+}
+
 static int playtest_chris(const char *out_dir)
 {
     float x, z, ny, fdx, fdz;
@@ -2340,6 +2418,10 @@ static int playtest_chris(const char *out_dir)
     }
     if (sfx_bank_proof() != 0)
         return -1;
+    if (door_jump_yaw_proof(out_dir) != 0)
+        return -1;
+    place(spawn_x, spawn_z, 270.f);
+    port_player_set_pitch(0.f);
     printf("walkhall spawn_shot cur=%d walked=%d c0=%d vtx=%d y=%.1f\n",
            port_stage_current_room(), port_stage_rooms_walked(),
            port_stage_gdl_c0(), port_stage_gdl_vtx(), (double)spawn_y);
