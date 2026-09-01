@@ -850,6 +850,49 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack rifle-cock reload SFX `4f05c3f`)
+
+SFX follow-up on pack armour-collect `0e86529` (KEEP). SHA `4f05c3f`.
+Empty mag with reserve queues pack `GUN_RIFLECOCK` 50 instead of silence.
+Dry click stays `EMPTY_GUN_FIRE` 89. Same runtime ALBankFile VADPCM path.
+Placeholders remain without a pack. Fire≠use last_sfx contract unchanged
+(PP7 gun=1, dry=2, door open=3).
+
+KEEP `0e86529` armour collect, `3856b45` ammo crate, `c1b5747` pack
+ricochet, `34e7bb9` leftover camo albedo, `0659cba` door-close,
+`50b07c2` KF7/pickup, `102237e` door-jump, `e01e97f` spawn FPS.
+
+**1 — reload cock.** `sfx_bank ready=1 gun_n=12336 dry_n=4752
+door_n=8448 fall_n=3904 hit_n=1376 kf7_n=5840 pickup_n=3824
+close_n=7104 rico_n=11936 ammo_n=3824 armour_n=4096 reload_n=10320`.
+`sfx_reload last=12 mix_diff=512`. `reload_cock mag=0→7 res=14→7
+flash=0 act=3 sfx=12 n=6`. `pad_fire_no_unlatch mag=7→6 flash=3
+open=0→0 act=1 sfx=1`. `pad_use_no_fire mag=6→6 flash=0 open=1
+sfx=3`. `pad_close_no_fire mag=6→6 flash=0 open=0 sfx=8`.
+`dry_fire mag=0→0 flash=0 act=2 sfx=2 n=15`. `kf7_pickup weapon=1
+mag=7 sfx=7`. `kf7_fire mag=7→6 act=1 sfx=6`.
+
+**2 — hang / hitch / doors.** Re-measured: `play_spawn` `held=1`
+`idle_hang tan=4252`. `play_spawn` spawn_fill dark=56 metal=10501
+frame_ms=27.70 (36.1 fps). `door_jump` th=249 alcove=-219.0,-2248.3
+yaw=180 d=0.0,116.0 slabs=3 frame_ms=34.01. `long_walk
+fb=76037→76025 dark=1447`. `clipdoor_fill dark=53 metal=4446`
+`clipdoor_olive n=34`. y=29.12. `camo play_spawn olive=4083 uniq=18
+var=108.2`. `fire_hitch miss_ms=3.41 hit_ms=3.16 hits=1`. HUD
+`play_spawn` mag=7/21 hp=8 sfx=0.
+
+Native player/gun green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+  Music is still a placeholder loop.
+- Camo SHADE-flattening (identity vs N64 lighting) / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 pack armour-collect SFX `0e86529`)
 
 SFX follow-up on pack ammo-crate `3856b45` (KEEP). SHA `0e86529`.
