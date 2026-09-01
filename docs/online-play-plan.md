@@ -850,9 +850,10 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-01 pack body-fall overlay)
+## STATUS (2026-09-01 pack body-fall overlay `c92f7bb`)
 
-SFX follow-up on pack VADPCM gun/dry/door `4883173` (KEEP). Kill queues
+SFX follow-up on pack VADPCM gun/dry/door `4883173` (KEEP). SHA `c92f7bb`.
+Kill queues
 pack `BODY_FALL_C1` 123 on a second mixer voice so the PP7 shot is not
 cut. Same runtime ALBankFile VADPCM path. Placeholders remain without a
 pack. Fire≠use last_sfx contract unchanged (dry=2, door=3).
