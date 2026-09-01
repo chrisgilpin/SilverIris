@@ -850,6 +850,43 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pad-cylinder hitscan `a756d97`)
+
+N64-feel slice on top of PP7 rest Rx `7886c41` (KEEP). SHA `a756d97`.
+Chris live: crosshair on a living guard + fire, hits stayed 0 while ammo
+drained (PP7 0/0 after 28 misses). Idle/aim/die 4x4 sits the drawn body
+on the pad; bind-pose viscyl can sit ~100u off, so requiring pad AND
+viscyl rejected the pad hit. r=150 already covers that skip=pose offset
+(`b1a9201`). Fire uses the pad cylinder only — no GDL walk, hitch stays
+in the `6ec243b` 3–4ms band.
+
+KEEP `7886c41` forward PP7, `a106ce5` clip-door fill, `fecd44a` sealed
+faces, `e9247e9` closed-door portal cull, `42ba170` camera-space lock,
+`b56a698` per-pose Chead neck, `7f974af` Hor+, `1207531` fetal death,
+`1312936` held KF7, `999e0fc` aim joints, `e01e97f` spawn FPS,
+`b1a9201` setup-chr hitscan.
+
+**1 — hits.** `shoot chr_ray hit=1 t=281.8`; `fire_hitch miss_ms=3.85
+hit_ms=3.58 hits=1`; `play_shoot_after` hits=0→6 kills=2 dead=0→2 mag=7
+`die=1`. Native `hitscan_guard` / pitch0 still green.
+
+**2 — hitch / jump / Hor+ / heads / gun / doors.** Re-measured:
+`viewgun_lr play_spawn n=13525`; `play_shoot_after_down` n=3179
+top_r=1290 (no look-swing). `clipdoor_olive n=34` `walked n=1 11`
+`clipdoor_fill dark=0 metal=3546 area=5120`; hunt teleports=0.
+Spawn `drawn=68 held=0 headj=1` frame_ms=24.61 (40.6 fps unopt) /
+`--bench` frame_ms=25.10 (39.8 fps) — `e01e97f` 35ms class kept.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Brown door fills still read as black/strange panels (P0-C).
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 PP7 rest Rx `7886c41`)
 
 N64-feel slice on top of clip-door G1 hole fill `a106ce5` (KEEP). SHA `7886c41`.
