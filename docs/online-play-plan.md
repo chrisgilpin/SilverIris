@@ -850,6 +850,48 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 floor KF7 beside corpse `f3414ae`)
+
+N64-feel slice on top of death-rest across look `6666c32` (KEEP). SHA `f3414ae`.
+Hall deaths never emitted PchrkalashZ: the spawn-look cone treated the
+extra idle as the stall slab (`drop_skip slab`). Stall skip is 80u from
+spawn only. Drop sits 48u toward the shooter (inside pickup radius),
+skip=pose catalog 0.1 with baked GROUP origin, identity SHADE so the
+rifle is a floor pickup beside the fetal rest, not a pad-centered smear
+inside the body. Idle hang stays empty; in-box aim still parents the
+held KF7.
+
+KEEP `6666c32` death-rest across look, `a32ed6a` brown door fills,
+`a756d97` pad hitscan, `7886c41` forward PP7, `1312936` held KF7,
+`1207531` fetal death, `e01e97f` spawn FPS.
+
+**1 — floor KF7.** `drop_spawn chr=0 model=184 local=-304.5,-2335.4
+pad=-350.0,-2320.0`. `play_shoot_after` `drop=1 drawn=97 held=0`
+`drop_floor tan=2614`. `play_shoot_after_down` phi=-40 `drop=1 tan=405`
+`die_across add=90 olive=6278 bbox=59,0-204,204` `viewgun_lr n=2634
+top_r=1228`. `play_shoot_before` `held=0`; `aim_look have=1 bound=1`
+`held=1`; `play_aim_grip` held=1.
+
+**2 — hitch / jump / Hor+ / heads / gun / doors.** Re-measured:
+`fire_hitch miss_ms=3.63 hit_ms=3.37 hits=1`; `play_shoot_after`
+kills=2 mag 7/14. A→B hopped=0 y=29.12 r71; `clipdoor hunt
+teleports=0`; `clipdoor_olive n=34` `walked n=1 11` `clipdoor_fill
+dark=0 metal=4737 area=5120`. `play_spawn` spawn_fill dark=1205
+metal=7811; `play_hall_a` dark=712 metal=11390. `viewgun_lr play_spawn
+n=13525`. Spawn `drawn=68 held=0 headj=1` camo olive=4172 uniq=22
+frame_ms=25.07 (39.9 fps unopt) / `--bench` frame_ms=24.68 (40.5 fps)
+— `e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Camo SHADE-flattening / G1≠stan leftovers; door-leaf rim leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 death-rest across look `6666c32`)
 
 N64-feel slice on top of door-face brightness `a32ed6a` (KEEP). SHA `6666c32`.
