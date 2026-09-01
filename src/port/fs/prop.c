@@ -4264,9 +4264,11 @@ static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16
     wr16(v + 4, (uint16_t)z);
     wr16(v + 8, (uint16_t)s);
     wr16(v + 10, (uint16_t)t);
-    v[12] = 118;
-    v[13] = 112;
-    v[14] = 98;
+    /* Full-bright shade so SETTEX 685 reads as a brown door face, not a
+     * crushed black slab (118,112,98 * texel looked like a void). */
+    v[12] = 255;
+    v[13] = 255;
+    v[14] = 255;
     v[15] = 255;
 }
 
@@ -4924,8 +4926,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             tall = port_stage_opening_height(o);
             if (tall < 80.f)
                 tall = PORT_DOOR_HEIGHT;
-            /* Slight oversize so the G1 cutout does not rim-black. */
-            slab = slab_sized(width * 1.15f, tall * 1.12f);
+            /* Tiny oversize so the G1 cutout does not rim-black. 1.15×
+             * read as a strange oversized panel (P0-C). */
+            slab = slab_sized(width * 1.02f, tall * 1.02f);
             memset(&tmp, 0, sizeof tmp);
             tmp.pos[0] = pos[0];
             tmp.pos[1] = floor_y;
@@ -4987,8 +4990,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 else
                     tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
                 tmp.scale = 1.f;
-                /* Cover the G1≠stan left void: room 71 mesh ends short of the
-                 * stan tile, so a door-sized stamp left a black hole. */
+                /* Cover the G1≠stan left void: room 71 mesh ends short of
+                 * the stan tile, so a door-sized stamp left a black hole.
+                 * Full-bright 685 so this is a door panel, not a black slab. */
                 slab = slab_sized(640.f, 360.f);
                 tmp.mdl = slab;
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
@@ -5060,7 +5064,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                     continue;
                 if (tall < 80.f)
                     tall = PORT_DOOR_HEIGHT;
-                slab = slab_sized(width * 1.12f, tall * 1.08f);
+                slab = slab_sized(width * 1.02f, tall * 1.02f);
                 memset(&tmp, 0, sizeof tmp);
                 tmp.pos[0] = pos[0];
                 tmp.pos[1] = pos[1];
