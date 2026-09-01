@@ -26,6 +26,21 @@ int port_audio_last_sfx(void);
 #define PORT_SFX_DRY 2
 #define PORT_SFX_DOOR 3
 
+/* Host-endian PCM one-shot. Mixer does not own `pcm`. vol 0..127 (N64). */
+void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vol);
+int port_audio_sfx_frames(int kind);
+int port_audio_sfx_from_bank(int kind);
+/* 1 if gun + dry + door are pack VADPCM one-shots. */
+int port_audio_bank_ready(void);
+/* Decode N64 VADPCM. Returns sample count, or -1. book is host-endian
+ * npredictors * order * 8 coefficients (order-2 / 8-tap). */
+int port_audio_adpcm_decode(const uint8_t *src, uint32_t src_bytes,
+                            const int16_t *book, int order, int npredictors,
+                            int16_t *out, uint32_t out_max);
+/* Load sfx.ctl / sfx.tbl from the open pack. No-op without a pack. */
+int port_audio_load_pack_sfx(void);
+void port_audio_unload_pack_sfx(void);
+
 /* osAi* implementations (ai.c). Types match libultra (u32/s32). */
 uint32_t osAiGetStatus(void);
 uint32_t osAiGetLength(void);

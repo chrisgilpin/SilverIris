@@ -27,6 +27,11 @@ static volatile int g_music_on;
 static volatile int g_sfx_kind;
 static volatile int g_last_sfx;
 static uint32_t g_freq = PORT_AUDIO_RATE;
+static const int16_t *g_sfx_pcm[4];
+static uint32_t g_sfx_pcm_n[4];
+static uint8_t g_sfx_pcm_vol[4];
+static uint32_t g_sfx_pcm_pos;
+static int g_sfx_use_pcm;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -47,7 +52,7 @@ static uint32_t phase_inc(uint32_t hz)
     return (uint32_t)(((uint64_t)hz << 32) / (uint64_t)PORT_AUDIO_RATE);
 }
 
-/* Triangle in -amp..amp. Squares buzz; this is the placeholder until bank HLE. */
+/* Triangle in -amp..amp. Used only when pack VADPCM is not installed. */
 static int osc_tri(uint32_t phase, int amp)
 {
     uint32_t u = phase >> 16;
@@ -130,6 +135,8 @@ void port_audio_init(void)
     g_sfx_noise = 0xC0FFEEu;
     g_sfx_left = 0;
     g_sfx_len = 0;
+    g_sfx_pcm_pos = 0;
+    g_sfx_use_pcm = 0;
     ai_reset();
     g_inited = 1;
 }
@@ -155,14 +162,31 @@ void port_audio_set_placeholder_music(int on)
     g_music_on = on ? 1 : 0;
 }
 
+static uint32_t placeholder_len(int kind)
+{
+    if (kind == PORT_SFX_DRY)
+        return DRY_LEN;
+    if (kind == PORT_SFX_DOOR)
+        return DOOR_LEN;
+    return GUN_LEN;
+}
+
 static void queue_sfx(int kind, uint32_t len)
 {
     g_sfx_kind = kind;
     g_last_sfx = kind;
-    g_sfx_left = len;
-    g_sfx_len = len;
     g_sfx_phase = 0;
     g_sfx_noise = 0xC0FFEEu ^ ((uint32_t)kind * 0x9E3779B9u);
+    g_sfx_pcm_pos = 0;
+    if (kind >= 1 && kind <= 3 && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
+        g_sfx_use_pcm = 1;
+        g_sfx_left = g_sfx_pcm_n[kind];
+        g_sfx_len = g_sfx_pcm_n[kind];
+    } else {
+        g_sfx_use_pcm = 0;
+        g_sfx_left = len;
+        g_sfx_len = len;
+    }
 }
 
 void port_audio_play_gun(void)
@@ -183,6 +207,89 @@ void port_audio_play_door(void)
 int port_audio_last_sfx(void)
 {
     return g_last_sfx;
+}
+
+void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vol)
+{
+    if (kind < 1 || kind > 3)
+        return;
+    if (g_sfx_kind == kind) {
+        g_sfx_left = 0;
+        g_sfx_use_pcm = 0;
+    }
+    g_sfx_pcm[kind] = (pcm && n > 0) ? pcm : 0;
+    g_sfx_pcm_n[kind] = (pcm && n > 0) ? n : 0;
+    g_sfx_pcm_vol[kind] = vol ? vol : 127u;
+}
+
+int port_audio_sfx_frames(int kind)
+{
+    if (kind < 1 || kind > 3)
+        return 0;
+    if (g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0)
+        return (int)g_sfx_pcm_n[kind];
+    return (int)placeholder_len(kind);
+}
+
+int port_audio_sfx_from_bank(int kind)
+{
+    return (kind >= 1 && kind <= 3 && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) ? 1 : 0;
+}
+
+int port_audio_bank_ready(void)
+{
+    return port_audio_sfx_from_bank(PORT_SFX_GUN) &&
+           port_audio_sfx_from_bank(PORT_SFX_DRY) &&
+           port_audio_sfx_from_bank(PORT_SFX_DOOR);
+}
+
+int port_audio_adpcm_decode(const uint8_t *src, uint32_t src_bytes,
+                            const int16_t *book, int order, int npredictors,
+                            int16_t *out, uint32_t out_max)
+{
+    uint32_t i, nout;
+    int l1, l2;
+
+    if (!src || !book || !out || order != 2 || npredictors < 1 || npredictors > 8)
+        return -1;
+    nout = 0;
+    l1 = 0;
+    l2 = 0;
+    i = 0;
+    while (i + 9u <= src_bytes && nout + 16u <= out_max) {
+        int shift, index, sub, j;
+        const int16_t *coef;
+        uint8_t hdr = src[i++];
+
+        shift = (int)(hdr >> 4);
+        index = (int)(hdr & 0xFu);
+        if (index >= npredictors)
+            index = 0;
+        coef = book + index * order * 8;
+        for (sub = 0; sub < 2; sub++) {
+            for (j = 0; j < 8; j++) {
+                int nib, sample;
+                int64_t acc;
+                uint8_t byte = src[i + (uint32_t)sub * 4u + (uint32_t)(j / 2)];
+                nib = (j & 1) ? (int)(byte & 0xFu) : (int)(byte >> 4);
+                if (nib >= 8)
+                    nib -= 16;
+                acc = ((int64_t)nib << shift) << 11;
+                acc += (int64_t)coef[j] * l1;
+                acc += (int64_t)coef[j + 8] * l2;
+                sample = (int)(acc >> 11);
+                if (sample > 32767)
+                    sample = 32767;
+                if (sample < -32768)
+                    sample = -32768;
+                out[nout++] = (int16_t)sample;
+                l2 = l1;
+                l1 = sample;
+            }
+        }
+        i += 8u;
+    }
+    return (int)nout;
 }
 
 int32_t port_audio_set_frequency(uint32_t frequency)
@@ -269,28 +376,36 @@ void port_audio_cb(int16_t *stereo, int nframes)
         }
 
         if (g_sfx_left > 0 && g_sfx_len > 0) {
-            int amp = (int)((uint32_t)((kind == PORT_SFX_DRY) ? DRY_AMP
-                    : (kind == PORT_SFX_DOOR) ? DOOR_AMP
-                    : GUN_AMP) * g_sfx_left / g_sfx_len);
             int s = 0;
-            if (kind == PORT_SFX_DRY)
-                s = osc_tri(g_sfx_phase, amp);
-            else if (kind == PORT_SFX_DOOR)
-                s = osc_tri(g_sfx_phase, amp);
-            else {
-                uint32_t spent = g_sfx_len - g_sfx_left;
-                s = osc_tri(g_sfx_phase, amp / 2);
-                if (spent < GUN_CRACK)
-                    s += osc_noise(&g_sfx_noise, amp);
+            if (g_sfx_use_pcm && kind >= 1 && kind <= 3 && g_sfx_pcm[kind] &&
+                g_sfx_pcm_pos < g_sfx_pcm_n[kind]) {
+                int vol = (int)g_sfx_pcm_vol[kind];
+                int32_t v = ((int32_t)g_sfx_pcm[kind][g_sfx_pcm_pos] * vol) / 127;
+                g_sfx_pcm_pos++;
+                s = (int)v;
+            } else {
+                int amp = (int)((uint32_t)((kind == PORT_SFX_DRY) ? DRY_AMP
+                        : (kind == PORT_SFX_DOOR) ? DOOR_AMP
+                        : GUN_AMP) * g_sfx_left / g_sfx_len);
+                if (kind == PORT_SFX_DRY)
+                    s = osc_tri(g_sfx_phase, amp);
+                else if (kind == PORT_SFX_DOOR)
+                    s = osc_tri(g_sfx_phase, amp);
+                else {
+                    uint32_t spent = g_sfx_len - g_sfx_left;
+                    s = osc_tri(g_sfx_phase, amp / 2);
+                    if (spent < GUN_CRACK)
+                        s += osc_noise(&g_sfx_noise, amp);
+                }
+                if (kind == PORT_SFX_DRY)
+                    g_sfx_phase += dinc;
+                else if (kind == PORT_SFX_DOOR)
+                    g_sfx_phase += oinc;
+                else
+                    g_sfx_phase += ginc + ninc / 8u;
             }
             acc_l += s;
             acc_r += s;
-            if (kind == PORT_SFX_DRY)
-                g_sfx_phase += dinc;
-            else if (kind == PORT_SFX_DOOR)
-                g_sfx_phase += oinc;
-            else
-                g_sfx_phase += ginc + ninc / 8u;
             g_sfx_left--;
         }
 

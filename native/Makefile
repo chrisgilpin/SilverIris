@@ -49,6 +49,7 @@ PORT_OS_OBJS := \
 	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 	$(BUILD)/src/port/fs/sha256.o \
 	$(BUILD)/src/port/audio/mixer.o \
+	$(BUILD)/src/port/audio/bank.o \
 	$(BUILD)/src/port/audio/ai.o
 
 PORT_STAGE_OBJS := \
@@ -332,7 +333,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o | overlay
@@ -343,7 +344,7 @@ $(BUILD)/test_port_api: $(ROOT)/tools/det/test_port_api.c $(BUILD)/src/glue/port
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/vi/wait_override.o $(BUILD)/src/port/rng/random.o \
 		$(BUILD)/src/game/frametiming.o -lm
@@ -360,8 +361,8 @@ $(BUILD)/test_audio: $(ROOT)/tools/det/test_audio.c $(PORT)/audio/mixer.c \
 
 audio-test: $(BUILD)/test_audio
 	@if grep -E 'randomGetNext|chrObjRandomGetNext|random\.h' $(PORT)/audio/mixer.c \
-		$(PORT)/audio/ai.c >/dev/null; then \
-		echo "FAIL: audio mixer/ai references game RNG"; exit 1; \
+		$(PORT)/audio/ai.c $(PORT)/audio/bank.c >/dev/null; then \
+		echo "FAIL: audio mixer/ai/bank references game RNG"; exit 1; \
 	fi
 	$(BUILD)/test_audio $(ROOT)/testdata/audio
 
@@ -371,7 +372,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/vi/wait_override.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
@@ -382,7 +383,7 @@ $(BUILD)/test_stage: $(ROOT)/tools/det/test_stage.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/os/mesg.o $(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/vi/wait_override.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
@@ -397,7 +398,7 @@ $(BUILD)/shot: $(ROOT)/tools/shots/shot.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
 		$(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/vi/wait_override.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o | overlay
@@ -408,7 +409,7 @@ $(BUILD)/shot: $(ROOT)/tools/shots/shot.c $(PORT_STAGE_OBJS) \
 		$(BUILD)/src/port/fs/sha256.o $(BUILD)/src/port/os/count.o \
 		$(BUILD)/src/port/os/mesg.o $(BUILD)/src/port/os/ultra_stubs.o \
 		$(BUILD)/src/port/vi/wait_override.o \
-		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+		$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 		$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 		$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 		$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o -lm
@@ -563,7 +564,7 @@ REPLAY_PACK_OBJS := $(PORT_STAGE_OBJS) $(PORT_PACK_OBJS) \
 	$(BUILD)/src/port/os/count.o $(BUILD)/src/port/os/mesg.o \
 	$(BUILD)/src/port/os/ultra_stubs.o \
 	$(BUILD)/src/port/vi/wait_override.o \
-	$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/ai.o \
+	$(BUILD)/src/port/audio/mixer.o $(BUILD)/src/port/audio/bank.o $(BUILD)/src/port/audio/ai.o \
 	$(BUILD)/src/port/gfx/gbi_trace.o $(BUILD)/src/port/gfx/gbi_interp.o \
 	$(BUILD)/src/port/gfx/sw_raster.o $(BUILD)/src/port/gfx/tmem.o $(BUILD)/src/port/gfx/tex_bank.o $(IMAGE_NAMES_O) \
 	$(BUILD)/src/port/rng/random.o $(BUILD)/src/game/frametiming.o
@@ -640,6 +641,7 @@ WASM_SRCS := \
 	$(PORT)/os/ultra_stubs.c \
 	$(PORT)/vi/wait_override.c \
 	$(PORT)/audio/mixer.c \
+	$(PORT)/audio/bank.c \
 	$(PORT)/audio/ai.c \
 	$(ROOT)/src/overrides/lv_clock.c \
 	$(PORT)/vi/sim_tick.c \

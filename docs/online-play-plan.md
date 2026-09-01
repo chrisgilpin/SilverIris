@@ -850,6 +850,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack VADPCM gun/dry/door SFX)
+
+SFX slice on top of P0 empty-mag / fire≠use / walk FB `9b7b6e6` (KEEP).
+Pack `sfx.ctl`/`sfx.tbl` are still N64 banks (no ASP HLE). Runtime decode
+of ALBankFile VADPCM one-shots into host PCM: PP7 `GUN_B2_HEAVY` 107,
+empty-mag `EMPTY_GUN_FIRE` 89, door `DOOR_METAL_OPEN` 196. Mixer
+placeholders remain when the pack has no banks (CI hashes unchanged).
+Not ROM PCM in the tree.
+
+KEEP `9b7b6e6` P0 ammo/fire≠use/walk FB, `fedf44f` door-leaf interiors,
+`21cbd0a` portal scale, `30db967` door/camo albedo, `f3414ae` floor KF7,
+`6666c32` death-across, `a756d97` pad hits, `7886c41` PP7 rest Rx,
+`e01e97f` spawn FPS.
+
+**1 — pack SFX.** `sfx_bank ready=1 gun_n=12336 dry_n=4752 door_n=8448`.
+`sfx_pcm gun_e≠dry_e≠door_e` last=3. `pad_use_no_fire` sfx=3.
+`dry_fire` mag=0→0 flash=0 act=2 sfx=2 n=22. `pad_fire_no_unlatch`
+mag=7→6 flash=3 open=0→0 act=1.
+
+**2 — hitch / doors / walk / gun.** Re-measured: `fire_hitch miss_ms=3.40
+hit_ms=3.18 hits=1`. `play_spawn` spawn_fill dark=38 metal=10782.
+`play_hall_a` dark=0 metal=12898. `play_clip_door` clipdoor_fill dark=53
+metal=4446 `clipdoor_olive n=34`. `long_walk fb=76079→76084 dark=1385`.
+`play_shoot_after` kills=2 mag 7/14. `die_across add=90 olive=6159`.
+`path_unlatch r8-r7 local=650.7,-1753.0` OK.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=27.32 (36.6 fps) — `e01e97f`
+35ms class kept. y=29.12.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, other SFX IDs). Music is
+  still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers; idle KF7 empty.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 P0 empty-mag / fire≠use / walk FB / SFX `9b7b6e6`)
 
 P0 playtest slice on top of door-leaf interiors `fedf44f` (KEEP). SHA `9b7b6e6`.

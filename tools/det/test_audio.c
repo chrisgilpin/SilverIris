@@ -188,6 +188,55 @@ int main(int argc, char **argv)
     if (osAiGetStatus() != 0x80000000u)
         return fail("fifo full status");
 
+    {
+        uint8_t frame[9];
+        int16_t book[16];
+        int16_t decoded[16];
+        int ns, i;
+        memset(frame, 0, sizeof frame);
+        memset(book, 0, sizeof book);
+        frame[1] = 0x10; /* first nibble = 1 */
+        ns = port_audio_adpcm_decode(frame, 9, book, 2, 1, decoded, 16);
+        if (ns != 16)
+            return fail("adpcm frame samples");
+        if (decoded[0] != 1)
+            return fail("adpcm nibble 1");
+        for (i = 1; i < 16; i++) {
+            if (decoded[i] != 0)
+                return fail("adpcm rest");
+        }
+        if (port_audio_adpcm_decode(NULL, 9, book, 2, 1, decoded, 16) != -1)
+            return fail("adpcm null src");
+    }
+
+    {
+        int16_t tone[64];
+        char ph_hex[65];
+        int i;
+        for (i = 0; i < 64; i++)
+            tone[i] = (int16_t)((i & 1) ? 12000 : -12000);
+        port_audio_init();
+        port_audio_play_gun();
+        port_audio_cb(pcm, NFRAMES);
+        hash_pcm(pcm, ph_hex);
+        port_audio_init();
+        port_audio_install_sfx(PORT_SFX_GUN, tone, 64, 127);
+        if (!port_audio_sfx_from_bank(PORT_SFX_GUN))
+            return fail("install gun");
+        if (port_audio_sfx_frames(PORT_SFX_GUN) != 64)
+            return fail("install frames");
+        port_audio_play_gun();
+        port_audio_cb(pcm, NFRAMES);
+        hash_pcm(pcm, hex);
+        if (strcmp(hex, ph_hex) == 0)
+            return fail("installed pcm matches placeholder");
+        port_audio_install_sfx(PORT_SFX_GUN, NULL, 0, 0);
+        if (port_audio_sfx_from_bank(PORT_SFX_GUN))
+            return fail("uninstall");
+        if (port_audio_bank_ready())
+            return fail("bank ready without pack");
+    }
+
     port_audio_cb(NULL, 16);
     port_audio_cb(pcm, 0);
     port_audio_shutdown();

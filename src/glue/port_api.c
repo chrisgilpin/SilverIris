@@ -75,6 +75,7 @@ PORT_KEEP PortErr port_api_init(const uint8_t *pack, uint32_t pack_len, const ui
         return PORT_E_STATE;
     }
     port_audio_init();
+    port_audio_load_pack_sfx();
     g_ready = 1;
     g_last_draw = PORT_DRAW_NONE;
     return PORT_OK;
@@ -83,6 +84,7 @@ PORT_KEEP PortErr port_api_init(const uint8_t *pack, uint32_t pack_len, const ui
 PORT_KEEP void port_api_shutdown(void)
 {
     port_stage_unload();
+    port_audio_unload_pack_sfx();
     port_audio_shutdown();
     port_shutdown();
     free(g_pack_copy);

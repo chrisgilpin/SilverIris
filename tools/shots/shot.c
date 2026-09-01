@@ -43,6 +43,49 @@ static uint32_t g_spawn_fb_adler;
 static uint32_t adler32(const uint8_t *p, size_t n);
 static void door_tick_n(int n);
 
+static int sfx_bank_proof(void)
+{
+    int16_t gun[512], dry[512], door[512];
+    int i, gn, dn, on;
+    long long eg = 0, ed = 0, eo = 0;
+
+    gn = port_audio_sfx_frames(PORT_SFX_GUN);
+    dn = port_audio_sfx_frames(PORT_SFX_DRY);
+    on = port_audio_sfx_frames(PORT_SFX_DOOR);
+    printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on);
+    if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
+        !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
+        !port_audio_sfx_from_bank(PORT_SFX_DOOR) || gn < 2000 || dn < 500 ||
+        on < 1000 || gn <= dn) {
+        fprintf(stderr, "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d\n", gn,
+                dn, on);
+        return -1;
+    }
+    memset(gun, 0, sizeof gun);
+    memset(dry, 0, sizeof dry);
+    memset(door, 0, sizeof door);
+    port_audio_play_gun();
+    port_audio_cb(gun, 256);
+    port_audio_play_dry();
+    port_audio_cb(dry, 256);
+    port_audio_play_door();
+    port_audio_cb(door, 256);
+    for (i = 0; i < 512; i++) {
+        eg += (long long)gun[i] * gun[i];
+        ed += (long long)dry[i] * dry[i];
+        eo += (long long)door[i] * door[i];
+    }
+    printf("sfx_pcm gun_e=%lld dry_e=%lld door_e=%lld last=%d\n", eg, ed, eo,
+           port_audio_last_sfx());
+    if (eg < 1000000ll || ed < 100000ll || eo < 100000ll || eg == ed || eg == eo ||
+        ed == eo) {
+        fprintf(stderr, "sfx_pcm not distinct pack one-shots\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* Door-sized Rare quads on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15 / ground r2-r3 / r3-r5 / r5-r4 / r10-r11 / r21-r22 / r72-r3 / r73-r11.
  * Far-links with no slab are not listed — do not invent doors. */
 static void dump_path_doors(void)
@@ -2245,6 +2288,8 @@ static int playtest_chris(const char *out_dir)
                ms / 8.0, (ms > 0.0) ? (8000.0 / ms) : 0.0, port_prop_drawn(), seen, skip_r,
                skip_l);
     }
+    if (sfx_bank_proof() != 0)
+        return -1;
     printf("walkhall spawn_shot cur=%d walked=%d c0=%d vtx=%d y=%.1f\n",
            port_stage_current_room(), port_stage_rooms_walked(),
            port_stage_gdl_c0(), port_stage_gdl_vtx(), (double)spawn_y);
