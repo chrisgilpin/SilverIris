@@ -850,6 +850,51 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 clip-door G1 hole fill `a106ce5`)
+
+N64-feel slice on top of sealed opening fill `fecd44a` (KEEP). SHA `a106ce5`.
+The `play_clip_door` black opening is a G1 wall-mesh cutout, not a Rare
+path portal (r11-r71 / r10-r11 / r73-r11 sit elsewhere). After closed-door
+portal cull that hole read as a black void (`clipdoor_fill dark=2525/7488`).
+Door-sized gaps in the current room's vertical G1 triangles get a solid
+SETTEX 685 quad sized to the actual sill/lintel (clip-door cutout
+local=-611,-1993 w=213 h=240). Same-room mesh holes fill; through-points
+into a different already-walked room do not (open archways stay open).
+
+KEEP `fecd44a` sealed opening faces, `e9247e9` closed-door portal cull,
+`42ba170` PP7 camera-space, `b56a698` per-pose Chead neck, `7f974af` Hor+,
+`1207531` fetal death, `1312936` held KF7, `999e0fc` aim joints,
+`e01e97f` spawn FPS.
+
+**1 — clip-door hole.** `play_clip_door` `clipdoor_fill dark=0 metal=3546
+area=5120` (was 2525/7488). `clipdoor_olive n=34` `walked n=1 11`.
+`play_spawn` `spawn_fill dark=1222 metal=3619 area=13376`. `play_hall_a`
+`dark=712 metal=3936`.
+
+**2 — hitch / jump / Hor+ / heads / gun.** Re-measured: `fire_hitch
+miss_ms=3.40 hit_ms=3.82`; `play_shoot_after` kills=2 mag 7/14
+`held=0`; `aim_look` `held=1` `headj=1`; `play_aim_grip` held=1
+`headj=1`. A→B hopped=0 y=29.12 r71; `clipdoor hunt teleports=0`; real
+stair still `-244,-2098` eye 348.2. `play_spawn` aspect=1.333 hfov=75.2;
+`play_spawn_wide` aspect=1.778 hfov=91.5. `play_spawn` `drawn=68 held=0
+headj=1` camo olive=4172 uniq=22. `viewgun_lr play_spawn n=12771`;
+`play_shoot_after_down` phi=-40 `viewgun_lr n=5053 top_r=1290` (no
+look-swing). Fetal ymin=-245.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=25.13 (39.8 fps unopt) /
+`--bench` frame_ms=25.22 (39.6 fps) — `e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Look-down death still awkward; idle KF7 empty / death floor KF7 polish;
+  camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 sealed opening fill `fecd44a`)
 
 N64-feel slice on top of closed-door portal cull `e9247e9` (KEEP). SHA `fecd44a`.
