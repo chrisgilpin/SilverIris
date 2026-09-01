@@ -850,6 +850,41 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack flesh-hit overlay `6ad59c5`)
+
+SFX follow-up on idle KF7 hang `7cd1121` (KEEP). SHA `6ad59c5`.
+Body hits queue pack `HIT_BULLET_FLESH` 69 on a second mixer overlay so
+the PP7 shot and pack BODY_FALL_C1 are not cut. Same runtime ALBankFile
+VADPCM path. Placeholders remain without a pack. Fire≠use last_sfx
+contract unchanged (dry=2, door=3).
+
+KEEP `7cd1121` idle KF7 hang, `c92f7bb` pack body-fall, `4883173` pack
+gun/dry/door, `9b7b6e6` P0 ammo/fire≠use/walk FB, `e01e97f` spawn FPS.
+
+**1 — hit overlay.** `sfx_bank ready=1 gun_n=12336 dry_n=4752 door_n=8448
+fall_n=3904 hit_n=1376`. `sfx_hit last=5 mix_diff=512`. `sfx_fall last=4
+mix_diff=512`. `pad_use_no_fire` sfx=3. `dry_fire` mag=0→0 flash=0 act=2
+sfx=2 n=22. `pad_fire_no_unlatch` mag=7→6 flash=3 open=0→0 act=1.
+
+**2 — hang / hitch / doors.** Re-measured: `play_spawn` `held=1`
+`idle_hang tan=4252`. `play_shoot_before` held=1 tan=5037. `play_shoot_after`
+held=0 drop=1. `fire_hitch miss_ms=3.38 hit_ms=3.15 hits=1`. `play_spawn`
+spawn_fill dark=56 metal=10501 frame_ms=27.59 (36.2 fps). `long_walk
+fb=76037→76025 dark=1447`. `clipdoor_fill dark=53 metal=4446`.
+`play_hall_a` dark=0 metal=12898. y=29.12. `die_across add=90 olive=6159`.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+  Music is still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 idle KF7 hang `7cd1121`)
 
 N64-feel slice on top of pack body-fall overlay `c92f7bb` (KEEP). SHA `7cd1121`.
