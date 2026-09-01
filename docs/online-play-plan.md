@@ -619,3 +619,42 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 **Remaining holes**
 
 - Aim `skip=pose`. Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 aim pose `999e0fc`)
+
+N64-feel slice on top of death/idle joints `c0277f9` (KEEP). SHA `999e0fc`. In-box living
+shooters bind pack `PTR_ANIM_fire_standing` frame 53 through the same
+hierarchical 4x4 joint table as idle/die. Frame 0 of that clip hangs like
+idle; mid-cycle is the rifle-fire still. skip=pose Euler is not used
+(that exploded the mesh). Do not fake an arm. Unique model id
+(`PORT_AIM_ID_BASE+body`) so idle clones stay hanging. Unalerted drop
+back to idle when they leave LOS. Living aim copies the neck 4x4 so the
+hat follows. Reject a non-standing span or a bind without joints.
+Preload per body at setup so the first LOS is not an inflate hitch.
+
+KEEP `c0277f9` idle/death joints, `fc5214a` no ceiling slab, `e01e97f`
+spawn FPS, `57e8429` floor pin.
+
+**1 — aim pose.** `play_shoot_before` still the hanging-arm extra idle
+(back). After hear + fire tick: `aim_look have=1 bound=1` `aim=1 … f=53
+h=1409 j=20 rest=skel`. `play_aim_look` from the shoot pad: guard turned
+to face the camera, arms in the fire_standing still (not a T-pose, not a
+ceiling slab). Camo `olive=11947 uniq=27 luma=79.1 var=120.1`.
+
+**2 — hitch / jump / death.** Re-measured: `fire_hitch miss_ms=3.39
+hit_ms=3.71`; `play_shoot_after` kills=2 mag 7/14; `play_shoot_after_down`
+face-up lie-down, hat on the body; A→B hopped=0 y=29.12 r71; `clipdoor
+hunt teleports=0`; real stair still `-244,-2098` eye 348.2 mean 65.
+
+Spawn `drawn=69` frame_ms=34.85 (28.7 fps unopt) — `e01e97f` kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1. Held third-person
+  KF7 is still not parented to the aim hands (body pose only).
+
