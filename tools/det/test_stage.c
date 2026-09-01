@@ -2401,6 +2401,8 @@ static int test_closed_portal_vis(void)
         return fail("closed-portal expected doorlike opening");
     if (port_stage_opening(0, pos, &yaw, &width, &ra, &rb) != 0)
         return fail("closed-portal opening");
+    if (port_stage_opening_height(0) < 80.f)
+        return fail("closed-portal height");
     port_api_draw();
     mag = count_magenta();
     if (port_stage_rooms_walked() != 2 || mag < 1000)

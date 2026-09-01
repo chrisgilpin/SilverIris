@@ -38,6 +38,8 @@ void port_stage_dump_portals(void);
 /* Door-sized portal openings (world center xz, floor y, look-yaw, width). */
 int port_stage_opening_count(void);
 int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
+/* Rare portal quad height (world). 0 if i is not a doorlike opening. */
+float port_stage_opening_height(int i);
 /* 1 if this door-sized portal sits on spawn r71->r7->r8->r20->r19->r18 / r3-r18 / r19-r21 / r1-r3 / r11-r71 / r8-r5 / r8-r10 / catwalk r13-r15 / r14-r13 / r14-r15 / ground r2-r3 / r3-r5 / r5-r4 / r10-r11 / r21-r22 / r72-r3 / r73-r11. */
 int port_stage_path_opening(int ra, int rb);
 int port_stage_current_room(void);

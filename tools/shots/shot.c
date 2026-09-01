@@ -1181,6 +1181,57 @@ static unsigned count_olive(const uint8_t *rgba, int w, int h)
     return n;
 }
 
+static unsigned count_dark_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                               int y1)
+{
+    unsigned n = 0;
+    int x, y;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            if ((unsigned)p[0] + (unsigned)p[1] + (unsigned)p[2] < 24u)
+                n++;
+        }
+    }
+    return n;
+}
+
+/* SETTEX 685 metal / brown door face. Skip olive camo. */
+static unsigned count_metal_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                                int y1)
+{
+    unsigned n = 0;
+    int x, y;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2];
+            if (pr < 50u || pg > pr + 8u || pb > pr + 16u)
+                continue;
+            if (pg >= 50u && pg > pr + 8u && pg > pb + 8u)
+                continue;
+            n++;
+        }
+    }
+    return n;
+}
+
 /* Extra-idle camo: olive pixels must not be one SHADE slab. SETTEX 1916
  * is splotchy CI8; greyscale cn flattening used ~a handful of greens. */
 static int camo_not_flat(const uint8_t *rgba, int w, int h, const char *tag)
@@ -3026,11 +3077,45 @@ static int shot_one(const char *out_dir, const char *tag)
     }
     if (!strcmp(tag, "play_clip_door")) {
         unsigned olive = count_olive(fb, port_api_fb_width(), port_api_fb_height());
+        unsigned dark, metal, area;
+        int w = port_api_fb_width(), h = port_api_fb_height();
         printf("clipdoor_olive n=%u (closed door must not show next-room camo)\n", olive);
         /* Through-door guard + EXIT used to paint thousands of olive
          * pixels. The door slab is brown; current-room tiles are grey. */
         if (olive > 400u) {
             fprintf(stderr, "%s clipdoor_olive=%u (see-through closed door)\n", tag, olive);
+            return -1;
+        }
+        /* Head-on r11 doorway. Retail frame left this rect black. */
+        dark = count_dark_rect(fb, w, h, 48, 72, 120, 176);
+        metal = count_metal_rect(fb, w, h, 48, 72, 120, 176);
+        area = (unsigned)((120 - 48) * (176 - 72));
+        printf("clipdoor_fill dark=%u metal=%u area=%u\n", dark, metal, area);
+        if (dark > (area * 9u) / 20u) {
+            fprintf(stderr, "%s sealed opening still black dark=%u/%u\n", tag, dark, area);
+            return -1;
+        }
+        if (metal < area / 10u) {
+            fprintf(stderr, "%s sealed opening has no door face metal=%u/%u\n", tag, metal,
+                    area);
+            return -1;
+        }
+    }
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a")) {
+        unsigned dark, metal, area;
+        int w = port_api_fb_width(), h = port_api_fb_height();
+        dark = count_dark_rect(fb, w, h, 0, 48, 88, 200);
+        metal = count_metal_rect(fb, w, h, 0, 48, 88, 200);
+        area = (unsigned)(88 * (200 - 48));
+        printf("spawn_fill %s dark=%u metal=%u area=%u\n", tag, dark, metal, area);
+        if (dark > area / 2u) {
+            fprintf(stderr, "%s left sealed opening still black dark=%u/%u\n", tag, dark,
+                    area);
+            return -1;
+        }
+        if (metal < area / 12u) {
+            fprintf(stderr, "%s left sealed opening has no door face metal=%u/%u\n", tag,
+                    metal, area);
             return -1;
         }
     }

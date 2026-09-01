@@ -4223,11 +4223,11 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 
-/* Closed-door slab. Prefer retail Pgas_plant_met1_do1 (96-vert mesh,
- * SETTEX 685-688,706). G_VTX is 0x04xxxxxx — bind the node vertex bank
- * at file+0xC0 as seg 4. Do not bind seg 3 (G_MTX LOAD would replace
- * the camera). Root GROUP origin is gas-plant world; zero it and use
- * the fitted portal pose. Fallback: fitted G1DL quad, SETTEX 685. */
+/* Closed-door slab. Retail Pgas_plant_met1_do1 is a 96-vert FRAME with a
+ * hole (SETTEX 685-688,706). After closed-door portal cull that hole is a
+ * black void. Fitted path/alcove faces are a solid G1DL quad, SETTEX 685,
+ * sized to the Rare portal horiz x tall so the sealed opening reads as a
+ * door panel. The G1 room GDL already owns the jamb. */
 static uint8_t g_slab_file[192];
 static PortModel g_slab_mdl;
 static int g_slab_ok;
@@ -4235,6 +4235,13 @@ static int g_slab_ok;
 #define SLAB_RETAIL_ID 158
 #define SLAB_RETAIL_HALF_W 350.f
 #define SLAB_RETAIL_BOTTOM -787.f
+#define SLAB_FILE_SIZE 192
+#define SLAB_POOL 24
+#define SLAB_V1 (4 + 7 * 8)
+#define SLAB_V2 (4 + 7 * 8 + 48)
+static uint8_t g_slab_pool[SLAB_POOL][SLAB_FILE_SIZE];
+static PortModel g_slab_pool_mdl[SLAB_POOL];
+static int g_slab_pool_n;
 
 static void wr32(uint8_t *p, uint32_t v)
 {
@@ -4312,46 +4319,84 @@ static void slab_bounds(const PortModel *m, float *half_w, float *bottom)
     *bottom = (float)miny;
 }
 
-static PortModel *slab_quad(void)
+static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
 {
     /* Two proven 3-vert G_VTX+G_TRI4 packets (same encoding as the magenta
      * door test). A 4-vert packet left stale room verts on one triangle. */
     uint32_t vtx = ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16);
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
-    const uint32_t v1 = 4 + 7 * 8, v2 = 4 + 7 * 8 + 48;
     const int16_t us = 32 * 32, vt = 33 * 32; /* tile 0 is 32x33 */
 
+    memset(f, 0, SLAB_FILE_SIZE);
+    wr32(f, PORT_BG_MAGIC_G1DL);
+    wr32(f + 4, 0xBB002801u); /* G_TEXTURE scale 1,1 */
+    wr32(f + 8, 0xFFFFFFFFu);
+    wr32(f + 12, 0xC0000003u); /* G_SETTEX TILE */
+    wr32(f + 16, SLAB_DOOR_TEX);
+    wr32(f + 20, vtx);
+    wr32(f + 24, 0x05000000u | SLAB_V1);
+    wr32(f + 28, 0xB1000002u);
+    wr32(f + 32, 0x00000010u);
+    wr32(f + 36, vtx);
+    wr32(f + 40, 0x05000000u | SLAB_V2);
+    wr32(f + 44, 0xB1000002u);
+    wr32(f + 48, 0x00000010u);
+    wr32(f + 52, end);
+    wr_vtx(f + SLAB_V1 + 0, (int16_t)(-hw), 0, 0, 0, vt);
+    wr_vtx(f + SLAB_V1 + 16, hw, 0, 0, us, vt);
+    wr_vtx(f + SLAB_V1 + 32, hw, ht, 0, us, 0);
+    wr_vtx(f + SLAB_V2 + 0, (int16_t)(-hw), 0, 0, 0, vt);
+    wr_vtx(f + SLAB_V2 + 16, hw, ht, 0, us, 0);
+    wr_vtx(f + SLAB_V2 + 32, (int16_t)(-hw), ht, 0, 0, 0);
+}
+
+static void slab_bind(PortModel *m, uint8_t *f)
+{
+    memset(m, 0, sizeof *m);
+    m->file = f;
+    m->file_len = SLAB_V2 + 48;
+    m->part[0].pri = f + 4;
+    m->part[0].pri_n = 7;
+    m->npart = 1;
+    m->fit_scale = 1.f;
+}
+
+static PortModel *slab_quad(void)
+{
     if (g_slab_ok)
         return &g_slab_mdl;
-    memset(g_slab_file, 0, sizeof g_slab_file);
-    wr32(g_slab_file, PORT_BG_MAGIC_G1DL);
-    wr32(g_slab_file + 4, 0xBB002801u); /* G_TEXTURE scale 1,1 */
-    wr32(g_slab_file + 8, 0xFFFFFFFFu);
-    wr32(g_slab_file + 12, 0xC0000003u); /* G_SETTEX TILE */
-    wr32(g_slab_file + 16, SLAB_DOOR_TEX);
-    wr32(g_slab_file + 20, vtx);
-    wr32(g_slab_file + 24, 0x05000000u | v1);
-    wr32(g_slab_file + 28, 0xB1000002u);
-    wr32(g_slab_file + 32, 0x00000010u);
-    wr32(g_slab_file + 36, vtx);
-    wr32(g_slab_file + 40, 0x05000000u | v2);
-    wr32(g_slab_file + 44, 0xB1000002u);
-    wr32(g_slab_file + 48, 0x00000010u);
-    wr32(g_slab_file + 52, end);
-    wr_vtx(g_slab_file + v1 + 0, -90, 0, 0, 0, vt);
-    wr_vtx(g_slab_file + v1 + 16, 90, 0, 0, us, vt);
-    wr_vtx(g_slab_file + v1 + 32, 90, 260, 0, us, 0);
-    wr_vtx(g_slab_file + v2 + 0, -90, 0, 0, 0, vt);
-    wr_vtx(g_slab_file + v2 + 16, 90, 260, 0, us, 0);
-    wr_vtx(g_slab_file + v2 + 32, -90, 260, 0, 0, 0);
-    memset(&g_slab_mdl, 0, sizeof g_slab_mdl);
-    g_slab_mdl.file = g_slab_file;
-    g_slab_mdl.file_len = v2 + 48;
-    g_slab_mdl.part[0].pri = g_slab_file + 4;
-    g_slab_mdl.part[0].pri_n = 7;
-    g_slab_mdl.npart = 1;
+    slab_write(g_slab_file, 90, 260);
+    slab_bind(&g_slab_mdl, g_slab_file);
     g_slab_ok = 1;
     return &g_slab_mdl;
+}
+
+/* One GDL per fitted face so later raster still sees this portal's verts. */
+static PortModel *slab_sized(float width, float tall)
+{
+    int16_t hw, ht;
+    int i;
+
+    if (width < 80.f)
+        width = 80.f;
+    if (width > 450.f)
+        width = 450.f;
+    if (tall < 80.f)
+        tall = 80.f;
+    if (tall > 500.f)
+        tall = 500.f;
+    hw = (int16_t)(0.5f * width + 0.5f);
+    ht = (int16_t)(tall + 0.5f);
+    if (hw < 40)
+        hw = 40;
+    if (ht < 80)
+        ht = 80;
+    if (g_slab_pool_n >= SLAB_POOL)
+        g_slab_pool_n = 0;
+    i = g_slab_pool_n++;
+    slab_write(g_slab_pool[i], hw, ht);
+    slab_bind(&g_slab_pool_mdl[i], g_slab_pool[i]);
+    return &g_slab_pool_mdl[i];
 }
 
 static PortModel *slab_door(void)
@@ -4809,22 +4854,21 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     /*
      * Start-hallway openings have no PROPDEF_DOOR (those pads sit in the
      * gas-plant cluster). Fit a closed G1DL slab on door-sized portals.
+     * Size the solid SETTEX 685 quad to the Rare portal so a sealed
+     * opening is a door face, not the retail frame's black hole.
      */
     {
-        PortModel *slab = slab_door();
-        int retail = slab_is_retail(slab);
         int o, no = port_stage_opening_count();
-        float half_w = PORT_DOOR_HALF_W, bottom = 0.f;
         float pwx = room1[0] + port_player_x();
         float pwz = room1[2] + port_player_z();
         float floor_y = room1[1] + (port_player_y() - 175.f);
         float th = port_player_theta() * (PI_F / 180.f);
         float lookx = sinf(th), lookz = -cosf(th);
-        if (retail)
-            slab_bounds(slab, &half_w, &bottom);
+        g_slab_pool_n = 0;
         for (o = 0; o < no && k < cap; o++) {
-            float pos[3], yaw = 0.f, width = 0.f;
+            float pos[3], yaw = 0.f, width = 0.f, tall;
             PortProp tmp, probe;
+            PortModel *slab;
             int j, covered = 0;
             float lx, lz, tox, toz;
             int ra = 0, rb = 0, in_walk = 0, r;
@@ -4865,19 +4909,23 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             {
                 float d2 = lx * lx + lz * lz;
                 int path = port_stage_path_opening(ra, rb);
+                /* Only path (collision-bound) openings get a fill face.
+                 * Other doorlike quads are archways / stacked / gas-plant. */
+                if (!path)
+                    continue;
                 if (d2 > 900.f * 900.f)
                     continue;
-                /* Path lab slabs stay visible inside Z-range (~200).
-                 * Start-hall 250 min is unchanged so spawn pixels hold. */
-                if (!path && d2 < 250.f * 250.f)
-                    continue;
-                if ((!path || d2 >= 250.f * 250.f) &&
-                    tox * lookx + toz * lookz < 40.f)
+                if (d2 >= 250.f * 250.f && tox * lookx + toz * lookz < 40.f)
                     continue;
             }
             /* Upper/catwalk portals sit hundreds of units above the floor. */
             if (pos[1] > floor_y + 200.f)
                 continue;
+            tall = port_stage_opening_height(o);
+            if (tall < 80.f)
+                tall = PORT_DOOR_HEIGHT;
+            /* Slight oversize so the G1 cutout does not rim-black. */
+            slab = slab_sized(width * 1.15f, tall * 1.12f);
             memset(&tmp, 0, sizeof tmp);
             tmp.pos[0] = pos[0];
             tmp.pos[1] = floor_y;
@@ -4887,7 +4935,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.yaw = (pwx > pos[0]) ? 90.f : -90.f;
             else
                 tmp.yaw = (pwz > pos[2]) ? 0.f : 180.f;
-            tmp.scale = (width > 1.f) ? (width / (2.f * half_w)) : (PORT_DOOR_HALF_W / half_w);
+            tmp.scale = 1.f;
             tmp.mdl = slab;
             {
                 float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
@@ -4902,14 +4950,14 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                         door_open_pose(&pose, frac, &add_yaw, &odx, &ody, &odz);
                     }
                 }
-                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f,
-                               -bottom * tmp.scale, 0.f, 0.f, 0.f, 0.f,
-                               add_yaw, odx, ody, odz);
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f,
+                               0.f, 0.f, add_yaw, odx, ody, odz);
             }
         }
         /* Start alcoves are in-room GDL, not portals. One left-wall slab
-         * when no door-sized portal already sits on that wall. */
-        if (k < cap && no > 0) {
+         * when no door-sized portal already sits on that wall. Facility
+         * spawn r71 only — synthetic G1DL tests have no r71. */
+        if (k < cap && no > 0 && port_stage_current_room() == 71) {
             float leftx = lookz, leftz = -lookx;
             int o, have_left = 0, no = port_stage_opening_count();
             for (o = 0; o < no; o++) {
@@ -4925,11 +4973,12 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             }
             if (!have_left) {
                 PortProp tmp;
+                PortModel *slab;
                 memset(&tmp, 0, sizeof tmp);
-                tmp.pos[0] = pwx + leftx * 160.f;
+                tmp.pos[0] = pwx + leftx * 120.f;
                 tmp.pos[1] = floor_y;
-                tmp.pos[2] = pwz + leftz * 160.f;
-                tmp.yaw = (pwz + leftz * 160.f > pwz) ? 0.f : 180.f;
+                tmp.pos[2] = pwz + leftz * 120.f;
+                tmp.yaw = (pwz + leftz * 120.f > pwz) ? 0.f : 180.f;
                 /* Face the player: left wall is +Z at spawn, yaw 0 faces +Z. */
                 if (leftz > 0.f)
                     tmp.yaw = 180.f;
@@ -4937,10 +4986,13 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                     tmp.yaw = 0.f;
                 else
                     tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
-                tmp.scale = 1.15f * (PORT_DOOR_HALF_W / half_w);
+                tmp.scale = 1.f;
+                /* Cover the G1≠stan left void: room 71 mesh ends short of the
+                 * stan tile, so a door-sized stamp left a black hole. */
+                slab = slab_sized(640.f, 360.f);
                 tmp.mdl = slab;
-                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, -bottom * tmp.scale,
-                               0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+                k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                               0.f, 0.f, 0.f, 0.f);
             }
         }
     }

@@ -874,31 +874,46 @@ int port_stage_opening_count(void)
     return n;
 }
 
-int port_stage_opening(int want, float pos[3], float *yaw, float *width, int *ra, int *rb)
+static PortPortal *opening_at(int want)
 {
     int i, n = 0;
+    if (want < 0)
+        return NULL;
     for (i = 0; i < g_nportals; i++) {
         if (!g_portals[i].doorlike)
             continue;
-        if (n == want) {
-            if (pos) {
-                pos[0] = g_portals[i].pos[0];
-                pos[1] = g_portals[i].pos[1];
-                pos[2] = g_portals[i].pos[2];
-            }
-            if (yaw)
-                *yaw = g_portals[i].yaw;
-            if (width)
-                *width = g_portals[i].width;
-            if (ra)
-                *ra = g_portals[i].a;
-            if (rb)
-                *rb = g_portals[i].b;
-            return 0;
-        }
+        if (n == want)
+            return &g_portals[i];
         n++;
     }
-    return -1;
+    return NULL;
+}
+
+int port_stage_opening(int want, float pos[3], float *yaw, float *width, int *ra, int *rb)
+{
+    PortPortal *po = opening_at(want);
+    if (!po)
+        return -1;
+    if (pos) {
+        pos[0] = po->pos[0];
+        pos[1] = po->pos[1];
+        pos[2] = po->pos[2];
+    }
+    if (yaw)
+        *yaw = po->yaw;
+    if (width)
+        *width = po->width;
+    if (ra)
+        *ra = po->a;
+    if (rb)
+        *rb = po->b;
+    return 0;
+}
+
+float port_stage_opening_height(int want)
+{
+    PortPortal *po = opening_at(want);
+    return po ? po->tall : 0.f;
 }
 
 int port_stage_current_room(void) { return g_cur_room; }
