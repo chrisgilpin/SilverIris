@@ -220,8 +220,11 @@ static size_t next_field_end(uint8_t *bg, size_t n, uint8_t *rooms, int i, size_
  *
  * Draw walks the current room plus portal neighbors (depth 3, cap 24;
  * depth 5 when current is r13/r14/r15 so neighbor-GDL rooms stay in frame;
- * depth 5 ground-only when current is r71/r7/r8 so r19/r18 walk before
- * Chris enters them, without spending extra hops on the r12 catwalk).
+ * depth 5 ground-only when current is r71/r7/r8 so open-path rooms walk
+ * before Chris enters them, without spending extra hops on the r12 catwalk).
+ * Doorlike portals with a closed bound slab (Rare PORTALFLAG_DISABLED)
+ * do not enqueue the far room — closed-door occlusion. Open / frac>0
+ * and non-doorlike archways still traverse.
  * Current room follows the camera eye on stacked xz so an upstairs
  * pose (r13/r15 eye ~737) is not pinned to the ground tile underfoot.
  * A ground-room BFS at the old cap never reached the catwalk. Room 1
@@ -987,6 +990,16 @@ int port_stage_rooms_adjacent(int a, int b)
     return 0;
 }
 
+/* Rare doorActivatePortal clears PORTALFLAG_DISABLED while opening.
+ * Bound path/pad slabs at the portal centre: closed (frac=0) seals vis.
+ * No slab (open archway / stair) does not invent a seal. */
+static int portal_vis_closed(const PortPortal *po)
+{
+    if (!po->doorlike)
+        return 0;
+    return port_stan_closed_door_at_world(po->pos[0] * g_bg_inv, po->pos[2] * g_bg_inv);
+}
+
 static int pick_current_room(void)
 {
     int rm;
@@ -1055,6 +1068,8 @@ static int select_rooms(uint8_t *out, int cap)
                 else
                     continue;
                 if (o < 1 || o > g_bg_rooms || seen[o])
+                    continue;
+                if (portal_vis_closed(&g_portals[i]))
                     continue;
                 dy = g_rm[o].pos[1] - g_rm[r].pos[1];
                 if (dy < 0.f)
@@ -1905,6 +1920,9 @@ int port_stage_draw(void)
         return 1;
 
     nsel = select_rooms(ids, PORT_WALK_MAX);
+    for (i = 0; i < nsel && i < PORT_WALK_MAX; i++)
+        g_walked[i] = ids[i];
+    g_rooms_walked = nsel;
     ox = g_rm[1].pos[0] * g_bg_inv;
     oy = g_rm[1].pos[1] * g_bg_inv;
     oz = g_rm[1].pos[2] * g_bg_inv;
@@ -1946,11 +1964,8 @@ int port_stage_draw(void)
         passes[k].oz = rm->pos[2] * g_bg_inv - oz;
         /* Rare room matrix scale is room_data_float2. 0 means identity. */
         passes[k].scale = (g_bg_inv != 1.f) ? g_bg_inv : 0.f;
-        if (k < PORT_WALK_MAX)
-            g_walked[k] = ids[i];
         k++;
     }
-    g_rooms_walked = k;
     for (i = 1; i <= g_bg_rooms; i++) {
         rpos[i * 3 + 0] = g_rm[i].pos[0] * g_bg_inv;
         rpos[i * 3 + 1] = g_rm[i].pos[1] * g_bg_inv;

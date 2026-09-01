@@ -1166,6 +1166,21 @@ static void describe_fb(const uint8_t *rgba, int w, int h, char *out, size_t out
              rgba[cx + 1], rgba[cx + 2]);
 }
 
+static unsigned count_olive(const uint8_t *rgba, int w, int h)
+{
+    unsigned n = 0;
+    int i;
+    for (i = 0; i < w * h; i++) {
+        unsigned pr = rgba[i * 4], pg = rgba[i * 4 + 1], pb = rgba[i * 4 + 2];
+        if (pg < 50u || pg <= pr + 8u || pg <= pb + 8u)
+            continue;
+        if (pr + pb > pg + 40u)
+            continue;
+        n++;
+    }
+    return n;
+}
+
 /* Extra-idle camo: olive pixels must not be one SHADE slab. SETTEX 1916
  * is splotchy CI8; greyscale cn flattening used ~a handful of greens. */
 static int camo_not_flat(const uint8_t *rgba, int w, int h, const char *tag)
@@ -2532,6 +2547,51 @@ static int playtest_chris(const char *out_dir)
                (double)ny, (double)slen);
         if (shot_one(out_dir, "play_clip_door") != 0)
             return -1;
+        {
+            int wi, far_walked = 0, far_rm = 0, nclosed = 0;
+            int cur = port_stage_current_room();
+            float r1[3];
+            int o, no;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            printf("clipdoor walked n=%d", port_stage_rooms_walked());
+            for (wi = 0; wi < port_stage_rooms_walked(); wi++)
+                printf(" %d", port_stage_walked_room(wi));
+            printf(" cur=%d\n", cur);
+            no = port_stage_opening_count();
+            for (o = 0; o < no; o++) {
+                float pos[3], yaw = 0.f, width = 0.f, lx, lz, ddx, ddz, d, frac;
+                int ra = 0, rb = 0, far;
+                if (port_stage_opening(o, pos, &yaw, &width, &ra, &rb) != 0)
+                    continue;
+                lx = pos[0] - r1[0];
+                lz = pos[2] - r1[2];
+                ddx = lx - PLAY_CLIP_X;
+                ddz = lz - PLAY_CLIP_Z;
+                d = sqrtf(ddx * ddx + ddz * ddz);
+                if (d > 300.f)
+                    continue;
+                frac = port_stan_door_frac_at(pos[0] * port_stage_bg_inv(),
+                                             pos[2] * port_stage_bg_inv());
+                if (frac > 0.01f)
+                    continue;
+                if (!port_stan_closed_door_at_world(pos[0] * port_stage_bg_inv(),
+                                                    pos[2] * port_stage_bg_inv()))
+                    continue;
+                nclosed++;
+                far = (ra == cur) ? rb : (rb == cur) ? ra : 0;
+                if (far && port_stage_walked_has(far)) {
+                    far_walked++;
+                    far_rm = far;
+                }
+            }
+            printf("clipdoor closed_near=%d far_walked=%d far_rm=%d\n", nclosed, far_walked,
+                   far_rm);
+            if (nclosed > 0 && far_walked > 0) {
+                fprintf(stderr, "clipdoor far room %d walked through closed door\n", far_rm);
+                return -1;
+            }
+        }
     }
     {
         float wx = spawn_x, wz = spawn_z, wy = spawn_y;
@@ -2963,6 +3023,16 @@ static int shot_one(const char *out_dir, const char *tag)
         !strcmp(tag, "aim_look")) {
         if (camo_not_flat(fb, port_api_fb_width(), port_api_fb_height(), tag) != 0)
             return -1;
+    }
+    if (!strcmp(tag, "play_clip_door")) {
+        unsigned olive = count_olive(fb, port_api_fb_width(), port_api_fb_height());
+        printf("clipdoor_olive n=%u (closed door must not show next-room camo)\n", olive);
+        /* Through-door guard + EXIT used to paint thousands of olive
+         * pixels. The door slab is brown; current-room tiles are grey. */
+        if (olive > 400u) {
+            fprintf(stderr, "%s clipdoor_olive=%u (see-through closed door)\n", tag, olive);
+            return -1;
+        }
     }
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_wide") ||
         !strcmp(tag, "spawn_lookdown") || !strcmp(tag, "play_shoot_after_down")) {
@@ -3426,9 +3496,9 @@ int main(int argc, char **argv)
                 wr = port_stage_walked_room(wi);
                 printf(" %d", wr);
             }
-            printf(" r19=%d r18=%d\n", has19, has18);
-            if (!has19) {
-                fprintf(stderr, "spawn walked set missing r19\n");
+            printf(" r19=%d r18=%d (closed-door vis may omit far rooms)\n", has19, has18);
+            if (cur != 71) {
+                fprintf(stderr, "spawn cur=%d want r71\n", cur);
                 goto done;
             }
         }

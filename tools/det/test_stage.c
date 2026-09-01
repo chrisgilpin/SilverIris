@@ -56,6 +56,13 @@ static void wr_be32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)v;
 }
 
+static void wr_be_f32(uint8_t *p, float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    wr_be32(p, u);
+}
+
 static void wr_be_mtx(uint8_t *dst, const Mtx *m)
 {
     const uint32_t *src = (const uint32_t *)&m->m[0][0];
@@ -2350,6 +2357,72 @@ static int test_neighbor_portal_pixels(void)
 {
     /* Portal 1-2: walk both GDLs; room 2's magenta triangle must hit the FB. */
     return run_two_room(1, 2, 1000, 0xFFFFFFFFu, "neighbor portal");
+}
+
+static int test_closed_portal_vis(void)
+{
+    uint8_t bg[NR_BG_SIZE], stan[256];
+    C0File files[2];
+    uint8_t *pack = NULL;
+    size_t pack_len = 0;
+    uint8_t hash[32];
+    unsigned mag;
+    float pos[3], yaw = 0.f, width = 0.f;
+    int ra = 0, rb = 0;
+
+    memset(stan, 0, sizeof stan);
+    wr_be32(stan + 4, 0x0F000080u);
+    build_two_room_bg(bg, 1);
+    /* Door-sized quad so portal_geom sets doorlike. Zero geom is an
+     * open archway (neighbor portal test). */
+    bg[NR_OFF_PGEOM] = 3;
+    wr_be_f32(bg + NR_OFF_PGEOM + 4, -100.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 8, 0.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 12, 0.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 16, 100.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 20, 0.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 24, 0.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 28, 0.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 32, 200.f);
+    wr_be_f32(bg + NR_OFF_PGEOM + 36, 10.f);
+    files[0].path = "assets/obseg/bg/bg_ark_all_p.bin";
+    files[0].bytes = bg;
+    files[0].size = sizeof bg;
+    files[1].path = "assets/obseg/stan/Tbg_ark_all_p_stanZ.bin";
+    files[1].bytes = stan;
+    files[1].size = sizeof stan;
+    if (c0pack_build(files, 2, 0, 0, &pack, &pack_len, hash) != 0)
+        return fail("closed-portal pack build");
+    if (port_api_init(pack, (uint32_t)pack_len, hash) != PORT_OK)
+        return fail("closed-portal port_api init");
+    if (port_api_load_stage(PORT_LEVEL_FACILITY) != PORT_STAGE_OK)
+        return fail("closed-portal stage load");
+    if (port_stage_opening_count() < 1)
+        return fail("closed-portal expected doorlike opening");
+    if (port_stage_opening(0, pos, &yaw, &width, &ra, &rb) != 0)
+        return fail("closed-portal opening");
+    port_api_draw();
+    mag = count_magenta();
+    if (port_stage_rooms_walked() != 2 || mag < 1000)
+        return fail("doorlike open archway must still walk room 2");
+    port_stan_add_door(pos[0] * port_stage_bg_inv(), pos[2] * port_stage_bg_inv(), 0.f,
+                       -1.f);
+    port_api_draw();
+    mag = count_magenta();
+    if (port_stage_rooms_walked() != 1)
+        return fail("closed doorlike portal must not walk the far room");
+    if (mag > 0)
+        return fail("closed doorlike portal must not draw far-room magenta");
+    port_stan_set_door_open(0, 1);
+    port_api_draw();
+    mag = count_magenta();
+    if (port_stage_rooms_walked() != 2 || mag < 1000)
+        return fail("open doorlike portal must walk room 2 again");
+    printf("closed-portal vis closed_walked=1 open_walked=2 magenta=%u ra=%d rb=%d\n", mag,
+           ra, rb);
+    port_api_shutdown();
+    free(pack);
+    return 0;
 }
 
 #define PROP_SETUP_SIZE 0x200
@@ -4909,6 +4982,8 @@ int main(int argc, char **argv)
     if (test_neighbor_no_portal() != 0)
         return 1;
     if (test_neighbor_portal_pixels() != 0)
+        return 1;
+    if (test_closed_portal_vis() != 0)
         return 1;
     if (test_prop_no_setup_hash(want) != 0)
         return 1;

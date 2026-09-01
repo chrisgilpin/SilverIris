@@ -56,6 +56,8 @@ int port_stan_guard_dead_at(float world_x, float world_z);
 int port_stan_use_door(float local_x, float local_z, float look_x, float look_z);
 /* 1 if room-local xz sits inside a closed (frac=0) door slab. */
 int port_stan_closed_door_at_local(float local_x, float local_z);
+/* Same test in world xz (portal centre, pad origin). Open / frac>0 is 0. */
+int port_stan_closed_door_at_world(float world_x, float world_z);
 /* Open a closed door in use range facing look. Never closes. Same
  * swing/side as Z-use. 1 if a door opened. */
 int port_stan_unlatch_closed(float local_x, float local_z, float look_x, float look_z);

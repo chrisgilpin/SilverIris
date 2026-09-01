@@ -454,6 +454,11 @@ int port_stan_closed_door_at_local(float local_x, float local_z)
     return hit_door_world(wx, wz);
 }
 
+int port_stan_closed_door_at_world(float world_x, float world_z)
+{
+    return hit_door_world(world_x, world_z);
+}
+
 int port_stan_unlatch_closed(float local_x, float local_z, float look_x, float look_z)
 {
     float wx, wz, llen, inv;

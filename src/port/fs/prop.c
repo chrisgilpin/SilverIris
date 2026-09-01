@@ -4696,11 +4696,21 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
     }
     {
         float pdx = 0.f, pdz = 0.f;
+        float padx = pr->pos[0] - room1[0];
+        float padz = pr->pos[2] - room1[2];
+        int idle = (g_idle_prop >= 0 && pr == &g_prop[g_idle_prop]);
+        /* Closed-door portal vis: pad's stan room was not walked
+         * (Rare PORTALFLAG_DISABLED). Extra idle is exempt so the
+         * spawn-hall body still draws. */
+        if (!idle) {
+            int rm = port_stan_tile_room(padx, padz);
+            if (rm >= 1 && !port_stage_walked_has(rm)) {
+                g_emit_skip_leaf++;
+                return k;
+            }
+        }
         if (!dead) {
-            float padx = pr->pos[0] - room1[0];
-            float padz = pr->pos[2] - room1[2];
             float x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
-            int idle = (g_idle_prop >= 0 && pr == &g_prop[g_idle_prop]);
             g_emit_seen++;
             /* Cheap pad distance before G1 triangle walks / vis AABB.
              * Extra idle stays drawn (spawn hall). Other living pads
