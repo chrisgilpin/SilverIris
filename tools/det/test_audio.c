@@ -158,6 +158,18 @@ int main(int argc, char **argv)
         printf("door sha256=%s\n", hex);
         if (strcmp(hex, gun_hex) == 0)
             return fail("door pcm matches gun");
+
+        port_audio_init();
+        port_audio_play_fall();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("fall was silence");
+        if (port_audio_last_sfx() != PORT_SFX_FALL)
+            return fail("fall last_sfx");
+        hash_pcm(pcm, hex);
+        printf("fall sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("fall pcm matches gun");
     }
 
     port_audio_init();

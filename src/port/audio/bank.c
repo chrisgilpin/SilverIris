@@ -6,7 +6,7 @@
 
 /*
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
- * envelopes, pitch, or RSP mixer. Gun / dry / door only.
+ * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  */
@@ -14,10 +14,11 @@
 #define PACK_SFX_EMPTY_GUN_FIRE 89
 #define PACK_SFX_PP7 107 /* GUN_B2_HEAVY / PPK */
 #define PACK_SFX_DOOR_METAL_OPEN 196
+#define PACK_SFX_BODY_FALL_C1 123
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
 
-static int16_t *g_owned[4];
+static int16_t *g_owned[5];
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -63,6 +64,7 @@ void port_audio_unload_pack_sfx(void)
     drop_kind(PORT_SFX_GUN);
     drop_kind(PORT_SFX_DRY);
     drop_kind(PORT_SFX_DOOR);
+    drop_kind(PORT_SFX_FALL);
 }
 
 static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
@@ -162,6 +164,9 @@ int port_audio_load_pack_sfx(void)
         n++;
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_DOOR_METAL_OPEN,
                   PORT_SFX_DOOR) == 0)
+        n++;
+    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_BODY_FALL_C1,
+                  PORT_SFX_FALL) == 0)
         n++;
     return n;
 }

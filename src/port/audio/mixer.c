@@ -18,6 +18,10 @@
 #define DOOR_HZ 78u
 #define DOOR_AMP 8000
 #define DOOR_LEN ((PORT_AUDIO_RATE * 160u) / 1000u)
+#define FALL_HZ 90u
+#define FALL_AMP 9000
+#define FALL_LEN ((PORT_AUDIO_RATE * 220u) / 1000u)
+#define SFX_KIND_MAX 4
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -27,11 +31,17 @@ static volatile int g_music_on;
 static volatile int g_sfx_kind;
 static volatile int g_last_sfx;
 static uint32_t g_freq = PORT_AUDIO_RATE;
-static const int16_t *g_sfx_pcm[4];
-static uint32_t g_sfx_pcm_n[4];
-static uint8_t g_sfx_pcm_vol[4];
+static const int16_t *g_sfx_pcm[SFX_KIND_MAX + 1];
+static uint32_t g_sfx_pcm_n[SFX_KIND_MAX + 1];
+static uint8_t g_sfx_pcm_vol[SFX_KIND_MAX + 1];
 static uint32_t g_sfx_pcm_pos;
 static int g_sfx_use_pcm;
+static int g_ov_kind;
+static uint32_t g_ov_left;
+static uint32_t g_ov_len;
+static uint32_t g_ov_pos;
+static uint32_t g_ov_phase;
+static int g_ov_use_pcm;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -137,6 +147,12 @@ void port_audio_init(void)
     g_sfx_len = 0;
     g_sfx_pcm_pos = 0;
     g_sfx_use_pcm = 0;
+    g_ov_kind = 0;
+    g_ov_left = 0;
+    g_ov_len = 0;
+    g_ov_pos = 0;
+    g_ov_phase = 0;
+    g_ov_use_pcm = 0;
     ai_reset();
     g_inited = 1;
 }
@@ -168,6 +184,8 @@ static uint32_t placeholder_len(int kind)
         return DRY_LEN;
     if (kind == PORT_SFX_DOOR)
         return DOOR_LEN;
+    if (kind == PORT_SFX_FALL)
+        return FALL_LEN;
     return GUN_LEN;
 }
 
@@ -178,7 +196,7 @@ static void queue_sfx(int kind, uint32_t len)
     g_sfx_phase = 0;
     g_sfx_noise = 0xC0FFEEu ^ ((uint32_t)kind * 0x9E3779B9u);
     g_sfx_pcm_pos = 0;
-    if (kind >= 1 && kind <= 3 && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
+    if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
         g_sfx_use_pcm = 1;
         g_sfx_left = g_sfx_pcm_n[kind];
         g_sfx_len = g_sfx_pcm_n[kind];
@@ -204,6 +222,28 @@ void port_audio_play_door(void)
     queue_sfx(PORT_SFX_DOOR, DOOR_LEN);
 }
 
+static void queue_overlay(int kind, uint32_t len)
+{
+    g_ov_kind = kind;
+    g_last_sfx = kind;
+    g_ov_phase = 0;
+    g_ov_pos = 0;
+    if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
+        g_ov_use_pcm = 1;
+        g_ov_left = g_sfx_pcm_n[kind];
+        g_ov_len = g_sfx_pcm_n[kind];
+    } else {
+        g_ov_use_pcm = 0;
+        g_ov_left = len;
+        g_ov_len = len;
+    }
+}
+
+void port_audio_play_fall(void)
+{
+    queue_overlay(PORT_SFX_FALL, FALL_LEN);
+}
+
 int port_audio_last_sfx(void)
 {
     return g_last_sfx;
@@ -211,7 +251,7 @@ int port_audio_last_sfx(void)
 
 void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vol)
 {
-    if (kind < 1 || kind > 3)
+    if (kind < 1 || kind > SFX_KIND_MAX)
         return;
     if (g_sfx_kind == kind) {
         g_sfx_left = 0;
@@ -224,7 +264,7 @@ void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vo
 
 int port_audio_sfx_frames(int kind)
 {
-    if (kind < 1 || kind > 3)
+    if (kind < 1 || kind > SFX_KIND_MAX)
         return 0;
     if (g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0)
         return (int)g_sfx_pcm_n[kind];
@@ -233,7 +273,8 @@ int port_audio_sfx_frames(int kind)
 
 int port_audio_sfx_from_bank(int kind)
 {
-    return (kind >= 1 && kind <= 3 && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) ? 1 : 0;
+    return (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) ? 1
+                                                                                         : 0;
 }
 
 int port_audio_bank_ready(void)
@@ -349,6 +390,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t ninc = phase_inc(GUN_NOISE_HZ);
     uint32_t dinc = phase_inc(DRY_HZ);
     uint32_t oinc = phase_inc(DOOR_HZ);
+    uint32_t finc = phase_inc(FALL_HZ);
     int i;
     int kind = g_sfx_kind;
 
@@ -407,6 +449,25 @@ void port_audio_cb(int16_t *stereo, int nframes)
             acc_l += s;
             acc_r += s;
             g_sfx_left--;
+        }
+
+        if (g_ov_left > 0 && g_ov_len > 0) {
+            int s = 0;
+            int okind = g_ov_kind;
+            if (g_ov_use_pcm && okind >= 1 && okind <= SFX_KIND_MAX && g_sfx_pcm[okind] &&
+                g_ov_pos < g_sfx_pcm_n[okind]) {
+                int vol = (int)g_sfx_pcm_vol[okind];
+                int32_t v = ((int32_t)g_sfx_pcm[okind][g_ov_pos] * vol) / 127;
+                g_ov_pos++;
+                s = (int)v;
+            } else {
+                int amp = (int)((uint32_t)FALL_AMP * g_ov_left / g_ov_len);
+                s = osc_tri(g_ov_phase, amp);
+                g_ov_phase += finc;
+            }
+            acc_l += s;
+            acc_r += s;
+            g_ov_left--;
         }
 
         stereo[i * 2] = CLAMP16(acc_l);

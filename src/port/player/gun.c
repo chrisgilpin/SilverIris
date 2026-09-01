@@ -11,6 +11,7 @@
 __attribute__((weak)) void port_prop_hear_player_shot(void) {}
 __attribute__((weak)) void port_audio_play_gun(void) {}
 __attribute__((weak)) void port_audio_play_dry(void) {}
+__attribute__((weak)) void port_audio_play_fall(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -169,22 +170,31 @@ static void fire_hitscan(void)
         if (src == 2) {
             port_chr_kill();
             port_score_add_kill();
+            if (port_audio_play_fall)
+                port_audio_play_fall();
         } else if (src == 6) {
             float hx = 0.f, hz = 0.f;
             if (port_prop_chr_hit_xz(&hx, &hz) == 0)
                 port_stan_mark_guard_at(hx, hz);
             port_score_add_kill();
+            if (port_audio_play_fall)
+                port_audio_play_fall();
         } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();
             port_score_add_kill();
+            if (port_audio_play_fall)
+                port_audio_play_fall();
         } else if (src == 5 && hit_seat >= 0) {
             int dead;
             port_set_cur_player(hit_seat);
             port_player_damage(PORT_PP7_DAMAGE);
             dead = port_player_health() <= 0;
             port_set_cur_player(shooter);
-            if (dead)
+            if (dead) {
                 port_score_add_kill();
+                if (port_audio_play_fall)
+                    port_audio_play_fall();
+            }
         }
     }
 }

@@ -850,6 +850,38 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 pack body-fall overlay)
+
+SFX follow-up on pack VADPCM gun/dry/door `4883173` (KEEP). Kill queues
+pack `BODY_FALL_C1` 123 on a second mixer voice so the PP7 shot is not
+cut. Same runtime ALBankFile VADPCM path. Placeholders remain without a
+pack. Fire≠use last_sfx contract unchanged (dry=2, door=3).
+
+KEEP `4883173` pack gun/dry/door, `9b7b6e6` P0 ammo/fire≠use/walk FB,
+`fedf44f` door-leaf interiors, `e01e97f` spawn FPS.
+
+**1 — fall overlay.** `sfx_bank ready=1 gun_n=12336 dry_n=4752 door_n=8448
+fall_n=3904`. `sfx_fall last=4 mix_diff=512`. `pad_use_no_fire` sfx=3.
+`dry_fire` mag=0→0 flash=0 act=2 sfx=2 n=22. `pad_fire_no_unlatch`
+mag=7→6 flash=3 open=0→0 act=1.
+
+**2 — hitch / doors / walk.** Re-measured: `fire_hitch miss_ms=3.39
+hit_ms=3.23 hits=1`. `play_spawn` spawn_fill dark=38 metal=10782
+frame_ms=27.33 (36.6 fps). `long_walk fb=76079→76084 dark=1385`.
+`clipdoor_fill dark=53 metal=4446`. y=29.12.
+
+Native player/gun/g1/2p-corridor/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Full ASP HLE still out (music, spatial, other SFX IDs). Music is
+  still a placeholder loop.
+- Camo SHADE-flattening / G1≠stan leftovers; idle KF7 empty.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 pack VADPCM gun/dry/door SFX `4883173`)
 
 SFX slice on top of P0 empty-mag / fire≠use / walk FB `9b7b6e6` (KEEP).
