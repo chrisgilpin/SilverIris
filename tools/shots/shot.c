@@ -3394,6 +3394,29 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_wide") ||
+        !strcmp(tag, "play_shoot_before")) {
+        unsigned tan;
+        int w = port_api_fb_width(), h = port_api_fb_height();
+        /* Extra-idle right-hip hang; skip the left door leaf. */
+        tan = count_tan_rect(fb, w, h, w / 8, h / 4, w / 2, (h * 7) / 8);
+        printf("idle_hang %s held=%d tan=%u\n", tag, port_prop_held_drawn(), tan);
+        if (port_prop_held_drawn() < 1) {
+            fprintf(stderr, "%s idle hang empty held=%d\n", tag, port_prop_held_drawn());
+            return -1;
+        }
+        if (tan < 40u) {
+            fprintf(stderr, "%s idle hang no tan KF7 tan=%u\n", tag, tan);
+            return -1;
+        }
+    }
+    if (!strcmp(tag, "play_shoot_after") || !strcmp(tag, "play_shoot_after_down")) {
+        if (port_prop_held_drawn() > 0) {
+            fprintf(stderr, "%s dead still holding KF7 held=%d\n", tag,
+                    port_prop_held_drawn());
+            return -1;
+        }
+    }
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
         !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk") ||
         !strcmp(tag, "play_aim_look") || !strcmp(tag, "play_aim_grip") ||

@@ -4881,9 +4881,11 @@ int port_prop_door_park_offset(float world_x, float world_z, float portal_yaw,
     return 1;
 }
 
-/* Third-person Pchr*Z parented to Rare Switches[3] (right wrist). Only
- * in-box fire_standing — idle hang stays empty. Mutate/restore the
- * shared drop model so floor KF7 keeps Euler + catalog 0.1 scale. */
+/* Third-person Pchr*Z parented to Rare Switches[3] (right wrist).
+ * Living idle/walk/aim with joints — hang at the idle wrist, grip on
+ * fire_standing. Dead bodies drop the floor KF7 (not a held emit).
+ * Mutate/restore the shared drop model so floor KF7 keeps Euler +
+ * catalog 0.1 scale. */
 static int emit_held_gun(G1RoomDl *out, int cap, int k, PortProp *pr, const PortModel *body,
                          const float room1[3], float pdx, float pdz)
 {
@@ -4893,7 +4895,7 @@ static int emit_held_gun(G1RoomDl *out, int cap, int k, PortProp *pr, const Port
 
     if (!pr || !body || pr->held_model <= 0 || pr->dropped)
         return k;
-    if (!mdl_is_aim(body) || !mdl_use_joints(body))
+    if (!mdl_use_joints(body))
         return k;
     slot = body->gun_mtx;
     if (slot < 0 || slot >= body->njoint)
