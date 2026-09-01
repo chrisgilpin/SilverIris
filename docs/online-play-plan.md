@@ -809,3 +809,42 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 camera-space PP7 `42ba170`)
+
+N64-feel slice on top of Chead neck `b56a698` (KEEP). SHA `42ba170`.
+Rare PosXYZ + bind-pose Euler hangs GwppkZ below the G1 near plane at
+phi=0 (muzzle sliver). `.view` applied look pitch, so looking down filled
+the FB and looking level hid the gun. Lock the camera-space product that
+used to appear at phi=-35 (`View(-35°)` ≡ `Rx(+35°)` around the eye).
+Hold XYZ stays Rare. Look pitch is not applied to `.view`.
+
+KEEP `b56a698` per-pose Chead neck, `7f974af` Hor+, `1207531` fetal
+death, `1312936` held KF7, `999e0fc` aim joints, `e01e97f` spawn FPS.
+
+**1 — viewgun.** `play_spawn` `viewgun_lr n=12771` PP7+hand on-screen at
+phi=0 (was a sliver). `play_hall_a` / `play_aim_grip` / `play_stairs`
+classic lower-right PP7. `play_shoot_after_down` phi=-40 `viewgun_lr
+n=5053 top_r=1290` — gun stays put, fetal corpse visible, not a
+soles-to-camera fill. `g1 viewgun mean_y 213 -> 213` (pitch does not
+swing).
+
+**2 — hitch / jump / Hor+ / heads.** Re-measured: `fire_hitch
+miss_ms=3.38 hit_ms=3.71`; `play_shoot_after` kills=2 mag 7/14
+`held=0`; `aim_look have=1 bound=1` `held=1 drawn=70`; `play_aim_grip`
+Jim + tan KF7 grip `headj=1`. A→B hopped=0 y=29.12 r71; `clipdoor hunt
+teleports=0`; real stair still `-244,-2098` eye 348.2 mean 65.
+`play_spawn` aspect=1.333 hfov=75.2; `play_spawn_wide` aspect=1.778
+hfov=91.5. `play_spawn` `drawn=69 held=0 headj=1`.
+
+Spawn `drawn=69 held=0 headj=1` frame_ms=36.10 (27.7 fps unopt) —
+`e01e97f` 35ms class kept.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1.
+
