@@ -581,9 +581,9 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-08-31 death rest + idle arms)
+## STATUS (2026-08-31 death rest + idle arms `c0277f9`)
 
-N64-feel slice on top of A/B/C `6ec243b` (KEEP). Die anim last frame is a
+N64-feel slice on top of A/B/C `6ec243b` (KEEP). SHA `c0277f9`. Die anim last frame is a
 hierarchical 4x4 joint table (SKELETON(guard) MatrixID0/1, 20 slots on
 oliveguard), not skip=pose Euler. A ~90° lie-down gimbal-locked T*R and
 became the compact camo pile. Seg-3 G_MTX is `view * T(pad)*R_yaw*S *
