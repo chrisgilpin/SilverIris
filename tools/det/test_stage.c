@@ -2407,8 +2407,7 @@ static int test_closed_portal_vis(void)
     mag = count_magenta();
     if (port_stage_rooms_walked() != 2 || mag < 1000)
         return fail("doorlike open archway must still walk room 2");
-    port_stan_add_door(pos[0] * port_stage_bg_inv(), pos[2] * port_stage_bg_inv(), 0.f,
-                       -1.f);
+    port_stan_add_door(pos[0], pos[2], 0.f, -1.f);
     port_api_draw();
     mag = count_magenta();
     if (port_stage_rooms_walked() != 1)

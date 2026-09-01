@@ -67,6 +67,17 @@ static void dump_path_doors(void)
            port_stage_opening_count(), port_stan_door_count());
 }
 
+/* Stand just outside the fitted slab. Hard 120 sat inside scaled
+ * ~132-half doors once portal geom matched G1/stan. +24 clears the
+ * 15u slab thickness and keeps a side-stand inside Z-use 200. */
+static float door_stand_dist(float width)
+{
+    float d = 0.5f * width + 24.f;
+    if (d < 80.f)
+        d = 80.f;
+    return d;
+}
+
 
 /* Face a documented path portal, Z-unlatch, prove collision AND parked pose. */
 static int path_unlatch_proof(void)
@@ -106,11 +117,14 @@ static int path_unlatch_proof(void)
                     slx = 0.f;
                     slz = -1.f;
                 }
-                sx = ox0 - slx * 120.f;
-                sz = oz0 - slz * 120.f;
-                if (!port_stan_on_tile(sx, sz)) {
-                    sx = ox0 + slx * 120.f;
-                    sz = oz0 + slz * 120.f;
+                {
+                    float stand = door_stand_dist(width);
+                    sx = ox0 - slx * stand;
+                    sz = oz0 - slz * stand;
+                    if (!port_stan_on_tile(sx, sz)) {
+                        sx = ox0 + slx * stand;
+                        sz = oz0 + slz * stand;
+                    }
                 }
                 if (!port_stan_on_tile(sx, sz))
                     continue;
@@ -142,13 +156,16 @@ static int path_unlatch_proof(void)
         lx = 0.f;
         lz = -1.f;
     }
-    px = ox - lx * 120.f;
-    pz = oz - lz * 120.f;
-    if (!port_stan_on_tile(px, pz)) {
-        px = ox + lx * 120.f;
-        pz = oz + lz * 120.f;
-        lx = -lx;
-        lz = -lz;
+    {
+        float stand = door_stand_dist(width);
+        px = ox - lx * stand;
+        pz = oz - lz * stand;
+        if (!port_stan_on_tile(px, pz)) {
+            px = ox + lx * stand;
+            pz = oz + lz * stand;
+            lx = -lx;
+            lz = -lz;
+        }
     }
     if (port_stan_eye_y(px, pz, &y) != 0)
         y = 86.8f;
@@ -163,13 +180,17 @@ static int path_unlatch_proof(void)
     port_player_set_pose(px, y, pz, th);
     port_player_set_pitch(0.f);
 
-    nx = ox;
-    nz = oz;
+    /* Dest is the far tile, not the portal seam (tile-less after *inv). */
+    nx = ox + lx * 40.f;
+    nz = oz + lz * 40.f;
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = ox + lx * 80.f;
+        nz = oz + lz * 80.f;
+    }
     ny = y;
     port_stan_clip_step(px, pz, &nx, &nz, &ny);
-    ax = nx - ox;
-    az = nz - oz;
-    closed_block = (ax * ax + az * az > 25.f) || port_stan_door_is_open_at(pos[0], pos[2]) == 0;
+    ax = (nx - ox) * lx + (nz - oz) * lz;
+    closed_block = (ax < 8.f) || port_stan_door_is_open_at(pos[0], pos[2]) == 0;
     port_api_draw();
     ad_closed = adler32(port_api_fb(),
                         (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
@@ -198,13 +219,16 @@ static int path_unlatch_proof(void)
             port_stan_tick_doors();
     }
     port_player_set_pose(px, y, pz, th);
-    nx = ox;
-    nz = oz;
+    nx = ox + lx * 40.f;
+    nz = oz + lz * 40.f;
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = ox + lx * 80.f;
+        nz = oz + lz * 80.f;
+    }
     ny = y;
     port_stan_clip_step(px, pz, &nx, &nz, &ny);
-    ax = nx - ox;
-    az = nz - oz;
-    open_pass = (ax * ax + az * az <= 400.f);
+    ax = (nx - ox) * lx + (nz - oz) * lz;
+    open_pass = (ax > 8.f);
     port_api_draw();
     ad_open = adler32(port_api_fb(),
                       (size_t)port_api_fb_width() * (size_t)port_api_fb_height() * 4u);
@@ -290,13 +314,16 @@ static int path_close_swing_proof(void)
         lx = 0.f;
         lz = -1.f;
     }
-    px = ox - lx * 120.f;
-    pz = oz - lz * 120.f;
-    if (!port_stan_on_tile(px, pz)) {
-        px = ox + lx * 120.f;
-        pz = oz + lz * 120.f;
-        lx = -lx;
-        lz = -lz;
+    {
+        float stand = door_stand_dist(width);
+        px = ox - lx * stand;
+        pz = oz - lz * stand;
+        if (!port_stan_on_tile(px, pz)) {
+            px = ox + lx * stand;
+            pz = oz + lz * stand;
+            lx = -lx;
+            lz = -lz;
+        }
     }
     if (!port_stan_on_tile(px, pz)) {
         printf("path_close_swing r%d-r%d off-tile\n", ra, rb);
@@ -344,26 +371,31 @@ static int path_close_swing_proof(void)
     door_tick_n(3);
     frac_mid = port_stan_door_frac_at(pos[0], pos[2]);
     port_player_set_pose(px, y, pz, th);
-    nx = ox;
-    nz = oz;
+    nx = ox + lx * 40.f;
+    nz = oz + lz * 40.f;
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = ox + lx * 80.f;
+        nz = oz + lz * 80.f;
+    }
     ny = y;
     port_stan_clip_step(px, pz, &nx, &nz, &ny);
-    ax = nx - ox;
-    az = nz - oz;
-    mid_pass = (frac_mid > 0.15f && frac_mid < 0.99f) &&
-               (ax * ax + az * az <= 400.f);
+    ax = (nx - ox) * lx + (nz - oz) * lz;
+    mid_pass = (frac_mid > 0.15f && frac_mid < 0.99f) && (ax > 8.f);
 
     door_tick_n(PORT_DOOR_OPEN_TICKS - 3);
     frac_end = port_stan_door_frac_at(pos[0], pos[2]);
     (void)port_prop_door_park_offset(pos[0], pos[2], yaw, &pdx, &pdz, &pyaw);
     port_player_set_pose(px, y, pz, th);
-    nx = ox;
-    nz = oz;
+    nx = ox + lx * 40.f;
+    nz = oz + lz * 40.f;
+    if (!port_stan_on_tile(nx, nz)) {
+        nx = ox + lx * 80.f;
+        nz = oz + lz * 80.f;
+    }
     ny = y;
     port_stan_clip_step(px, pz, &nx, &nz, &ny);
-    ax = nx - ox;
-    az = nz - oz;
-    closed_block = (frac_end <= 0.01f) && (ax * ax + az * az > 25.f);
+    ax = (nx - ox) * lx + (nz - oz) * lz;
+    closed_block = (frac_end <= 0.01f) && (ax < 8.f);
     pose_closed = (pdx * pdx + pdz * pdz < 16.f) && (fabsf(pyaw) < 2.f);
 
     /* Extra ticks must not auto-reopen. */
@@ -446,13 +478,16 @@ static int chase_door_proof(void)
         lx = 0.f;
         lz = -1.f;
     }
-    wx = ox - lx * 120.f;
-    wz = oz - lz * 120.f;
-    if (!port_stan_on_tile(wx, wz)) {
-        wx = ox + lx * 120.f;
-        wz = oz + lz * 120.f;
-        lx = -lx;
-        lz = -lz;
+    {
+        float stand = door_stand_dist(width);
+        wx = ox - lx * stand;
+        wz = oz - lz * stand;
+        if (!port_stan_on_tile(wx, wz)) {
+            wx = ox + lx * stand;
+            wz = oz + lz * stand;
+            lx = -lx;
+            lz = -lz;
+        }
     }
     /* Player far enough that |dz| stays >200 even when the walker
      * reaches the slab — otherwise they enter LOS and stop chasing. */
@@ -596,6 +631,7 @@ static int wide_door_side_proof(void)
     float r1[3], pos[3], yaw = 0.f, width = 0.f;
     float ox, oz, lx, lz, tx, tz, px, pz, y = 86.8f, th;
     float nx, nz, ny, side;
+    float inv;
     int i, no, ra = 0, rb = 0, found = 0, used, opened;
     int closed_block = 0, open_pass = 0;
     static const int pick[][2] = {{7, 8}, {8, 7}, {8, 5}, {5, 8}};
@@ -603,12 +639,15 @@ static int wide_door_side_proof(void)
 
     r1[0] = r1[1] = r1[2] = 0.f;
     (void)port_stage_room1(r1);
+    inv = port_stage_bg_inv();
+    if (inv <= 0.f)
+        inv = 1.f;
     no = port_stage_opening_count();
     for (p = 0; p < 4 && !found; p++) {
         for (i = 0; i < no; i++) {
             if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
                 continue;
-            if (ra == pick[p][0] && rb == pick[p][1] && width > 200.f) {
+            if (ra == pick[p][0] && rb == pick[p][1] && width > 200.f * inv) {
                 found = 1;
                 break;
             }
@@ -618,7 +657,7 @@ static int wide_door_side_proof(void)
         for (i = 0; i < no; i++) {
             if (port_stage_opening(i, pos, &yaw, &width, &ra, &rb) != 0)
                 continue;
-            if (port_stage_path_opening(ra, rb) && width > 200.f) {
+            if (port_stage_path_opening(ra, rb) && width > 200.f * inv) {
                 found = 1;
                 break;
             }
@@ -640,12 +679,19 @@ static int wide_door_side_proof(void)
     }
     tx = -lz;
     tz = lx;
-    /* Midway between old 90-half and fitted half so a 90 slab would leak. */
-    side = 0.5f * (90.f + 0.5f * width);
-    if (side < 100.f)
-        side = 100.f;
-    if (side > 0.5f * width - 16.f)
-        side = 0.5f * width - 16.f;
+    /* Midway between old 90-half (scaled) and fitted half so a 90 slab would leak. */
+    {
+        float inv = port_stage_bg_inv();
+        float half90;
+        if (inv <= 0.f)
+            inv = 1.f;
+        half90 = 90.f * inv;
+        side = 0.5f * (half90 + 0.5f * width);
+        if (side < 100.f * inv)
+            side = 100.f * inv;
+        if (side > 0.5f * width - 16.f)
+            side = 0.5f * width - 16.f;
+    }
 
     {
         int a, b, ok = 0;
@@ -655,8 +701,8 @@ static int wide_door_side_proof(void)
             slz = (a == 0) ? lz : -lz;
             for (b = 0; b < 2 && !ok; b++) {
                 float s = (b == 0) ? side : -side;
-                px = ox - slx * 120.f + tx * s;
-                pz = oz - slz * 120.f + tz * s;
+                px = ox - slx * door_stand_dist(width) + tx * s;
+                pz = oz - slz * door_stand_dist(width) + tz * s;
                 if (port_stan_on_tile(px, pz)) {
                     lx = slx;
                     lz = slz;
@@ -794,13 +840,16 @@ static int hinge_park_one(const int pick[][2], int npick, float wlo, float whi,
     }
     tx = -lz;
     tz = lx;
-    px = ox - lx * 120.f;
-    pz = oz - lz * 120.f;
-    if (!port_stan_on_tile(px, pz)) {
-        px = ox + lx * 120.f;
-        pz = oz + lz * 120.f;
-        lx = -lx;
-        lz = -lz;
+    {
+        float stand = door_stand_dist(width);
+        px = ox - lx * stand;
+        pz = oz - lz * stand;
+        if (!port_stan_on_tile(px, pz)) {
+            px = ox + lx * stand;
+            pz = oz + lz * stand;
+            lx = -lx;
+            lz = -lz;
+        }
     }
     if (!port_stan_on_tile(px, pz)) {
         printf("hinge_park %s r%d-r%d w=%.1f off-tile\n", tag, ra, rb,
@@ -852,10 +901,15 @@ static int hinge_park_one(const int pick[][2], int npick, float wlo, float whi,
         /* Tangent component of a 90 park is the hinge offset (~ half-w). */
         ok = opened && frac >= 0.99f && fabsf(pyaw) > 80.f &&
              fabsf(fabsf(along) - hw) <= 24.f;
-        if (hw > 140.f && fabsf(along) < 110.f)
-            ok = 0; /* still the old 90-half */
-        if (hw < 80.f && fabsf(along) > 110.f)
-            ok = 0; /* flew across the room */
+        {
+            float inv = port_stage_bg_inv();
+            if (inv <= 0.f)
+                inv = 1.f;
+            if (hw > 140.f * inv && fabsf(along) < 110.f * inv)
+                ok = 0; /* still the old 90-half */
+            if (hw < 80.f * inv && fabsf(along) > 110.f * inv)
+                ok = 0; /* flew across the room */
+        }
         if (opened)
             (void)port_stan_use_door(px, pz, lx, lz);
         door_tick_n(PORT_DOOR_OPEN_TICKS);
@@ -879,9 +933,12 @@ static int hinge_width_park_proof(void)
 {
     static const int wide[][2] = {{8, 7}, {7, 8}, {8, 5}, {5, 8}};
     static const int narrow[][2] = {{8, 20}, {20, 8}, {3, 18}, {18, 3}};
-    if (hinge_park_one(wide, 4, 200.f, 400.f, "wide") != 0)
+    float inv = port_stage_bg_inv();
+    if (inv <= 0.f)
+        inv = 1.f;
+    if (hinge_park_one(wide, 4, 200.f * inv, 400.f * inv, "wide") != 0)
         return -1;
-    if (hinge_park_one(narrow, 4, 100.f, 160.f, "narrow") != 0)
+    if (hinge_park_one(narrow, 4, 100.f * inv, 160.f * inv, "narrow") != 0)
         return -1;
     return 0;
 }
@@ -2697,12 +2754,10 @@ static int playtest_chris(const char *out_dir)
                 d = sqrtf(ddx * ddx + ddz * ddz);
                 if (d > 300.f)
                     continue;
-                frac = port_stan_door_frac_at(pos[0] * port_stage_bg_inv(),
-                                             pos[2] * port_stage_bg_inv());
+                frac = port_stan_door_frac_at(pos[0], pos[2]);
                 if (frac > 0.01f)
                     continue;
-                if (!port_stan_closed_door_at_world(pos[0] * port_stage_bg_inv(),
-                                                    pos[2] * port_stage_bg_inv()))
+                if (!port_stan_closed_door_at_world(pos[0], pos[2]))
                     continue;
                 nclosed++;
                 far = (ra == cur) ? rb : (rb == cur) ? ra : 0;

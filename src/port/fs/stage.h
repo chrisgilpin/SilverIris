@@ -35,7 +35,7 @@ int port_stage_gdl_vtx(void);
 int port_stage_gdl_sec(void);
 int port_stage_portal_count(void);
 void port_stage_dump_portals(void);
-/* Door-sized portal openings (world center xz, floor y, look-yaw, width). */
+/* Door-sized portal openings (scaled world center xz, floor y, look-yaw, width). */
 int port_stage_opening_count(void);
 int port_stage_opening(int i, float pos[3], float *yaw, float *width, int *ra, int *rb);
 /* Rare portal quad height (world). 0 if i is not a doorlike opening. */

@@ -4464,13 +4464,13 @@ static PortModel *slab_sized(float width, float tall)
     int16_t hw, ht;
     int i;
 
-    if (width < 80.f)
-        width = 80.f;
+    if (width < 50.f)
+        width = 50.f;
     /* r71 alcove stamp is 640; 450 silently cropped the G1≠stan void. */
     if (width > 640.f)
         width = 640.f;
-    if (tall < 80.f)
-        tall = 80.f;
+    if (tall < 50.f)
+        tall = 50.f;
     if (tall > 500.f)
         tall = 500.f;
     hw = (int16_t)(0.5f * width + 0.5f);
@@ -5045,7 +5045,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             if (pos[1] > floor_y + 200.f)
                 continue;
             tall = port_stage_opening_height(o);
-            if (tall < 80.f)
+            /* Scaled doorlike min is ~66u (80/levelscale). 80 would bump
+             * those back to PORT_DOOR_HEIGHT and oversize the G1 hole. */
+            if (tall < 50.f)
                 tall = PORT_DOOR_HEIGHT;
             /* Fixed rim pad + z-push: 1.02× left G1 jamb black, 1.15× read
              * as an oversized panel (P0-C). */

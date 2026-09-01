@@ -87,6 +87,8 @@ static int g_gdl_sec;
 static float g_bg_inv = 1.f;
 static PortBgRoom g_rm[PORT_MAX_BG_ROOMS];
 static PortPortal g_portals[PORT_MAX_PORTALS];
+static int g_portals_scaled;
+static void scale_portal_geom(float inv);
 static int g_nportals;
 static int g_cur_room;
 static int g_rooms_walked;
@@ -179,6 +181,7 @@ static void clear_rooms(void)
         memset(&g_rm[i], 0, sizeof g_rm[i]);
     }
     g_nportals = 0;
+    g_portals_scaled = 0;
     g_cur_room = 0;
     g_rooms_walked = 0;
     memset(g_walked, 0, sizeof g_walked);
@@ -313,6 +316,7 @@ static int fixup_bg(uint8_t *bg, size_t n)
     g_gdl_sec = 0;
     g_bg_inv = 1.f;
     g_nportals = 0;
+    g_portals_scaled = 0;
     memset(g_rm, 0, sizeof g_rm);
 
     if (n < BG_HDR_BYTES)
@@ -612,6 +616,12 @@ int port_stage_load(int level_id)
             port_stan_set_world_origin(g_rm[1].pos[0] * g_bg_inv,
                                        g_rm[1].pos[1] * g_bg_inv,
                                        g_rm[1].pos[2] * g_bg_inv);
+        /* Portal quads are authored in unscaled room.pos space. G1 draw,
+         * stan tiles, and pad props already *inv; scale stored portal
+         * geom into that same world so fitted door faces sit in the G1
+         * hole instead of ~20% long (G1≠stan leftover). doorlike was
+         * classified on the unscaled 80-450 band. */
+        scale_portal_geom(g_bg_inv);
     }
     port_player_spawn();
     port_prop_load(level_id);
@@ -842,6 +852,23 @@ int port_stage_path_opening(int ra, int rb)
            (ra == 73 && rb == 11) || (ra == 11 && rb == 73);
 }
 
+static void scale_portal_geom(float inv)
+{
+    int i;
+    if (g_portals_scaled || !(inv > 0.f) || inv == 1.f)
+        return;
+    for (i = 0; i < g_nportals; i++) {
+        g_portals[i].pos[0] *= inv;
+        g_portals[i].pos[1] *= inv;
+        g_portals[i].pos[2] *= inv;
+        g_portals[i].width *= inv;
+        g_portals[i].horiz *= inv;
+        g_portals[i].tall *= inv;
+        g_portals[i].thin *= inv;
+    }
+    g_portals_scaled = 1;
+}
+
 static void bind_path_openings(void)
 {
     int i;
@@ -852,7 +879,8 @@ static void bind_path_openings(void)
         if (!port_stage_path_opening((int)g_portals[i].a, (int)g_portals[i].b))
             continue;
         /* Stan origin is room1, so use_door maps player local -> world.
-         * Bind fitted portal world xz, not gas-plant GROUP / pad origins. */
+         * Bind fitted portal world xz, not gas-plant GROUP / pad origins.
+         * Portal geom is already *inv (same world as G1 / stan / pads). */
         if (g_portals[i].yaw == 90.f) {
             lx = 1.f;
             lz = 0.f;
@@ -860,9 +888,8 @@ static void bind_path_openings(void)
             lx = 0.f;
             lz = -1.f;
         }
-        port_stan_add_door_w(g_portals[i].pos[0] * g_bg_inv,
-                            g_portals[i].pos[2] * g_bg_inv, lx, lz,
-                            g_portals[i].width * g_bg_inv);
+        port_stan_add_door_w(g_portals[i].pos[0], g_portals[i].pos[2], lx, lz,
+                            g_portals[i].width);
     }
 }
 
@@ -1014,7 +1041,7 @@ static int portal_vis_closed(const PortPortal *po)
 {
     if (!po->doorlike)
         return 0;
-    return port_stan_closed_door_at_world(po->pos[0] * g_bg_inv, po->pos[2] * g_bg_inv);
+    return port_stan_closed_door_at_world(po->pos[0], po->pos[2]);
 }
 
 static int pick_current_room(void)
