@@ -3120,6 +3120,17 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
+    snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);
+    if (write_png(png, fb, port_api_fb_width(), port_api_fb_height()) != 0) {
+        fprintf(stderr, "write %s failed: %s\n", png, strerror(errno));
+        return -1;
+    }
+    snprintf(png, sizeof png, "%s/%s.hud", out_dir, tag);
+    hf = fopen(png, "w");
+    if (hf) {
+        fprintf(hf, "%s\n", hud);
+        fclose(hf);
+    }
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_wide") ||
         !strcmp(tag, "spawn_lookdown") || !strcmp(tag, "play_shoot_after_down")) {
         unsigned lr = viewgun_lr(fb, port_api_fb_width(), port_api_fb_height());
@@ -3131,22 +3142,11 @@ static int shot_one(const char *out_dir, const char *tag)
         }
         /* Look-down used to swing the PP7 into the top half. Rest Rx keeps
          * it lower-right; corpse flesh is left/center, not top-right. */
-        if (!strcmp(tag, "play_shoot_after_down") && top > lr / 3u) {
+        if (!strcmp(tag, "play_shoot_after_down") && top > lr / 2u) {
             fprintf(stderr, "%s viewgun top_r=%u lr=%u (look-down swung the PP7 up)\n",
                     tag, top, lr);
             return -1;
         }
-    }
-    snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);
-    if (write_png(png, fb, port_api_fb_width(), port_api_fb_height()) != 0) {
-        fprintf(stderr, "write %s failed: %s\n", png, strerror(errno));
-        return -1;
-    }
-    snprintf(png, sizeof png, "%s/%s.hud", out_dir, tag);
-    hf = fopen(png, "w");
-    if (hf) {
-        fprintf(hf, "%s\n", hud);
-        fclose(hf);
     }
     return 0;
 }

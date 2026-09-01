@@ -4103,8 +4103,9 @@ int port_prop_viewgun_id(void) { return g_viewgun_id; }
  * Walk Rare nodes (no recoil/reload). Model +Z is Rare forward; G1 looks
  * -Z so Rx(rest) * hold * R180 * S(0.1) * part. Camera-space via .view
  * (look pitch is not applied). Hold is Rare PosXYZ; scale is IDO_POINT_ONE
- * (gunfire.c gunmtx). Rest Rx is the camera-space product that used to
- * appear at phi=-35 when .view followed look.
+ * (gunfire.c gunmtx). Rest Rx is enough to lift GwppkZ on-screen and
+ * keep mtx_euler off the R180 gimbal; 42ba170's +35° pointed at the
+ * ceiling.
  */
 static int viewgun_is_flash(int p, const PortPart *pt)
 {
@@ -4133,7 +4134,8 @@ int port_prop_fill_viewgun(G1RoomDl *out, int cap)
         float hx, hy, hz, rest[4][4], held[4][4];
         port_gun_hold(&hx, &hy, &hz);
         mtx_local(held, hx, hy, hz, 0.f, 0.f, 0.f);
-        /* View(-35°) at identity look ≡ Rx(+35°) around the eye. */
+        /* Small Rx around the eye: lift + keep R180*part off gimbal lock.
+         * +35° was the look-down product and pointed at the ceiling. */
         mtx_local(rest, 0.f, 0.f, 0.f, PORT_GUN_VIEW_RX, 0.f, 0.f);
         mtx_mul4(hold, rest, held);
     }
