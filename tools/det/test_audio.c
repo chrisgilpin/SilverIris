@@ -170,6 +170,20 @@ int main(int argc, char **argv)
         printf("fall sha256=%s\n", hex);
         if (strcmp(hex, gun_hex) == 0)
             return fail("fall pcm matches gun");
+
+        port_audio_init();
+        port_audio_play_hit();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("hit was silence");
+        if (port_audio_last_sfx() != PORT_SFX_HIT)
+            return fail("hit last_sfx");
+        hash_pcm(pcm, hex);
+        printf("hit sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("hit pcm matches gun");
+        if (check_hash(dir, "hit.pcm.sha256", hex) != 0)
+            return 1;
     }
 
     port_audio_init();

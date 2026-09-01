@@ -46,22 +46,24 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn;
+    int i, gn, dn, on, fn, hn;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
     dn = port_audio_sfx_frames(PORT_SFX_DRY);
     on = port_audio_sfx_frames(PORT_SFX_DOOR);
     fn = port_audio_sfx_frames(PORT_SFX_FALL);
-    printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn);
+    hn = port_audio_sfx_frames(PORT_SFX_HIT);
+    printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
-        !port_audio_sfx_from_bank(PORT_SFX_FALL) || gn < 2000 || dn < 500 ||
-        on < 1000 || fn < 500 || gn <= dn) {
-        fprintf(stderr, "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d\n",
-                gn, dn, on, fn);
+        !port_audio_sfx_from_bank(PORT_SFX_FALL) ||
+        !port_audio_sfx_from_bank(PORT_SFX_HIT) || gn < 2000 || dn < 500 ||
+        on < 1000 || fn < 500 || hn < 200 || gn <= dn) {
+        fprintf(stderr, "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d\n",
+                gn, dn, on, fn, hn);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -108,6 +110,27 @@ static int sfx_bank_proof(void)
                         port_audio_last_sfx(), ef, diff);
                 return -1;
             }
+        }
+    }
+    {
+        int16_t hit[512];
+        long long eh = 0;
+        int diff = 0;
+        memset(hit, 0, sizeof hit);
+        port_audio_play_gun();
+        port_audio_play_hit();
+        port_audio_cb(hit, 256);
+        for (i = 0; i < 512; i++) {
+            eh += (long long)hit[i] * hit[i];
+            if (hit[i] != gun[i])
+                diff++;
+        }
+        printf("sfx_hit n=%d e=%lld last=%d mix_diff=%d\n", hn, eh,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_HIT || eh < 100000ll || diff < 16) {
+            fprintf(stderr, "sfx_hit did not overlay gun last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), eh, diff);
+            return -1;
         }
     }
     return 0;

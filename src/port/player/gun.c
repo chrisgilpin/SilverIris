@@ -12,6 +12,7 @@ __attribute__((weak)) void port_prop_hear_player_shot(void) {}
 __attribute__((weak)) void port_audio_play_gun(void) {}
 __attribute__((weak)) void port_audio_play_dry(void) {}
 __attribute__((weak)) void port_audio_play_fall(void) {}
+__attribute__((weak)) void port_audio_play_hit(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -167,6 +168,11 @@ static void fire_hitscan(void)
         g->hit_z = oz + dz * t_best;
         g->have_hit = 1;
         g->hits += 1;
+        {
+            int guard = (src == 1) ? port_stan_ray_hit_guard() : 0;
+            if ((src == 2 || src == 6 || guard || src == 5) && port_audio_play_hit)
+                port_audio_play_hit();
+        }
         if (src == 2) {
             port_chr_kill();
             port_score_add_kill();
