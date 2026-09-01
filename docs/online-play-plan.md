@@ -850,6 +850,50 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 portal geom in G1/stan space `21cbd0a`)
+
+N64-feel slice on top of door/camo SETTEX albedo `30db967` (KEEP). SHA `21cbd0a`.
+Rare portal quads lived in unscaled room.pos while G1 draw, stan tiles,
+and pad props already `*inv` (Facility 1/1.20648). Fitted door faces
+sat ~20% long of the G1 hole. Stored portal pos/width/tall now scale
+once after inv is known; `bind_path_openings` / vis-cull use that world
+(no second `*inv`). doorlike stays the unscaled 80-450 band. r71
+alcove stamp 640 and G1 cutouts already scaled — unchanged.
+
+KEEP `30db967` door/camo albedo, `f3414ae` floor KF7, `6666c32`
+death-rest across look, `a32ed6a` brown door fills, `a106ce5`
+clip-door fill, `fecd44a` sealed faces, `e9247e9` portal cull,
+`e01e97f` spawn FPS.
+
+**1 — G1≠stan door faces.** Path openings now in player-local:
+`r8-r7 local=650.7,-1753.0 w=265.2` (was unscaled ~744/-2133 w=320).
+`path_unlatch` / `wide_door_side` / `hinge_park` wide+narrow /
+`path_close_swing` OK. `play_spawn` spawn_fill dark=5 metal=11143
+area=13376. `play_hall_a` dark=0 metal=13376. `play_clip_door`
+clipdoor_fill dark=45 metal=4568 area=5120 `clipdoor_olive n=34`
+`walked n=1 11`.
+
+**2 — hitch / jump / Hor+ / heads / gun / death.** Re-measured:
+`fire_hitch miss_ms=3.39 hit_ms=3.17 hits=1`; `play_shoot_after`
+kills=2 mag 7/14 `held=0` `drop=1`. `die_across add=90 olive=6159`
+`viewgun_lr play_spawn n=13525` `play_shoot_after_down n=2634
+top_r=1238`. A→B hopped=0 y=29.12 r71; `clipdoor hunt teleports=0`.
+Camo `play_spawn` olive=4084 uniq=18 var=108.2; `play_hall_a`
+olive=5037 uniq=30 var=95.6. Spawn `drawn=68 held=0 headj=1`
+frame_ms=25.81 (38.7 fps unopt) / `--bench` frame_ms=25.81 (38.7 fps)
+— `e01e97f` 35ms class kept.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Some door-leaf interiors still a fill quad vs a full N64 FRAME with
+  handles.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 door/camo SETTEX albedo `30db967`)
 
 N64-feel slice on top of floor KF7 `f3414ae` (KEEP). SHA `30db967`.
