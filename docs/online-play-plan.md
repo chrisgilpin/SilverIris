@@ -850,6 +850,50 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
+## STATUS (2026-09-01 PP7 rest Rx `7886c41`)
+
+N64-feel slice on top of clip-door G1 hole fill `a106ce5` (KEEP). SHA `7886c41`.
+Chris live after `a106ce5` hard-refresh: PP7 pointed nearly vertical at
+the ceiling at φ≈0. `42ba170` locked camera-space by composing Rx(+35°)
+(the old look-down product) around the eye. That lifted GwppkZ on-screen
+but tilted the barrel up. Rest Rx is +15°: enough to lift Rare PosXYZ
+out of the frustum floor and keep `mtx_euler` off the R180 gimbal, with
+the PP7 in the lower-right pointing forward. Hold XYZ stays Rare. Look
+pitch is still not applied to `.view`.
+
+KEEP `a106ce5` clip-door fill, `fecd44a` sealed opening faces,
+`e9247e9` closed-door portal cull, `42ba170` camera-space lock,
+`b56a698` per-pose Chead neck, `7f974af` Hor+, `1207531` fetal death,
+`1312936` held KF7, `999e0fc` aim joints, `e01e97f` spawn FPS,
+`b1a9201` setup-chr hitscan.
+
+**1 — viewgun rest.** `viewgun_lr play_spawn n=13525` `play_spawn_wide
+n=13153`. `play_shoot_before` / `play_hall_a` show lower-right forward
+PP7 (not at the ceiling). `play_shoot_after_down` phi=-40
+`viewgun_lr n=3179 top_r=1290` (no look-swing).
+
+**2 — hitch / jump / Hor+ / heads / gun / doors.** Re-measured:
+`fire_hitch miss_ms=3.47 hit_ms=3.92 hits=1`; `play_shoot_after`
+kills=2 mag 7/14 `held=0`; `clipdoor_olive n=34` `walked n=1 11`
+`clipdoor_fill dark=0 metal=3546 area=5120`; hunt teleports=0.
+A→B hopped=0 y=29.12 r71. `play_spawn` aspect=1.333 hfov=75.2;
+`play_spawn_wide` aspect=1.778 hfov=91.5. Spawn `drawn=68 held=0
+headj=1` camo olive=4172 uniq=22.
+
+Spawn `drawn=68 held=0 headj=1` frame_ms=25.23 (39.6 fps unopt) /
+`--bench` frame_ms=25.34 (39.5 fps) — `e01e97f` 35ms class kept.
+
+Native player/gun/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Live hits-on-crosshair (P0-A) and brown door fills looking like black
+  slabs (P0-C) still open; this ship is P0-B viewgun rest only.
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
 ## STATUS (2026-09-01 clip-door G1 hole fill `a106ce5`)
 
 N64-feel slice on top of sealed opening fill `fecd44a` (KEEP). SHA `a106ce5`.
