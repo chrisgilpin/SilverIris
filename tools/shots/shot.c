@@ -2199,6 +2199,38 @@ static int playtest_chris(const char *out_dir)
             port_player_set_pitch(0.f);
             if (shot_one(out_dir, "play_aim_look") != 0)
                 return -1;
+            printf("aim_held drawn=%d ig=%d %s\n", port_prop_held_drawn(), ig,
+                   port_prop_idle_info());
+            if (port_prop_held_drawn() < 1) {
+                fprintf(stderr, "aim_look no held KF7 drawn=%d\n", port_prop_held_drawn());
+                return -1;
+            }
+            /* Shoot-pad look is down the barrel (~5px). 3/4 from ~200u so the
+             * parented KF7 is a silhouette in the fire_standing grip. */
+            {
+                float px = -dz / dist, pz = dx / dist;
+                float side_x = lx - dx * (200.f / dist) + px * 90.f;
+                float side_z = lz - dz * (200.f / dist) + pz * 90.f;
+                float side_y = look_y, side_th;
+                if (!port_stan_on_tile(side_x, side_z)) {
+                    side_x = lx - dx * (200.f / dist);
+                    side_z = lz - dz * (200.f / dist);
+                }
+                if (port_stan_on_tile(side_x, side_z) &&
+                    port_stan_eye_y(side_x, side_z, &side_y) != 0)
+                    side_y = look_y;
+                side_th = atan2f(lx - side_x, -(lz - side_z)) * (180.f / 3.14159265f);
+                if (side_th < 0.f)
+                    side_th += 360.f;
+                printf("aim_grip from=%.1f,%.1f to=%.1f,%.1f th=%.1f\n", (double)side_x,
+                       (double)side_z, (double)lx, (double)lz, (double)side_th);
+                port_player_set_pose(side_x, side_y, side_z, side_th);
+                port_player_set_pitch(0.f);
+                if (shot_one(out_dir, "play_aim_grip") != 0)
+                    return -1;
+                printf("aim_grip held=%d drawn=%d\n", port_prop_held_drawn(),
+                       port_prop_drawn());
+            }
             place(PLAY_SHOOT_X, PLAY_SHOOT_Z, PLAY_SHOOT_TH);
             port_player_set_pitch(0.f);
         }
@@ -2808,7 +2840,7 @@ static int shot_one(const char *out_dir, const char *tag)
     snprintf(hud, sizeof hud,
              "%s x=%.2f z=%.2f y=%.2f th=%.1f ph=%.1f fb=%u stan=%d/%d mag=%d/%d "
              "hp=%d armour=%d%s kills=%d gfire=%d alert=%d settex=%u texOk=%u texMiss=%u abs=%u dec=%u last=%u %s "
-             "guards=%d parts=%d drawn=%d viewgun=%d viewid=%d flash=%d pickup=%d",
+             "guards=%d parts=%d drawn=%d held=%d viewgun=%d viewid=%d flash=%d pickup=%d",
              tag, (double)port_api_player_x(), (double)port_api_player_z(),
              (double)port_api_player_y(), (double)port_api_player_theta(),
              (double)port_api_player_phi(), nz, on, tiles, mag, reserve,
@@ -2817,7 +2849,8 @@ static int shot_one(const char *out_dir, const char *tag)
              port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
              port_api_tex_miss_absent(), port_api_tex_miss_decode(),
              (unsigned)g1_tex_last_id(), port_prop_idle_info(), port_prop_guard_count(),
-             port_prop_guard_parts(), port_prop_drawn(), port_prop_viewgun_parts(),
+             port_prop_guard_parts(), port_prop_drawn(), port_prop_held_drawn(),
+             port_prop_viewgun_parts(),
              port_prop_viewgun_id(),
              port_gun_flash_frames(), port_prop_pickup_drawn());
     describe_fb(fb, port_api_fb_width(), port_api_fb_height(), extra, sizeof extra);
@@ -2825,7 +2858,8 @@ static int shot_one(const char *out_dir, const char *tag)
            port_api_rooms_walked(), port_api_current_room(), extra);
     if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
         !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk") ||
-        !strcmp(tag, "play_aim_look") || !strcmp(tag, "aim_look")) {
+        !strcmp(tag, "play_aim_look") || !strcmp(tag, "play_aim_grip") ||
+        !strcmp(tag, "aim_look")) {
         if (camo_not_flat(fb, port_api_fb_width(), port_api_fb_height(), tag) != 0)
             return -1;
     }
@@ -3348,6 +3382,12 @@ int main(int argc, char **argv)
             }
             if (shot_one(out_dir, "aim_look") != 0)
                 goto done;
+            printf("aim_held drawn=%d ig=%d %s\n", port_prop_held_drawn(), ig,
+                   port_prop_idle_info());
+            if (port_prop_held_drawn() < 1) {
+                fprintf(stderr, "aim_look no held KF7 drawn=%d\n", port_prop_held_drawn());
+                goto done;
+            }
         }
         port_player_set_pose(spawn_x, spawn_y, spawn_z, spawn_th);
     }

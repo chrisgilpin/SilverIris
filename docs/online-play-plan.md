@@ -655,6 +655,43 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 **Remaining holes**
 
-- Combat AI / matching engine later. Campaign out of v1. Held third-person
-  KF7 is still not parented to the aim hands (body pose only).
+- Combat AI / matching engine later. Campaign out of v1.
+
+---
+
+## STATUS (2026-08-31 held KF7)
+
+N64-feel slice on top of aim joints `999e0fc` (KEEP). In-box fire_standing
+guards parent dump `PchrkalashZ` (ASSIGNEDTOCHR model 184) to Rare
+`Switches[3]` (right-wrist GROUP MatrixID0=15) via the same hierarchical
+4x4 path as the hat. Native `process_15` attach * T(GROUPSIMPLE Origin).
+Idle hang stays empty. Dead bodies drop the floor KF7 (not a held emit).
+Preload the prop at setup so the first LOS is not an inflate hitch.
+Mutate/restore the shared drop model so catalog 0.1 floor KF7 is unchanged.
+
+KEEP `999e0fc` aim joints, `c0277f9` idle/death, `fc5214a` no ceiling slab,
+`e01e97f` spawn FPS, `57e8429` floor pin.
+
+**1 — KF7 in hands.** `play_shoot_before` `held=0` hanging-arm extra idle.
+After hear + fire tick: `aim_look have=1 bound=1` `aim=1 … f=53 h=1409 j=20
+rest=skel` `held=1 drawn=70`. `play_aim_look` is down the barrel (muzzle).
+`play_aim_grip` 3/4 from ~200u: tan third-person KF7 in the fire_standing
+right-hand grip (not a T-pose, not a ceiling slab). Camo `olive=6292 uniq=26
+luma=80.4 var=141.3`. `held_gun n=50 mtx=65`.
+
+**2 — hitch / jump / death.** Re-measured: `fire_hitch miss_ms=3.37
+hit_ms=3.71`; `play_shoot_after` kills=2 mag 7/14; `play_shoot_after_down`
+face-up lie-down, hat on the body, floor KF7 beside the corpse; A→B hopped=0
+y=29.12 r71; `clipdoor hunt teleports=0`; real stair still `-244,-2098` eye
+348.2 mean 65.
+
+Spawn `drawn=69 held=0` frame_ms=35.83 (27.9 fps unopt) — `e01e97f` kept
+(35ms class; spawn does not emit the held mesh).
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Combat AI / matching engine later. Campaign out of v1.
 

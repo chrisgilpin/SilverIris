@@ -153,6 +153,11 @@ typedef struct {
     int njoint;
     int use_joints;
     float head_mtx[4][4];
+    /* Rare Switches[3] GROUP MatrixID0 (right-hand gun attach). -1 if none. */
+    int gun_mtx;
+    /* Pchr*Z GROUPSIMPLE Origin — native process_15: attach * T(origin). */
+    float gun_off[3];
+    int have_gun_off;
 } PortModel;
 
 typedef struct {
@@ -186,6 +191,7 @@ static int g_nprop;
 static PortModel g_mdl[PORT_MAX_MODELS];
 static int g_nmdl;
 static int g_drawn;
+static int g_held_drawn;
 static int g_emit_seen;
 static int g_emit_skip_range;
 static int g_emit_skip_leaf;
@@ -884,17 +890,23 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
     int qh = 0, qt = 0, i, ji;
     const uint8_t *base = m->file;
     size_t n = m->file_len;
-    uint32_t sw4 = 0;
+    uint32_t sw3 = 0, sw4 = 0;
 
     if (root + NODE_BYTES > n)
         return -1;
     m->njoint = 0;
     m->use_joints = 0;
+    m->gun_mtx = -1;
+    m->have_gun_off = 0;
+    m->gun_off[0] = m->gun_off[1] = m->gun_off[2] = 0.f;
     if (use_guard) {
         for (ji = 0; ji < PORT_CHR_MTX_N; ji++)
             mtx_ident4(m->joint[ji]);
         mtx_ident4(m->head_mtx);
     }
+    /* Rare chrEquipWeapon: Switches[3] right-hand attach, [5] left. */
+    if (m->nswitch > 3 && n >= 16)
+        sw3 = file_off(be32(base + 12), n);
     /* MODELFILEHEADER Switches[4] is the HeadPlaceholder (opcode 23). */
     if (m->nswitch > 4 && n >= 20)
         sw4 = file_off(be32(base + 16), n);
@@ -928,6 +940,14 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
                 rest_for_group(base, n, data, use_guard, &rx, &ry, &rz);
             mtx_local(local, ox, oy, oz, rx, ry, rz);
             mtx_mul4(childm, parent, local);
+            /* PchrkalashZ root is GROUPSIMPLE. Native process_15:
+             * held matrix = attach * T(Origin). */
+            if (op == 21 && !m->have_gun_off) {
+                m->gun_off[0] = ox;
+                m->gun_off[1] = oy;
+                m->gun_off[2] = oz;
+                m->have_gun_off = 1;
+            }
             /* SKELETON(guard) MatrixID0/1 → render_pos. Chr DLs G_MTX
              * seg 3 by this slot (upper-body palette). MatrixID1 is the
              * half-angle blend (elbow/knee). */
@@ -936,6 +956,8 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
                 int16_t m1 = (int16_t)be16(base + data + 16);
                 store_joint(m, m0, childm);
                 child_id = m0;
+                if (sw3 && off == sw3)
+                    m->gun_mtx = m0;
                 if (m1 >= 0) {
                     float qv[4], qh2[4], half[4][4], hm[4][4];
                     quat_from_xyz(rx, ry, rz, qv);
@@ -1066,6 +1088,9 @@ static int bind_model_gdl(PortModel *m, int use_guard)
     m->fit_ymin = 0.f;
     m->njoint = 0;
     m->use_joints = 0;
+    m->gun_mtx = -1;
+    m->have_gun_off = 0;
+    m->gun_off[0] = m->gun_off[1] = m->gun_off[2] = 0.f;
     if (!m->file || m->file_len < 8)
         return -1;
     if (be32(m->file) == PORT_BG_MAGIC_G1DL) {
@@ -3136,7 +3161,7 @@ static void maybe_spawn_death_drops(void)
 
 static void bind_assigned_guns(void)
 {
-    int i, nheld = 0;
+    int i, nheld = 0, nmtx = 0;
     for (i = 0; i < g_nprop; i++) {
         int cn;
         if (g_prop[i].type != PDEF_GUARD)
@@ -3144,10 +3169,15 @@ static void bind_assigned_guns(void)
         cn = g_prop[i].chrnum;
         if (cn >= 0 && cn < PORT_CHR_GUN_MAX && g_chr_gun[cn] > 0)
             g_prop[i].held_model = g_chr_gun[cn];
-        if (g_prop[i].held_model > 0)
+        if (g_prop[i].held_model > 0) {
             nheld++;
+            /* Preload PchrkalashZ so the first LOS is not an inflate hitch. */
+            (void)load_model(g_prop[i].held_model);
+        }
+        if (g_prop[i].mdl && g_prop[i].mdl->gun_mtx >= 0)
+            nmtx++;
     }
-    printf("held_gun n=%d models=%d\n", nheld, g_nmdl);
+    printf("held_gun n=%d mtx=%d models=%d\n", nheld, nmtx, g_nmdl);
 }
 
 static void fill_pad_prop(PortProp *pr, int type, int model, int pad, const uint8_t *pd,
@@ -3312,6 +3342,7 @@ void port_prop_unload(void)
     memset(g_pcand, 0, sizeof g_pcand);
     memset(g_chr_gun, 0, sizeof g_chr_gun);
     g_nmdl = 0;
+    g_held_drawn = 0;
     g_viewgun_parts = 0;
     g_viewgun_id = PORT_GUN_WPPK_ID;
     g_drawn = 0;
@@ -3425,6 +3456,8 @@ int port_prop_count(void) { return g_nprop; }
 int port_prop_models(void) { return g_nmdl; }
 
 int port_prop_drawn(void) { return g_drawn; }
+
+int port_prop_held_drawn(void) { return g_held_drawn; }
 
 void port_prop_last_emit_stats(int *seen, int *skip_range, int *skip_leaf)
 {
@@ -4495,6 +4528,59 @@ int port_prop_door_park_offset(float world_x, float world_z, float portal_yaw,
     return 1;
 }
 
+/* Third-person Pchr*Z parented to Rare Switches[3] (right wrist). Only
+ * in-box fire_standing — idle hang stays empty. Mutate/restore the
+ * shared drop model so floor KF7 keeps Euler + catalog 0.1 scale. */
+static int emit_held_gun(G1RoomDl *out, int cap, int k, PortProp *pr, const PortModel *body,
+                         const float room1[3], float pdx, float pdz)
+{
+    PortModel *gun;
+    float save_j[4][4], save_fit, save_ymin, off[4][4];
+    int save_n, save_use, slot, p;
+
+    if (!pr || !body || pr->held_model <= 0 || pr->dropped)
+        return k;
+    if (!mdl_is_aim(body) || !mdl_use_joints(body))
+        return k;
+    slot = body->gun_mtx;
+    if (slot < 0 || slot >= body->njoint)
+        return k;
+    gun = load_model(pr->held_model);
+    if (!gun || gun->npart < 1)
+        return k;
+    memcpy(save_j, gun->joint[0], sizeof save_j);
+    save_n = gun->njoint;
+    save_use = gun->use_joints;
+    save_fit = gun->fit_scale;
+    save_ymin = gun->fit_ymin;
+    if (gun->have_gun_off)
+        mtx_local(off, gun->gun_off[0], gun->gun_off[1], gun->gun_off[2], 0.f, 0.f, 0.f);
+    else
+        mtx_ident4(off);
+    mtx_mul4(gun->joint[0], body->joint[slot], off);
+    gun->njoint = 1;
+    gun->use_joints = 1;
+    gun->fit_scale = body->fit_scale;
+    gun->fit_ymin = body->fit_ymin;
+    for (p = 0; p < gun->npart; p++)
+        gun->part[p].mtxid = 0;
+    if (g_held_drawn == 0)
+        printf("held_emit chr=%d model=%d slot=%d jT=%.1f,%.1f,%.1f gT=%.1f,%.1f,%.1f\n",
+               pr->chrnum, pr->held_model, slot, (double)body->joint[slot][0][3],
+               (double)body->joint[slot][1][3], (double)body->joint[slot][2][3],
+               (double)gun->joint[0][0][3], (double)gun->joint[0][1][3],
+               (double)gun->joint[0][2][3]);
+    k = emit_parts(out, cap, k, pr, gun, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, pdx, 0.f,
+                   pdz);
+    memcpy(gun->joint[0], save_j, sizeof save_j);
+    gun->njoint = save_n;
+    gun->use_joints = save_use;
+    gun->fit_scale = save_fit;
+    gun->fit_ymin = save_ymin;
+    g_held_drawn++;
+    return k;
+}
+
 static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const float room1[3])
 {
     PortModel *mdl = pr->mdl;
@@ -4589,6 +4675,8 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry,
                                    hrz, 0.f, pdx, 0.f, pdz);
             }
+            if (!dead)
+                k = emit_held_gun(out, cap, k, pr, mdl, room1, pdx, pdz);
             g_floor_clamp = 0;
             g_die_lift = 0.f;
         }
@@ -4601,6 +4689,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
 {
     int i, k = 0;
     g_drawn = 0;
+    g_held_drawn = 0;
     g_emit_seen = 0;
     g_emit_skip_range = 0;
     g_emit_skip_leaf = 0;
