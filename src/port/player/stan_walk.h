@@ -53,6 +53,7 @@ int port_stan_guard_dead_at(float world_x, float world_z);
 
 /* Rare doorTestForInteract: xz^2 < 40000 (200 units). Port use is Z_TRIG. */
 #define PORT_DOOR_USE_RANGE 200.0f
+/* 1 opened, 2 closed, 0 none. Both 1 and 2 are success. */
 int port_stan_use_door(float local_x, float local_z, float look_x, float look_z);
 /* 1 if room-local xz sits inside a closed (frac=0) door slab. */
 int port_stan_closed_door_at_local(float local_x, float local_z);

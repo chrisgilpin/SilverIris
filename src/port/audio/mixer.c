@@ -29,7 +29,8 @@
 #define PICKUP_HZ 880u
 #define PICKUP_AMP 8000
 #define PICKUP_LEN ((PORT_AUDIO_RATE * 80u) / 1000u)
-#define SFX_KIND_MAX 7
+#define DOOR_CLOSE_HZ 62u
+#define SFX_KIND_MAX 8
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -210,6 +211,8 @@ static uint32_t placeholder_len(int kind)
         return HIT_LEN;
     if (kind == PORT_SFX_PICKUP)
         return PICKUP_LEN;
+    if (kind == PORT_SFX_DOOR_CLOSE)
+        return DOOR_LEN;
     return GUN_LEN;
 }
 
@@ -298,6 +301,11 @@ void port_audio_play_kf7(void)
 void port_audio_play_pickup(void)
 {
     queue_sfx(PORT_SFX_PICKUP, PICKUP_LEN);
+}
+
+void port_audio_play_door_close(void)
+{
+    queue_sfx(PORT_SFX_DOOR_CLOSE, DOOR_LEN);
 }
 
 int port_audio_last_sfx(void)
@@ -450,6 +458,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t hinc = phase_inc(HIT_HZ);
     uint32_t kinc = phase_inc(KF7_HZ);
     uint32_t pinc = phase_inc(PICKUP_HZ);
+    uint32_t cinc = phase_inc(DOOR_CLOSE_HZ);
     int i;
     int kind = g_sfx_kind;
 
@@ -486,13 +495,13 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = (int)v;
             } else {
                 int amp = (int)((uint32_t)((kind == PORT_SFX_DRY) ? DRY_AMP
-                        : (kind == PORT_SFX_DOOR) ? DOOR_AMP
+                        : (kind == PORT_SFX_DOOR || kind == PORT_SFX_DOOR_CLOSE) ? DOOR_AMP
                         : (kind == PORT_SFX_PICKUP) ? PICKUP_AMP
                         : (kind == PORT_SFX_KF7) ? KF7_AMP
                         : GUN_AMP) * g_sfx_left / g_sfx_len);
                 if (kind == PORT_SFX_DRY)
                     s = osc_tri(g_sfx_phase, amp);
-                else if (kind == PORT_SFX_DOOR)
+                else if (kind == PORT_SFX_DOOR || kind == PORT_SFX_DOOR_CLOSE)
                     s = osc_tri(g_sfx_phase, amp);
                 else if (kind == PORT_SFX_PICKUP)
                     s = osc_tri(g_sfx_phase, amp);
@@ -506,6 +515,8 @@ void port_audio_cb(int16_t *stereo, int nframes)
                     g_sfx_phase += dinc;
                 else if (kind == PORT_SFX_DOOR)
                     g_sfx_phase += oinc;
+                else if (kind == PORT_SFX_DOOR_CLOSE)
+                    g_sfx_phase += cinc;
                 else if (kind == PORT_SFX_PICKUP)
                     g_sfx_phase += pinc;
                 else if (kind == PORT_SFX_KF7)

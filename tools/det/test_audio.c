@@ -208,6 +208,18 @@ int main(int argc, char **argv)
         printf("pickup sha256=%s\n", hex);
         if (strcmp(hex, gun_hex) == 0)
             return fail("pickup pcm matches gun");
+
+        port_audio_init();
+        port_audio_play_door_close();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("door_close was silence");
+        if (port_audio_last_sfx() != PORT_SFX_DOOR_CLOSE)
+            return fail("door_close last_sfx");
+        hash_pcm(pcm, hex);
+        printf("door_close sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("door_close pcm matches gun");
     }
 
     port_audio_init();

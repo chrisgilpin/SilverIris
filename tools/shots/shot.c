@@ -46,7 +46,7 @@ static void door_tick_n(int n);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn;
+    int i, gn, dn, on, fn, hn, kn, pn, cn;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -56,21 +56,24 @@ static int sfx_bank_proof(void)
     hn = port_audio_sfx_frames(PORT_SFX_HIT);
     kn = port_audio_sfx_frames(PORT_SFX_KF7);
     pn = port_audio_sfx_frames(PORT_SFX_PICKUP);
+    cn = port_audio_sfx_frames(PORT_SFX_DOOR_CLOSE);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
-           "kf7_n=%d pickup_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn);
+           "kf7_n=%d pickup_n=%d close_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
         !port_audio_sfx_from_bank(PORT_SFX_FALL) ||
         !port_audio_sfx_from_bank(PORT_SFX_HIT) ||
         !port_audio_sfx_from_bank(PORT_SFX_KF7) ||
-        !port_audio_sfx_from_bank(PORT_SFX_PICKUP) || gn < 2000 || dn < 500 ||
-        on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || gn <= dn) {
+        !port_audio_sfx_from_bank(PORT_SFX_PICKUP) ||
+        !port_audio_sfx_from_bank(PORT_SFX_DOOR_CLOSE) || gn < 2000 || dn < 500 ||
+        on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
+        gn <= dn) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
-                "kf7=%d pickup=%d\n",
-                gn, dn, on, fn, hn, kn, pn);
+                "kf7=%d pickup=%d close=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -129,6 +132,29 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_KF7) {
             fprintf(stderr, "sfx_kf7 last=%d\n", port_audio_last_sfx());
             return -1;
+        }
+        {
+            int16_t closeb[512];
+            long long ec = 0;
+            int diffc = 0;
+            memset(closeb, 0, sizeof closeb);
+            port_audio_play_door();
+            port_audio_cb(gun, 256); /* reuse as open snapshot */
+            port_audio_play_door_close();
+            port_audio_cb(closeb, 256);
+            for (i = 0; i < 512; i++) {
+                ec += (long long)closeb[i] * closeb[i];
+                if (closeb[i] != gun[i])
+                    diffc++;
+            }
+            printf("sfx_door_close n=%d e=%lld last=%d mix_diff=%d\n", cn, ec,
+                   port_audio_last_sfx(), diffc);
+            if (port_audio_last_sfx() != PORT_SFX_DOOR_CLOSE || ec < 100000ll ||
+                diffc < 16) {
+                fprintf(stderr, "sfx_door_close last=%d e=%lld diff=%d\n",
+                        port_audio_last_sfx(), ec, diffc);
+                return -1;
+            }
         }
     }
     {
@@ -384,6 +410,33 @@ static int path_unlatch_proof(void)
         }
         if (port_gun_flash_frames() != 0) {
             fprintf(stderr, "pad use flashed muzzle\n");
+            return -1;
+        }
+        if (port_audio_last_sfx() != PORT_SFX_DOOR) {
+            fprintf(stderr, "pad use sfx=%d (want door open)\n", port_audio_last_sfx());
+            return -1;
+        }
+        mag0 = port_gun_mag();
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick(5005) != 0)
+            return -1;
+        port_api_set_pad(0, 0, 0, (int)PORT_A_BUTTON);
+        if (port_api_sim_tick(5006) != 0)
+            return -1;
+        printf("pad_close_no_fire mag=%d->%d flash=%d open=%d sfx=%d\n", mag0,
+               port_gun_mag(), port_gun_flash_frames(),
+               port_stan_door_is_open_at(pos[0], pos[2]), port_audio_last_sfx());
+        if (port_gun_mag() != mag0) {
+            fprintf(stderr, "pad close spent mag\n");
+            return -1;
+        }
+        if (port_stan_door_is_open_at(pos[0], pos[2])) {
+            fprintf(stderr, "pad close did not shut the door\n");
+            return -1;
+        }
+        if (port_audio_last_sfx() != PORT_SFX_DOOR_CLOSE) {
+            fprintf(stderr, "pad close sfx=%d (want door close)\n",
+                    port_audio_last_sfx());
             return -1;
         }
     }

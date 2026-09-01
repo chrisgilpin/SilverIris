@@ -515,8 +515,8 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
             if (open)
                 g_door[i].frac = 0.f;
         }
+        return open ? 1 : 2;
     }
-    return 1;
 }
 
 int port_stan_tile_count(void) { return g_ntile; }

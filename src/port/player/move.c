@@ -11,6 +11,7 @@
 #include <string.h>
 
 __attribute__((weak)) void port_audio_play_door(void) {}
+__attribute__((weak)) void port_audio_play_door_close(void) {}
 
 /*
  * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
@@ -570,10 +571,17 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
     if ((buttons & PORT_A_BUTTON) && !(p->prev_buttons & PORT_A_BUTTON)) {
         float lx = sinf(rad);
         float lz = -cosf(rad);
-        if (port_stan_use_door(p->x, p->z, lx, lz)) {
-            if (port_audio_play_door)
-                port_audio_play_door();
-            port_gun_suppress_fire();
+        {
+            int used = port_stan_use_door(p->x, p->z, lx, lz);
+            if (used == 2) {
+                if (port_audio_play_door_close)
+                    port_audio_play_door_close();
+                port_gun_suppress_fire();
+            } else if (used) {
+                if (port_audio_play_door)
+                    port_audio_play_door();
+                port_gun_suppress_fire();
+            }
         }
     }
     p->prev_buttons = buttons;
