@@ -240,6 +240,29 @@ int main(int argc, char **argv)
         printf("door_close sha256=%s\n", hex);
         if (strcmp(hex, gun_hex) == 0)
             return fail("door_close pcm matches gun");
+
+        {
+            char pickup_hex[65];
+            port_audio_init();
+            port_audio_play_pickup();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, pickup_hex);
+            port_audio_init();
+            port_audio_play_ammo();
+            port_audio_cb(pcm, NFRAMES);
+            if (all_zero(pcm))
+                return fail("ammo was silence");
+            if (port_audio_last_sfx() != PORT_SFX_AMMO)
+                return fail("ammo last_sfx");
+            hash_pcm(pcm, hex);
+            printf("ammo sha256=%s\n", hex);
+            if (strcmp(hex, gun_hex) == 0)
+                return fail("ammo pcm matches gun");
+            if (strcmp(hex, pickup_hex) == 0)
+                return fail("ammo pcm matches pickup");
+            if (check_hash(dir, "ammo.pcm.sha256", hex) != 0)
+                return 1;
+        }
     }
 
     port_audio_init();

@@ -5,4 +5,4 @@ placeholder gun one-shot).
 These tones are generated in `src/port/audio/mixer.c` when no pack bank
 is installed. They are not cartridge banks and must not be replaced with
 ROM-derived PCM. Runtime Facility play decodes pack `sfx.ctl`/`sfx.tbl`
-VADPCM into host PCM (gun / dry / door / fall / hit / rico) without shipping samples.
+VADPCM into host PCM (gun / dry / door / fall / hit / rico / ammo) without shipping samples.

@@ -14,6 +14,7 @@
 #include <string.h>
 
 __attribute__((weak)) void port_audio_play_pickup(void) {}
+__attribute__((weak)) void port_audio_play_ammo(void) {}
 
 #define PORT_MAX_PROPS 256
 #define PORT_MAX_MODELS 128
@@ -5566,8 +5567,8 @@ void port_prop_tick_pickup(void)
             port_gun_collect_model(pr->model);
         else {
             port_gun_add_reserve(pr->pickup_amount);
-            if (port_audio_play_pickup)
-                port_audio_play_pickup();
+            if (port_audio_play_ammo)
+                port_audio_play_ammo();
         }
     }
 }
