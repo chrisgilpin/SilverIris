@@ -33,6 +33,11 @@ void port_audio_play_hurt(void);
 void port_audio_push_yelp(const int16_t *pcm, uint32_t n, uint8_t vol);
 void port_audio_clear_yelps(void);
 int port_audio_yelp_variants(void);
+/* BODY_FALL_C1–E3 + BODY_ROLLOVER one-shots. Mixer does not own `pcm`.
+ * Cycle is Rare thud_index / body_hit_SFX (wrap at 11), not game RNG. */
+void port_audio_push_fall(const int16_t *pcm, uint32_t n, uint8_t vol);
+void port_audio_clear_falls(void);
+int port_audio_fall_variants(void);
 int port_audio_music_on(void);
 uint32_t port_audio_rate(void);
 /* 0 none, 1 gun, 2 dry, 3 door open, 4 body-fall, 5 flesh-hit, 6 KF7,

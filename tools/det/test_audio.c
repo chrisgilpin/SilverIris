@@ -431,6 +431,56 @@ int main(int argc, char **argv)
             port_audio_clear_yelps();
             port_audio_install_sfx(PORT_SFX_YELP, NULL, 0, 0);
         }
+
+        {
+            int16_t f0[256], f1[256];
+            char h0[65], h1[65], hw[65];
+            int k, v;
+            for (k = 0; k < 256; k++) {
+                f0[k] = 11000;
+                f1[k] = -11000;
+            }
+            port_audio_init();
+            port_audio_clear_falls();
+            port_audio_push_fall(f0, 256, 127);
+            port_audio_push_fall(f1, 256, 127);
+            if (port_audio_fall_variants() != 2)
+                return fail("fall variants");
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            if (port_audio_last_sfx() != PORT_SFX_FALL)
+                return fail("fall cycle last_sfx");
+            hash_pcm(pcm, h0);
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, h1);
+            if (strcmp(h0, h1) == 0)
+                return fail("fall cycle same pcm");
+            if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                return fail("fall cycle touched game RNG");
+            port_audio_init();
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hw);
+            if (strcmp(hw, h0) != 0)
+                return fail("fall cycle reset");
+            v = port_audio_fall_variants();
+            port_audio_init();
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            for (k = 1; k < v; k++) {
+                port_audio_play_fall();
+                port_audio_cb(pcm, NFRAMES);
+            }
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hw);
+            if (strcmp(hw, h0) != 0)
+                return fail("fall cycle wrap");
+            printf("fall_cycle variants=%d distinct=1 wrap=1\n", v);
+            port_audio_clear_falls();
+            port_audio_install_sfx(PORT_SFX_FALL, NULL, 0, 0);
+        }
     }
 
     port_audio_init();

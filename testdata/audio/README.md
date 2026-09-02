@@ -7,4 +7,6 @@ is installed. They are not cartridge banks and must not be replaced with
 ROM-derived PCM. Runtime Facility play decodes pack `sfx.ctl`/`sfx.tbl`
 VADPCM into host PCM (gun / dry / door / fall / hit / rico / ammo / armour /
 reload / yelp / hurt) without shipping samples. Pack GET_HIT_MALE0–24 cycle
-on yelp (Rare counter, not game RNG); placeholders stay one tone.
+on yelp (Rare counter, not game RNG); BODY_FALL_C1–E3 + BODY_ROLLOVER
+cycle on fall (Rare thud_index / body_hit_SFX, wrap at 11); placeholders
+stay one tone.

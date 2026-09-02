@@ -44,6 +44,7 @@
 #define HURT_LEN ((PORT_AUDIO_RATE * 200u) / 1000u)
 #define SFX_KIND_MAX 14
 #define YELP_VARS 25
+#define FALL_VARS 11
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -64,6 +65,9 @@ static uint32_t g_ov_len;
 static uint32_t g_ov_pos;
 static uint32_t g_ov_phase;
 static int g_ov_use_pcm;
+static const int16_t *g_ov_pcm;
+static uint32_t g_ov_pcm_n;
+static uint8_t g_ov_vol;
 static int g_hit_kind;
 static uint32_t g_hit_left;
 static uint32_t g_hit_len;
@@ -84,6 +88,11 @@ static uint32_t g_yelp_n[YELP_VARS];
 static uint8_t g_yelp_vol[YELP_VARS];
 static int g_nyelp;
 static int g_yelp_i;
+static const int16_t *g_fall_pcm[FALL_VARS];
+static uint32_t g_fall_n[FALL_VARS];
+static uint8_t g_fall_vol[FALL_VARS];
+static int g_nfall;
+static int g_fall_i;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -195,6 +204,9 @@ void port_audio_init(void)
     g_ov_pos = 0;
     g_ov_phase = 0;
     g_ov_use_pcm = 0;
+    g_ov_pcm = 0;
+    g_ov_pcm_n = 0;
+    g_ov_vol = 127u;
     g_hit_kind = 0;
     g_hit_left = 0;
     g_hit_len = 0;
@@ -211,6 +223,7 @@ void port_audio_init(void)
     g_voice_pcm_n = 0;
     g_voice_vol = 127u;
     g_yelp_i = 0;
+    g_fall_i = 0;
     ai_reset();
     g_inited = 1;
 }
@@ -299,8 +312,14 @@ static void queue_overlay(int kind, uint32_t len)
     g_last_sfx = kind;
     g_ov_phase = 0;
     g_ov_pos = 0;
+    g_ov_pcm = 0;
+    g_ov_pcm_n = 0;
+    g_ov_vol = 127u;
     if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
         g_ov_use_pcm = 1;
+        g_ov_pcm = g_sfx_pcm[kind];
+        g_ov_pcm_n = g_sfx_pcm_n[kind];
+        g_ov_vol = g_sfx_pcm_vol[kind] ? g_sfx_pcm_vol[kind] : 127u;
         g_ov_left = g_sfx_pcm_n[kind];
         g_ov_len = g_sfx_pcm_n[kind];
     } else {
@@ -310,8 +329,44 @@ static void queue_overlay(int kind, uint32_t len)
     }
 }
 
+void port_audio_push_fall(const int16_t *pcm, uint32_t n, uint8_t vol)
+{
+    if (g_nfall >= FALL_VARS || !pcm || n == 0)
+        return;
+    g_fall_pcm[g_nfall] = pcm;
+    g_fall_n[g_nfall] = n;
+    g_fall_vol[g_nfall] = vol ? vol : 127u;
+    g_nfall++;
+}
+
+void port_audio_clear_falls(void)
+{
+    int i;
+    for (i = 0; i < FALL_VARS; i++) {
+        g_fall_pcm[i] = 0;
+        g_fall_n[i] = 0;
+        g_fall_vol[i] = 0;
+    }
+    g_nfall = 0;
+    g_fall_i = 0;
+}
+
+int port_audio_fall_variants(void)
+{
+    return g_nfall;
+}
+
 void port_audio_play_fall(void)
 {
+    if (g_nfall > 0) {
+        int i = g_fall_i;
+        g_fall_i++;
+        if (g_fall_i >= g_nfall)
+            g_fall_i = 0;
+        g_sfx_pcm[PORT_SFX_FALL] = g_fall_pcm[i];
+        g_sfx_pcm_n[PORT_SFX_FALL] = g_fall_n[i];
+        g_sfx_pcm_vol[PORT_SFX_FALL] = g_fall_vol[i];
+    }
     queue_overlay(PORT_SFX_FALL, FALL_LEN);
 }
 
@@ -677,13 +732,11 @@ void port_audio_cb(int16_t *stereo, int nframes)
             g_sfx_left--;
         }
 
-        if (g_ov_left > 0 && g_ov_len > 0) {
+        if (g_ov_kind && g_ov_left > 0 && g_ov_len > 0) {
             int s = 0;
-            int okind = g_ov_kind;
-            if (g_ov_use_pcm && okind >= 1 && okind <= SFX_KIND_MAX && g_sfx_pcm[okind] &&
-                g_ov_pos < g_sfx_pcm_n[okind]) {
-                int vol = (int)g_sfx_pcm_vol[okind];
-                int32_t v = ((int32_t)g_sfx_pcm[okind][g_ov_pos] * vol) / 127;
+            if (g_ov_use_pcm && g_ov_pcm && g_ov_pos < g_ov_pcm_n) {
+                int vol = (int)g_ov_vol;
+                int32_t v = ((int32_t)g_ov_pcm[g_ov_pos] * vol) / 127;
                 g_ov_pos++;
                 s = (int)v;
             } else {

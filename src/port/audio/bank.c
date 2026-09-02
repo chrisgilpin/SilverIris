@@ -12,6 +12,7 @@
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
+ * BODY_FALL_C1–E3 + BODY_ROLLOVER (123–133) cycle like Rare thud_index.
  */
 
 #define PACK_SFX_EMPTY_GUN_FIRE 89
@@ -23,7 +24,8 @@
 #define PACK_SFX_GUN_RIFLECOCK 50 /* reload animation */
 #define PACK_SFX_DOOR_METAL_OPEN 196
 #define PACK_SFX_DOOR_METAL_CLOSE 197
-#define PACK_SFX_BODY_FALL_C1 123
+#define PACK_SFX_BODY_FALL_C1 123 /* body_hit_SFX[0]; 123–133 wrap at 11 */
+#define PACK_SFX_BODY_FALL_N 11
 #define PACK_SFX_HIT_FLESH 69 /* HIT_BULLET_FLESH */
 #define PACK_SFX_RICO_8_AFDM_A 27 /* ricochet_sounds_small */
 #define PACK_SFX_BOND_GET_HIT1 68 /* BOND_GET_HIT1 */
@@ -34,6 +36,7 @@
 
 static int16_t *g_owned[15];
 static int16_t *g_yelp_owned[PACK_SFX_GET_HIT_MALE_N];
+static int16_t *g_fall_owned[PACK_SFX_BODY_FALL_N];
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -86,12 +89,23 @@ static void drop_yelps(void)
     }
 }
 
+static void drop_falls(void)
+{
+    int i;
+    port_audio_clear_falls();
+    for (i = 0; i < PACK_SFX_BODY_FALL_N; i++) {
+        free(g_fall_owned[i]);
+        g_fall_owned[i] = NULL;
+    }
+}
+
 void port_audio_unload_pack_sfx(void)
 {
     drop_kind(PORT_SFX_GUN);
     drop_kind(PORT_SFX_DRY);
     drop_kind(PORT_SFX_DOOR);
     drop_kind(PORT_SFX_FALL);
+    drop_falls();
     drop_kind(PORT_SFX_HIT);
     drop_kind(PORT_SFX_KF7);
     drop_kind(PORT_SFX_PICKUP);
@@ -230,9 +244,24 @@ int port_audio_load_pack_sfx(void)
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_DOOR_METAL_OPEN,
                   PORT_SFX_DOOR) == 0)
         n++;
-    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_BODY_FALL_C1,
-                  PORT_SFX_FALL) == 0)
-        n++;
+    {
+        int fi, got = 0;
+        for (fi = 0; fi < PACK_SFX_BODY_FALL_N; fi++) {
+            int16_t *pcm = NULL;
+            uint32_t ns = 0;
+            uint8_t vol = 0;
+            if (decode_id_pcm(ctl->bytes, ctl->size, tbl->bytes, tbl->size,
+                              PACK_SFX_BODY_FALL_C1 + fi, &pcm, &ns, &vol) != 0)
+                continue;
+            g_fall_owned[got] = pcm;
+            port_audio_push_fall(pcm, ns, vol);
+            if (got == 0)
+                port_audio_install_sfx(PORT_SFX_FALL, pcm, ns, vol);
+            got++;
+        }
+        if (got > 0)
+            n++;
+    }
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_HIT_FLESH,
                   PORT_SFX_HIT) == 0)
         n++;

@@ -47,7 +47,7 @@ static void place(float x, float z, float th);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un, fv;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -64,11 +64,12 @@ static int sfx_bank_proof(void)
     ln = port_audio_sfx_frames(PORT_SFX_RELOAD);
     yn = port_audio_sfx_frames(PORT_SFX_YELP);
     un = port_audio_sfx_frames(PORT_SFX_HURT);
+    fv = port_audio_fall_variants();
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
            "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d "
-           "reload_n=%d yelp_n=%d hurt_n=%d yelp_vars=%d\n",
+           "reload_n=%d yelp_n=%d hurt_n=%d yelp_vars=%d fall_vars=%d\n",
            port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn,
-           un, port_audio_yelp_variants());
+           un, port_audio_yelp_variants(), fv);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -85,13 +86,13 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_HURT) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
         rn < 200 || an < 200 || vn < 200 || ln < 200 || yn < 200 || un < 200 ||
-        gn <= dn || port_audio_yelp_variants() < 25) {
+        gn <= dn || port_audio_yelp_variants() < 25 || fv < 11) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
                 "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d reload=%d "
-                "yelp=%d hurt=%d yelp_vars=%d\n",
+                "yelp=%d hurt=%d yelp_vars=%d fall_vars=%d\n",
                 gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un,
-                port_audio_yelp_variants());
+                port_audio_yelp_variants(), fv);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -420,6 +421,60 @@ static int sfx_bank_proof(void)
             port_audio_last_sfx() != PORT_SFX_YELP) {
             fprintf(stderr, "sfx_yelp_cycle vars=%d e0=%lld e1=%lld diff=%d wrap=%d\n",
                     v, ea, eb, diff, wrap);
+            return -1;
+        }
+    }
+    {
+        /* Rare thud_index walks C1–C3, D1–D4, E1–E3, BODY_ROLLOVER (wrap 11).
+         * C/D/E groups share a wavetable (ASP pitch is out); C≠D is the
+         * first distinct PCM. Adjacent C1/C2 may match. */
+        int16_t a[4096], b[4096];
+        long long ea = 0, eb = 0;
+        int diff = 0, wrap = 0, k, v, nC, nD;
+        v = port_audio_fall_variants();
+        port_audio_init();
+        memset(a, 0, sizeof a);
+        port_audio_play_fall();
+        nC = port_audio_sfx_frames(PORT_SFX_FALL);
+        port_audio_cb(a, 2048);
+        port_audio_play_fall();
+        port_audio_cb(b, 2048);
+        port_audio_play_fall();
+        port_audio_cb(b, 2048);
+        memset(b, 0, sizeof b);
+        port_audio_play_fall();
+        nD = port_audio_sfx_frames(PORT_SFX_FALL);
+        port_audio_cb(b, 2048);
+        for (i = 0; i < 4096; i++) {
+            ea += (long long)a[i] * a[i];
+            eb += (long long)b[i] * b[i];
+            if (a[i] != b[i])
+                diff++;
+        }
+        port_audio_init();
+        port_audio_play_fall();
+        port_audio_cb(b, 2048);
+        for (k = 1; k < v; k++) {
+            port_audio_play_fall();
+            port_audio_cb(b, 2048);
+        }
+        memset(b, 0, sizeof b);
+        port_audio_play_fall();
+        port_audio_cb(b, 2048);
+        for (i = 0; i < 4096; i++) {
+            if (a[i] != b[i])
+                wrap++;
+        }
+        printf("sfx_fall_cycle vars=%d nC=%d nD=%d eC=%lld eD=%lld mix_diff=%d "
+               "wrap_diff=%d last=%d\n",
+               v, nC, nD, ea, eb, diff, wrap, port_audio_last_sfx());
+        if (v < 11 || nC < 500 || nD < 500 || nC == nD || ea < 100000ll ||
+            eb < 100000ll || diff < 16 || wrap != 0 ||
+            port_audio_last_sfx() != PORT_SFX_FALL) {
+            fprintf(stderr,
+                    "sfx_fall_cycle vars=%d nC=%d nD=%d eC=%lld eD=%lld diff=%d "
+                    "wrap=%d\n",
+                    v, nC, nD, ea, eb, diff, wrap);
             return -1;
         }
     }
