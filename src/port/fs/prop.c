@@ -4645,10 +4645,12 @@ static void slab_leaf_x(int16_t hw, int dbl, int i, int16_t *x0, int16_t *x1)
 
 static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
 {
+    /* 688/687 kickplate, 685 handle bars in the visible middle, 686 lintel.
+     * Top-38% 685 was a lintel sliver on Mihok 0732; 78% 685 ate the ribs. */
     static const uint32_t k_row_tex[4] = { SLAB_PANEL2_TEX, SLAB_PANEL1_TEX,
-                                           SLAB_PANEL0_TEX, SLAB_DOOR_TEX };
-    /* Pgas dump cn, bottom 688 → top 685. */
-    static const uint8_t k_row_cn[5] = { 120, 136, 152, 174, 197 };
+                                           SLAB_DOOR_TEX, SLAB_PANEL0_TEX };
+    /* Pgas dump cn, bottom 688 → 687 → 685 handles → 686 lintel. */
+    static const uint8_t k_row_cn[5] = { 120, 136, 174, 197, 197 };
     uint32_t cmd = 4;
     uint32_t vtx = SLAB_VTX_BASE;
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
@@ -4665,12 +4667,9 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     cmd += 8;
 
     y[0] = 0;
-    /* 686-688 are the ribbed metal plates (bottom ~62%). 685 is the handle
-     * band (top ~38%). Mapping 685 onto 78% left a smooth mauve face on
-     * Mihok 0645; bars stay readable via one ST copy + T crop. */
-    y[1] = (int16_t)((ht * 21) / 100);
-    y[2] = (int16_t)((ht * 42) / 100);
-    y[3] = (int16_t)((ht * 62) / 100);
+    y[1] = (int16_t)((ht * 16) / 100);
+    y[2] = (int16_t)((ht * 28) / 100);
+    y[3] = (int16_t)((ht * 76) / 100);
     y[4] = ht;
     /* Four stacked P*Z panels. s=0 at the meeting edge on a double leaf so
      * 685's handle bars sit on each leaf, not stretched across the portal. */
@@ -4679,8 +4678,8 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
         wr32(f + cmd, SLAB_SETTEX_MIRROR);
         wr32(f + cmd + 4, k_row_tex[row]);
         cmd += 8;
-        /* 685 texels 0-15 are empty mauve; bars live at t≈512..896. */
-        if (row == 3) {
+        /* 685 texels t=0..512 are empty mauve; bars live at t≈512..896. */
+        if (k_row_tex[row] == SLAB_DOOR_TEX) {
             t0 = 512;
             t1 = 896;
         }
@@ -4828,26 +4827,46 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
         y = (int16_t)((v[2] << 8) | v[3]);
         z = (int16_t)((v[4] << 8) | v[5]);
         /* Retail 685 is verts 0-15, Y 394..788 (top 25%), s=0 at x=0 so
-         * each half copies the two bars (four nubs). Keep one ST copy
-         * across the leaf. 78% Y (c00070a) made the empty-mauve 685
-         * field the face (Mihok 0645). 685 stays the top ~38% with T
-         * cropped to the bar texels; 686-688 are the ribbed plates. */
+         * each half copies the two bars (four nubs). One ST copy + T crop
+         * keeps two pills. Top 38% (a4dd15e) was a lintel sliver on live
+         * (Mihok 0732); 78% (c00070a) ate 686-688 ribs (Mihok 0645).
+         * Stretch 686-688 over the full leaf and overlay 685 in the
+         * visible middle with a small Z push so spawn/θ263 reads bars
+         * AND brown ribs. */
         orig_t = ((float)y - bottom) / tall;
         if (orig_t < 0.f)
             orig_t = 0.f;
         if (orig_t > 1.f)
             orig_t = 1.f;
-        if (orig_t >= 0.75f)
-            new_t = 0.62f + (orig_t - 0.75f) / 0.25f * 0.38f;
-        else if (orig_t >= 0.50f)
-            new_t = 0.42f + (orig_t - 0.50f) / 0.25f * 0.20f;
-        else if (orig_t >= 0.25f)
-            new_t = 0.21f + (orig_t - 0.25f) / 0.25f * 0.21f;
-        else
-            new_t = orig_t / 0.25f * 0.21f;
+        if (i < 16u) {
+            float u = (orig_t - 0.75f) / 0.25f;
+            if (u < 0.f)
+                u = 0.f;
+            if (u > 1.f)
+                u = 1.f;
+            new_t = 0.16f + u * 0.56f; /* visible mid 16%..72% */
+        } else if (i < 64u) {
+            float u = orig_t / 0.75f;
+            if (u < 0.f)
+                u = 0.f;
+            if (u > 1.f)
+                u = 1.f;
+            new_t = u;
+        } else
+            new_t = orig_t;
         wr16(v + 0, (uint16_t)slab_i16((float)x * ((float)hw / half_w)));
         wr16(v + 2, (uint16_t)slab_i16(new_t * (float)ht));
-        wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
+        {
+            float z_out = (float)z * zsc;
+            /* 685 in front of the stretched 686-688 plates. */
+            if (i < 16u) {
+                if (z_out > 0.f)
+                    z_out += 4.f;
+                else if (z_out < 0.f)
+                    z_out -= 4.f;
+            }
+            wr16(v + 4, (uint16_t)slab_i16(z_out));
+        }
         if (i < 16u && half_w > 1.f) {
             int16_t sfull, tsrc, tbar;
             sfull = slab_i16(((float)x + half_w) / (2.f * half_w) * (float)SLAB_UV_S);
@@ -5391,12 +5410,13 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     {
                         /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520
                          * sits above the oliveguard collar (default-head DL
-                         * stripped). 100u model Y (~12 world) left a live
-                         * θ263 hole; neck-column / pad-yaw XZ shoved the
-                         * head into the torso or off to the side. Drop
-                         * world Y only (copy, not the shared table). */
+                         * stripped). 26u world Y left a live θ263 wall gap
+                         * (Mihok 0732); 100u model Y (~12 world) and neck-
+                         * column / pad-yaw XZ shoved the head into the torso
+                         * or off to the side. Drop world Y only, skip die
+                         * rest (copy, not the shared table). */
                         float headj[4][4];
-                        const float seat_y = 26.f;
+                        const float seat_y = dead ? 0.f : 52.f;
                         memcpy(headj, mdl->head_mtx, sizeof headj);
                         if (g_head_joint_drawn == 0) {
                             static int s_head_log;

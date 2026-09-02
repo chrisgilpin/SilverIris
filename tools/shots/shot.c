@@ -3224,8 +3224,8 @@ static int playtest_chris(const char *out_dir)
                 return -1;
             }
         }
-        /* Mihok 0645: live rAF sits at idle40 xz. Look-left θ263 still
-         * showed a Chead neck gap after a 100u model-Y seat. Snap that pose. */
+        /* Mihok 0732: live rAF sits at idle40 xz. Look-left θ263 still
+         * showed a Chead neck gap after a 26u world-Y seat. Snap that pose. */
         place(x1, z1, 270.f);
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_spawn_idle") != 0)
