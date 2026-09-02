@@ -3261,3 +3261,52 @@ Native player/g1 playtest green (synthetic greyscale unchanged).
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 fire-hit chase clip `7ab099c`)
+
+P0-1 first-enemy Chrome freeze on `8cc1ce1` / footsteps live. SHA `7ab099c`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+Chris ~14:16 ET: FPS < 1 when shooting the first Facility extra-idle.
+Not the walking stack freeze (`ff37828` KEEP). Hear-shot alerted two
+room-71 chasers; each chase dest ran player `clip_step_ground` (G1 wall
+push × stan tile probes). Unopt harness: `guard_fire_ms=322` then
+`after=393` (2.5 fps). Sit chase dests on a ground tile; closed doors
+still unlatch. rAF catch-up capped at 100ms / 2 ticks. Huffman tree
+walks stay finite. KEEP handles `f2a753a`, Chead `8cc1ce1`, stall
+−98.5/−2358.4, missing-neighbor `23be532`, wasm-stack `ff37828`.
+
+**1 — fire-hit.** `--firehit` idle40 xz=−98.5,−2358.4 aim extra-idle
+−350,−2320: `miss_ms=24.19` `hit_ms=24.11` hits=2 kills=1.
+`guard_fire_ms=1.29` (was 322). `draw0=52` `after19=73` (was 393).
+Playtest `fire_hitch miss_ms=23.57 hit_ms=23.25 draw_after_ms=30.13`
+`after[0..7]≈52–54` kills=2 mag 7/14.
+
+**2 — hitch / FPS / KEEP.** `play_spawn` frame_ms=51.07 drawn=72.
+`long_walk` 30.70. `long_walk_hall` 41.01 — 35ms class kept (this box;
+live rAF KEEP `ff37828`). `door_jump` 32.35. Stall idle40
+xz=−98.5,−2358.4. y=29.12.
+
+Native player/gun/g1 playtest green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 live fire-hit rAF after hard-refresh still required. Harness
+  post-hit is 52–73ms unopt / 35ms class. Do not close without
+  Mihok/live Chrome (shoot first Facility enemy, miss vs hit).
+- P0-2 live spawn-idle rAF still required. Do not close `ff37828`
+  re-prove from harness alone.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Keep closed unless a later
+  pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (music, spatial; footsteps are mixer
+  placeholder `3c97070`, not pack IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
