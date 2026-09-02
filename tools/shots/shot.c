@@ -1536,7 +1536,7 @@ static int hinge_width_park_proof(void)
 
 static void usage(void)
 {
-    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N] [--diag]\n");
+    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N] [--diag] [--firehit]\n");
 }
 
 static double bench_draw_tag(const char *tag, int n)
@@ -1658,6 +1658,154 @@ static int bench_fps(int n)
     if (spawn_ms > 80.0 || walk_ms > 80.0 || hall_ms > 80.0) {
         fprintf(stderr, "bench_fps frame_ms spawn=%.2f long_walk=%.2f (want ~27-35ms class)\n",
                 spawn_ms, walk_ms);
+        return -1;
+    }
+    return 0;
+}
+
+static void firehit_draw_line(const char *tag, double ms)
+{
+    const GirList *ir = g1_last_ir();
+    int seen = 0, skip_r = 0, skip_l = 0;
+    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
+    printf("firehit %s ms=%.2f ncmds=%u drawn=%d seen=%d skip_r=%d skip_l=%d "
+           "settex=%u ok=%u miss=%u hits=%d die=%d die_f=%d/%d alerted=%d "
+           "models=%d last_sfx=%d mag=%d\n",
+           tag, ms, ir ? ir->ncmds : 0u, port_prop_drawn(), seen, skip_r, skip_l,
+           port_api_settex(), port_api_tex_ok(), port_api_tex_miss(),
+           port_gun_hits(), port_prop_have_die() ? 1 : 0, port_prop_die_frame(),
+           port_prop_die_last_frame(), port_prop_guard_alerted(),
+           port_prop_models(), port_audio_last_sfx(), port_gun_mag());
+}
+
+static int fire_hit_freeze_bench(void)
+{
+    float x0, z0, x1, z1, gx = 0.f, gz = 0.f, th, ey;
+    int t, ig, gi, ng, tick = 1, hits0;
+    struct timespec t0, t1;
+    double ms;
+
+    x0 = port_api_player_x();
+    z0 = port_api_player_z();
+    printf("firehit spawn xz=%.1f,%.1f y=%.1f models=%d guards=%d die=%d %s\n",
+           (double)x0, (double)z0, (double)port_api_player_y(), port_prop_models(),
+           port_prop_guard_count(), port_prop_have_die(), port_prop_idle_info());
+    for (t = 0; t < 40; t++) {
+        port_api_set_pad(0, 0, 0, 0);
+        if (port_api_sim_tick((uint32_t)tick++) != 0)
+            return -1;
+    }
+    x1 = port_api_player_x();
+    z1 = port_api_player_z();
+    printf("firehit idle40 xz=%.1f,%.1f\n", (double)x1, (double)z1);
+    ig = port_prop_idle_guard();
+    {
+        float r1[3], wx = 0.f, wz = 0.f;
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        if (ig < 0 || port_prop_guard_xz(ig, &wx, &wz) != 0) {
+            fprintf(stderr, "firehit no extra idle\n");
+            return -1;
+        }
+        gx = wx - r1[0];
+        gz = wz - r1[2];
+    }
+    th = atan2f(gx - x1, -(gz - z1)) * (180.f / 3.14159265f);
+    if (th < 0.f)
+        th += 360.f;
+    ey = port_api_player_y();
+    if (port_stan_eye_y(x1, z1, &ey) != 0)
+        ey = port_api_player_y();
+    port_player_set_pose(x1, ey, z1, th);
+    port_player_set_pitch(0.f);
+    printf("firehit aim xz=%.1f,%.1f th=%.1f idle=%d body=%.1f,%.1f\n", (double)x1,
+           (double)z1, (double)th, ig, (double)gx, (double)gz);
+
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+         (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+    firehit_draw_line("before", ms);
+
+    port_player_set_pitch(70.f);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    port_gun_tick(0);
+    port_gun_tick(PORT_Z_TRIG);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    printf("firehit miss_ms=%.2f hits=%d sfx=%d\n",
+           (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+               (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0,
+           port_gun_hits(), port_audio_last_sfx());
+    port_player_set_pitch(0.f);
+    port_player_set_pose(x1, ey, z1, th);
+
+    hits0 = port_gun_hits();
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    port_gun_tick(0);
+    port_gun_tick(PORT_Z_TRIG);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    printf("firehit hit_ms=%.2f hits=%d->%d sfx=%d\n",
+           (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+               (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0,
+           hits0, port_gun_hits(), port_audio_last_sfx());
+
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+         (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+    firehit_draw_line("draw0", ms);
+
+    {
+        struct timespec p0, p1;
+        double die_ms, fire_ms, walk_ms, draw_ms;
+        clock_gettime(CLOCK_MONOTONIC, &p0);
+        port_prop_tick_die();
+        clock_gettime(CLOCK_MONOTONIC, &p1);
+        die_ms = (double)(p1.tv_sec - p0.tv_sec) * 1000.0 +
+                 (double)(p1.tv_nsec - p0.tv_nsec) / 1000000.0;
+        clock_gettime(CLOCK_MONOTONIC, &p0);
+        (void)port_prop_tick_guard_fire();
+        clock_gettime(CLOCK_MONOTONIC, &p1);
+        fire_ms = (double)(p1.tv_sec - p0.tv_sec) * 1000.0 +
+                  (double)(p1.tv_nsec - p0.tv_nsec) / 1000000.0;
+        clock_gettime(CLOCK_MONOTONIC, &p0);
+        port_prop_tick_walk();
+        clock_gettime(CLOCK_MONOTONIC, &p1);
+        walk_ms = (double)(p1.tv_sec - p0.tv_sec) * 1000.0 +
+                  (double)(p1.tv_nsec - p0.tv_nsec) / 1000000.0;
+        clock_gettime(CLOCK_MONOTONIC, &p0);
+        port_api_draw();
+        clock_gettime(CLOCK_MONOTONIC, &p1);
+        draw_ms = (double)(p1.tv_sec - p0.tv_sec) * 1000.0 +
+                  (double)(p1.tv_nsec - p0.tv_nsec) / 1000000.0;
+        printf("firehit split die_ms=%.2f guard_fire_ms=%.2f walk_ms=%.2f draw_ms=%.2f\n",
+               die_ms, fire_ms, walk_ms, draw_ms);
+    }
+
+    for (t = 0; t < 20; t++) {
+        port_api_set_pad(0, 0, 0, 0);
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        (void)port_api_sim_tick((uint32_t)tick++);
+        port_api_draw();
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+             (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+        if (t < 6 || t == 19 || ms > 80.0)
+            firehit_draw_line(t == 19 ? "after19" : "after", ms);
+    }
+    ng = port_prop_guard_count();
+    gi = 0;
+    for (t = 0; t < ng; t++) {
+        float wx, wz;
+        if (port_prop_guard_xz(t, &wx, &wz) == 0 && port_stan_guard_dead_at(wx, wz))
+            gi++;
+    }
+    printf("firehit done dead=%d hits=%d kills=%d max_after_printed\n", gi,
+           port_gun_hits(), port_api_kills());
+    if (ms > 80.0) {
+        fprintf(stderr, "firehit last frame_ms=%.2f (want <80)\n", ms);
         return -1;
     }
     return 0;
@@ -3968,7 +4116,25 @@ static int playtest_chris(const char *out_dir)
             clock_gettime(CLOCK_MONOTONIC, &tf1);
             draw_ms = (double)(tf1.tv_sec - tf0.tv_sec) * 1000.0 +
                       (double)(tf1.tv_nsec - tf0.tv_nsec) / 1000000.0;
-            printf("fire_hitch draw_after_ms=%.2f\n", draw_ms);
+            printf("fire_hitch draw_after_ms=%.2f ncmds=%u drawn=%d die_f=%d\n",
+                   draw_ms, g1_last_ir() ? g1_last_ir()->ncmds : 0u,
+                   port_prop_drawn(), port_prop_die_frame());
+            for (s = 0; s < 8; s++) {
+                struct timespec ta0, ta1;
+                double after_ms;
+                port_api_set_pad(0, 0, 0, 0);
+                clock_gettime(CLOCK_MONOTONIC, &ta0);
+                (void)port_api_sim_tick((uint32_t)(s + 1));
+                port_api_draw();
+                clock_gettime(CLOCK_MONOTONIC, &ta1);
+                after_ms = (double)(ta1.tv_sec - ta0.tv_sec) * 1000.0 +
+                           (double)(ta1.tv_nsec - ta0.tv_nsec) / 1000000.0;
+                printf("fire_hitch after[%d] ms=%.2f ncmds=%u drawn=%d die_f=%d "
+                       "alerted=%d\n",
+                       s, after_ms, g1_last_ir() ? g1_last_ir()->ncmds : 0u,
+                       port_prop_drawn(), port_prop_die_frame(),
+                       port_prop_guard_alerted());
+            }
             for (s = 0; s < 6; s++) {
                 port_gun_tick(0);
                 port_gun_tick(PORT_Z_TRIG);
@@ -5052,6 +5218,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--diag") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--firehit") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "--bench") == 0) {
             if (a + 1 < argc && argv[a + 1][0] != '-')
                 a++;
@@ -5118,6 +5286,18 @@ int main(int argc, char **argv)
                     play = 1;
             if (play) {
                 int prc = playtest_chris(out_dir);
+                port_api_shutdown();
+                free(pack);
+                return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int firehit = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--firehit") == 0)
+                    firehit = 1;
+            if (firehit) {
+                int prc = fire_hit_freeze_bench();
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;

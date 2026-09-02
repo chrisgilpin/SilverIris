@@ -355,6 +355,9 @@ function paint(now: number): void {
   if (!lastPaint) lastPaint = now;
   accMs += now - lastPaint;
   lastPaint = now;
+  /* A death-draw hitch can leave 1s+ of catch-up. Unbounded sim ticks
+   * then freeze the tab (FPS < 1). Cap so one slow frame cannot spiral. */
+  if (accMs > 100) accMs = 100;
   if (!rafT0) rafT0 = now;
   rafN++;
   if (now - rafT0 >= 1000) {
@@ -371,7 +374,9 @@ function paint(now: number): void {
     else if (seat === 1) pads[seat] = padP2Keys();
     else pads[seat] = emptyPad();
   }
-  while (accMs >= 50) {
+  let burst = 0;
+  while (accMs >= 50 && burst < 2) {
+    burst++;
     const local = { ...pads[0], ...consumeMouseLook() };
     if (netLock) {
       const evs = netLock.step(now, local, typeof document !== "undefined" && document.hidden);

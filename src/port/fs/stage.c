@@ -2180,9 +2180,29 @@ int port_stage_g1_wall_push(float lx, float lz, float radius, float *pdx, float 
     clear = radius + skin;
     nr = g1_wall_rooms(lx, lz, rooms, 8);
     for (iter = 0; iter < 4; iter++) {
-        int j, hit = 0;
+        int j, hit = 0, k, cn = 0, cur_room;
         float best_need = 0.f, bnx = 0.f, bnz = 0.f;
         float cx = lx + dx, cz = lz + dz;
+        float tcx = cx, tcz = cz, sx = 0.f, sz = 0.f;
+        static const float kdx[4] = { 24.f, -24.f, 0.f, 0.f };
+        static const float kdz[4] = { 0.f, 0.f, 24.f, -24.f };
+        /* Once per push iter — not per wall (that was O(walls×tiles) and
+         * froze Chrome after the first alerted chase). */
+        cur_room = port_stan_tile_room(cx, cz);
+        for (k = 0; k < 4; k++) {
+            float px = cx + kdx[k], pz = cz + kdz[k];
+            if (!port_stan_on_tile(px, pz))
+                continue;
+            if (cur_room >= 1 && port_stan_tile_room(px, pz) != cur_room)
+                continue;
+            sx += px;
+            sz += pz;
+            cn++;
+        }
+        if (cn > 0) {
+            tcx = sx / (float)cn;
+            tcz = sz / (float)cn;
+        }
         for (j = 0; j < nr; j++) {
             int room = rooms[j], i, p0, pn;
             g1_collect_room_walls(room);
@@ -2192,8 +2212,7 @@ int port_stage_g1_wall_push(float lx, float lz, float radius, float *pdx, float 
             pn = (int)g_rm_wn[room];
             for (i = 0; i < pn; i++) {
                 const G1LeafPlane *pl = &g_walls[p0 + i];
-                float rx, rz, along, across, need, side, tcx, tcz;
-                int k;
+                float rx, rz, along, across, need, side;
                 if (g1_wall_is_portal(pl))
                     continue;
                 rx = cx - pl->pcx;
@@ -2212,31 +2231,6 @@ int port_stage_g1_wall_push(float lx, float lz, float radius, float *pdx, float 
                 /* Pull toward the current-tile centroid so a camera that
                  * already walked through the G1 face is unstuck into the
                  * room, not shoved further out. */
-                tcx = cx;
-                tcz = cz;
-                {
-                    /* Approximate centroid: average of tile verts in local. */
-                    /* port_stan has no centroid export; probe 4 offsets. */
-                    float sx = 0.f, sz = 0.f;
-                    int n = 0;
-                    static const float kdx[4] = { 24.f, -24.f, 0.f, 0.f };
-                    static const float kdz[4] = { 0.f, 0.f, 24.f, -24.f };
-                    for (k = 0; k < 4; k++) {
-                        float px = cx + kdx[k], pz = cz + kdz[k];
-                        if (!port_stan_on_tile(px, pz))
-                            continue;
-                        if (port_stan_tile_room(px, pz) != port_stan_tile_room(cx, cz) &&
-                            port_stan_tile_room(cx, cz) >= 1)
-                            continue;
-                        sx += px;
-                        sz += pz;
-                        n++;
-                    }
-                    if (n > 0) {
-                        tcx = sx / (float)n;
-                        tcz = sz / (float)n;
-                    }
-                }
                 side = ((tcx - pl->pcx) * pl->wx + (tcz - pl->pcz) * pl->wz >= 0.f) ? 1.f
                                                                                     : -1.f;
                 need = clear - side * along;

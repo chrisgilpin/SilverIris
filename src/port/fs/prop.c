@@ -905,14 +905,28 @@ static int add_part_gdl(PortModel *m, const uint8_t *base, size_t n, uint8_t op,
     return 1;
 }
 
+static int bind_model_gdl(PortModel *m, int use_guard);
+
+static uint32_t model_root_off(const PortModel *m)
+{
+    if (!m || !m->file || m->file_len < NODE_BYTES)
+        return 0;
+    /* Synthetic node trees start with a DL opcode; retail files start with
+     * a texture table or 0x05 switch pointers. */
+    if (m->file[1] == 2 || m->file[1] == 4 || m->file[1] == 22 || m->file[1] == 24)
+        return 0;
+    return (uint32_t)m->nswitch * 4u + (uint32_t)m->ntex * TEXREC_BYTES;
+}
+
 /* Walk Rare nodes. GROUP / GROUPSIMPLE Origin is T; guard bodies also
  * apply rest-pose R from RST1 (synthetic) or ANIM_idle frame 0 via
- * SKELETON(guard) JointID → mtxA. Identity rest = old bind-pose. */
-static int walk_parts(PortModel *m, uint32_t root, int use_guard)
+ * SKELETON(guard) JointID → mtxA. Identity rest = old bind-pose.
+ * pose_only: refresh joint 4x4s for a new rest; keep the GDL part list. */
+static int walk_parts(PortModel *m, uint32_t root, int use_guard, int pose_only)
 {
-    uint32_t q[PORT_NODE_MAX];
-    float qm[PORT_NODE_MAX][4][4];
-    int qid[PORT_NODE_MAX];
+    static uint32_t q[PORT_NODE_MAX];
+    static float qm[PORT_NODE_MAX][4][4];
+    static int qid[PORT_NODE_MAX];
     int qh = 0, qt = 0, i, ji;
     const uint8_t *base = m->file;
     size_t n = m->file_len;
@@ -998,7 +1012,7 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
         oy = childm[1][3];
         oz = childm[2][3];
         mtx_euler(childm, &rx, &ry, &rz);
-        if ((op == 4 || op == 22 || op == 24) && data)
+        if (!pose_only && (op == 4 || op == 22 || op == 24) && data)
             add_part_gdl(m, base, n, op, data, ox, oy, oz, rx, ry, rz, cur_id);
         /* Rare modelApplyHeadRelations: HeadPlaceholder.Child = Chead*Z
          * RootNode. Walking the original child DL draws a default-head
@@ -1036,7 +1050,22 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
             }
         }
     }
+    if (use_guard && m->njoint >= 8)
+        m->use_joints = 1;
     return m->npart ? 0 : -1;
+}
+
+/* Refresh joint 4x4s for a new rest without recounting GDL parts. */
+static int repose_or_bind(PortModel *m)
+{
+    if (!m || !m->file)
+        return -1;
+    if (m->npart > 0 && m->use_joints) {
+        if (walk_parts(m, model_root_off(m), 1, 1) != 0)
+            return bind_model_gdl(m, 1);
+        return 0;
+    }
+    return bind_model_gdl(m, 1);
 }
 
 /* skip=pose only. Jointed oliveguard's neck-GROUP sibling DL is not a
@@ -1127,20 +1156,13 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         m->npart = m->part[0].pri_n ? 1 : 0;
         return m->npart ? 0 : -1;
     }
-    root = 0;
-    /* Synthetic node trees start with a DL opcode; retail files start with
-     * a texture table or 0x05 switch pointers. */
-    if (m->file_len >= NODE_BYTES &&
-        (m->file[1] == 2 || m->file[1] == 4 || m->file[1] == 22 || m->file[1] == 24))
-        root = 0;
-    else
-        root = (uint32_t)m->nswitch * 4u + (uint32_t)m->ntex * TEXREC_BYTES;
+    root = model_root_off(m);
     used = root;
-    if (walk_parts(m, root, use_guard) != 0 && root != 0) {
+    if (walk_parts(m, root, use_guard, 0) != 0 && root != 0) {
         m->npart = 0;
         m->have_head = 0;
         m->head_rx = m->head_ry = m->head_rz = 0.f;
-        walk_parts(m, 0, use_guard);
+        walk_parts(m, 0, use_guard, 0);
         used = 0;
     }
     if (use_guard && m->npart) {
@@ -1159,7 +1181,7 @@ static int bind_model_gdl(PortModel *m, int use_guard)
                 m->npart = 0;
                 m->have_head = 0;
                 m->head_rx = m->head_ry = m->head_rz = 0.f;
-                walk_parts(m, used, use_guard);
+                walk_parts(m, used, use_guard, 0);
                 if (m->njoint < 8)
                     strip_default_head_dl(m);
                 g_pose_rest = save;
@@ -1993,7 +2015,7 @@ static void apply_walk_bind(void)
     for (i = 0; i < g_nmdl; i++) {
         if (!g_mdl[i].file || !mdl_is_walk(&g_mdl[i]))
             continue;
-        bind_model_gdl(&g_mdl[i], 1);
+        (void)repose_or_bind(&g_mdl[i]);
         if (g_walk_fit_scale != 0.f) {
             g_mdl[i].fit_scale = g_walk_fit_scale;
             g_mdl[i].fit_ymin = g_walk_fit_ymin;
@@ -2245,21 +2267,21 @@ static int in_spawn_fire_box(float lx, float lz)
     return 1;
 }
 
-/* Clip a proposed chase dest with the same rules as the player
- * (Rare point.link walls, lowest overlapping floor, closed doors).
- * Refuse the spawn stall fire box (Z-floor). */
+/* Sit a chase dest on a ground-floor tile. Player clip_step walks G1
+ * walls × stan tiles per wall (that froze live Chrome after hear).
+ * Closed-door dest is refused; chase_step unlatches and retries. */
 static int try_chase_sit(int pi, float ox, float oz, float nx, float nz,
                          const float r1[3])
 {
-    float cx = nx, cz = nz, ny = 0.f;
-    port_stan_clip_step_ground(ox, oz, &cx, &cz, &ny);
-    if (in_spawn_fire_box(cx, cz))
+    if (in_spawn_fire_box(nx, nz))
         return 0;
-    if (cx == ox && cz == oz)
+    if (nx == ox && nz == oz)
         return 0;
-    if (!sit_guard_tile(pi, cx, cz, r1))
+    if (port_stan_door_blocks_only(ox, oz, nx, nz))
         return 0;
-    face_heading_prop(pi, cx - ox, cz - oz);
+    if (!sit_guard_tile(pi, nx, nz, r1))
+        return 0;
+    face_heading_prop(pi, nx - ox, nz - oz);
     return 1;
 }
 
@@ -2628,7 +2650,10 @@ static int apply_die_bind(PortModel *m)
     fs = m->fit_scale;
     save = g_pose_rest;
     g_pose_rest = g_die_rest;
-    bind_model_gdl(m, 1);
+    if (repose_or_bind(m) != 0) {
+        g_pose_rest = save;
+        return -1;
+    }
     if (fs == 0.f && g_walk_fit_scale != 0.f)
         fs = g_walk_fit_scale;
     pin_die_floor(m, fs);
@@ -3306,6 +3331,29 @@ static void bind_assigned_guns(void)
     printf("held_gun n=%d mtx=%d models=%d\n", nheld, nmtx, g_nmdl);
 }
 
+/* Inflate unique die C*Z at load so the first kill is not a 1172 hitch. */
+static void preload_die_models(void)
+{
+    int i, n = 0;
+    uint8_t seen[256];
+
+    if (!g_have_die)
+        return;
+    memset(seen, 0, sizeof seen);
+    for (i = 0; i < g_nprop; i++) {
+        int body;
+        if (g_prop[i].type != PDEF_GUARD)
+            continue;
+        body = g_prop[i].model;
+        if (body < 0 || body >= 256 || seen[body])
+            continue;
+        seen[body] = 1;
+        if (load_chr_die(body))
+            n++;
+    }
+    printf("die_preload n=%d models=%d %s\n", n, g_nmdl, g_die_info);
+}
+
 static void fill_pad_prop(PortProp *pr, int type, int model, int pad, const uint8_t *pd,
                           float scale)
 {
@@ -3445,6 +3493,7 @@ static int parse_setup(const uint8_t *st, size_t n)
         }
     }
     bind_assigned_guns();
+    preload_die_models();
     return 0;
 }
 
@@ -5426,6 +5475,13 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;
             pdz += gdz;
+        } else if (!idle) {
+            float dx = padx - port_player_x();
+            float dz = padz - port_player_z();
+            if (dx * dx + dz * dz > 380.f * 380.f) {
+                g_emit_skip_range++;
+                return k;
+            }
         }
         {
             int use_j = mdl_use_joints(mdl);

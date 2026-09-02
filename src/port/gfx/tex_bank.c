@@ -255,9 +255,10 @@ static int read_uncomp_tight(Bits *b, uint8_t fmt, unsigned w, unsigned h, uint8
 /* Decomp texInflateHuffman. First min-find uses minf2<minf1; later finds use minf1>minf2. */
 static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
 {
-    uint16_t freq[2048];
-    int16_t nodes[2048][2];
-    int i, rootindex = 0, done = 0;
+    /* Static: wasm draw/decode share a 1MB stack with decode_rare scratch. */
+    static uint16_t freq[2048];
+    static int16_t nodes[2048][2];
+    int i, rootindex = 0, done = 0, builds = 0;
     uint32_t v;
     uint16_t minfreq1, minfreq2;
     int minindex1 = 0, minindex2 = 1, sum;
@@ -294,6 +295,10 @@ static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
     }
 
     while (!done) {
+        if (++builds > 2048)
+            return -1;
+        if (minindex1 < 0 || minindex1 >= 2048 || minindex2 < 0 || minindex2 >= 2048)
+            return -1;
         sum = (int)freq[minindex1] + (int)freq[minindex2];
         if (sum == 0)
             sum = 1;
@@ -350,7 +355,10 @@ static int inflate_huffman(Bits *b, uint8_t *dst, int niter, int chansize)
 
     for (i = 0; i < niter; i++) {
         int idx = rootindex;
+        int steps = 0;
         while (idx < 10000) {
+            if (++steps > 2048)
+                return -1;
             if (bits_read(b, 1, &v) != 0)
                 return -1;
             if (idx < 0 || idx >= 2048)
@@ -755,7 +763,7 @@ static int decode_rare(Bits *b, G1TexBankOut *out)
     uint32_t v;
     uint8_t fmt, method;
     unsigned w, h;
-    uint8_t scratch[0x8000];
+    static uint8_t scratch[0x8000];
     int nchan, chsz, niter, nbytes;
 
     if (bits_read(b, 4, &v) != 0)
