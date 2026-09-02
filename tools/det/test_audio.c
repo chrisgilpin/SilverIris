@@ -382,6 +382,89 @@ int main(int argc, char **argv)
         }
 
         {
+            char gun_hex2[65];
+            int li, lsum, rsum;
+
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, gun_hex2);
+            port_audio_init();
+            port_audio_set_sfx_pan(0);
+            port_audio_play_gun();
+            if (!port_audio_spat_on())
+                return fail("spat flag");
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hex);
+            if (strcmp(hex, gun_hex2) == 0)
+                return fail("left sfx pan matches center gun");
+            lsum = 0;
+            rsum = 0;
+            for (li = 0; li < NFRAMES; li++) {
+                int l = pcm[li * 2];
+                int r = pcm[li * 2 + 1];
+                if (l < 0)
+                    l = -l;
+                if (r < 0)
+                    r = -r;
+                lsum += l;
+                rsum += r;
+            }
+            if (rsum != 0)
+                return fail("left sfx pan leaked right");
+            if (lsum < 1000)
+                return fail("left sfx pan quiet");
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hex);
+            if (strcmp(hex, gun_hex2) != 0)
+                return fail("gun after spat unload");
+            if (port_audio_spat_on())
+                return fail("spat after center gun");
+            printf("spat sfx distinct=1 restore=1\n");
+        }
+
+        {
+            int li, l0, r0, l1, r1;
+
+            port_audio_init();
+            port_audio_play_step();
+            if (!port_audio_spat_on())
+                return fail("step spat");
+            port_audio_cb(pcm, NFRAMES);
+            l0 = 0;
+            r0 = 0;
+            for (li = 0; li < NFRAMES; li++) {
+                int l = pcm[li * 2];
+                int r = pcm[li * 2 + 1];
+                if (l < 0)
+                    l = -l;
+                if (r < 0)
+                    r = -r;
+                l0 += l;
+                r0 += r;
+            }
+            port_audio_play_step();
+            port_audio_cb(pcm, NFRAMES);
+            l1 = 0;
+            r1 = 0;
+            for (li = 0; li < NFRAMES; li++) {
+                int l = pcm[li * 2];
+                int r = pcm[li * 2 + 1];
+                if (l < 0)
+                    l = -l;
+                if (r < 0)
+                    r = -r;
+                l1 += l;
+                r1 += r;
+            }
+            if (!(r0 > l0 && l1 > r1))
+                return fail("step L/R feet");
+            printf("step pan lr=1\n");
+        }
+
+        {
             char gun_only[65], mixed[65];
             port_audio_init();
             port_audio_play_gun();

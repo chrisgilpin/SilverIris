@@ -18,6 +18,7 @@ __attribute__((weak)) void port_audio_play_kf7(void) {}
 __attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_audio_play_reload(void) {}
 __attribute__((weak)) void port_audio_play_yelp(void) {}
+__attribute__((weak)) void port_audio_set_sfx_pan(uint8_t pan) { (void)pan; }
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -100,6 +101,38 @@ static void reload(void)
     g->mag += take;
 }
 
+/* Mixer pan 0..127 from listener xz vs source. Center-unity at 64.
+ * Not ASP HLE. */
+static uint8_t sfx_pan_at(float sx, float sz)
+{
+    float fx, fy, fz;
+    float dx, dz, side, fwd, ang;
+    int pan;
+
+    port_player_look_dir(&fx, &fy, &fz);
+    dx = sx - port_player_x();
+    dz = sz - port_player_z();
+    side = dx * fz - dz * fx;
+    fwd = dx * fx + dz * fz;
+    if (side * side + fwd * fwd < 1.0f)
+        return 64u;
+    ang = atan2f(side, fwd);
+    pan = 64 + (int)(ang * (63.0f / 3.14159265f) + (ang >= 0.f ? 0.5f : -0.5f));
+    if (pan < 0)
+        pan = 0;
+    if (pan > 127)
+        pan = 127;
+    return (uint8_t)pan;
+}
+
+static void play_world(void (*fn)(void), float sx, float sz)
+{
+    if (!fn)
+        return;
+    port_audio_set_sfx_pan(sfx_pan_at(sx, sz));
+    fn();
+}
+
 static void fire_hitscan(void)
 {
     float ox = port_player_x();
@@ -176,29 +209,29 @@ static void fire_hitscan(void)
         {
             int guard = (src == 1) ? port_stan_ray_hit_guard() : 0;
             if ((src == 2 || src == 6 || guard || src == 5) && port_audio_play_hit)
-                port_audio_play_hit();
+                play_world(port_audio_play_hit, g->hit_x, g->hit_z);
             else if ((src == 1 || src == 3 || src == 4) && port_audio_play_rico)
-                port_audio_play_rico();
+                play_world(port_audio_play_rico, g->hit_x, g->hit_z);
             if ((src == 2 || src == 6 || guard) && port_audio_play_yelp)
-                port_audio_play_yelp();
+                play_world(port_audio_play_yelp, g->hit_x, g->hit_z);
         }
         if (src == 2) {
             port_chr_kill();
             port_score_add_kill();
             if (port_audio_play_fall)
-                port_audio_play_fall();
+                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 6) {
             float hx = 0.f, hz = 0.f;
             if (port_prop_chr_hit_xz(&hx, &hz) == 0)
                 port_stan_mark_guard_at(hx, hz);
             port_score_add_kill();
             if (port_audio_play_fall)
-                port_audio_play_fall();
+                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();
             port_score_add_kill();
             if (port_audio_play_fall)
-                port_audio_play_fall();
+                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 5 && hit_seat >= 0) {
             int dead;
             port_set_cur_player(hit_seat);
@@ -208,7 +241,7 @@ static void fire_hitscan(void)
             if (dead) {
                 port_score_add_kill();
                 if (port_audio_play_fall)
-                    port_audio_play_fall();
+                    play_world(port_audio_play_fall, g->hit_x, g->hit_z);
             }
         }
     }

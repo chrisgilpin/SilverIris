@@ -44,16 +44,19 @@
 #define HURT_AMP 8800
 #define HURT_LEN ((PORT_AUDIO_RATE * 200u) / 1000u)
 /* GE has no footstep SFX ID. Short damped thud on its own mixer voice so
- * walking does not cut gun / door / yelp. Alternate 72/96 Hz for L/R. */
+ * walking does not cut gun / door / yelp. Alternate 72/96 Hz and 48/80
+ * pan for L/R. */
 #define STEP_HZ0 72u
 #define STEP_HZ1 96u
+#define STEP_PAN0 48u
+#define STEP_PAN1 80u
 #define STEP_AMP 5200
 #define STEP_LEN ((PORT_AUDIO_RATE * 70u) / 1000u)
 #define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
 /* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
  * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
  * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
- * Not ASP HLE (no RSP mixer or spatial SFX). */
+ * World SFX take a one-shot mixer pan from listener xz. Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -141,6 +144,12 @@ static uint32_t g_step_phase;
 static int g_step_use_pcm;
 static int g_step_foot;
 static uint32_t g_step_hz;
+static uint8_t g_next_pan;
+static uint8_t g_sfx_pan;
+static uint8_t g_ov_pan;
+static uint8_t g_hit_pan;
+static uint8_t g_voice_pan;
+static uint8_t g_step_pan;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -364,6 +373,12 @@ void port_audio_init(void)
     g_step_use_pcm = 0;
     g_step_foot = 0;
     g_step_hz = STEP_HZ0;
+    g_next_pan = SEQ_PAN_C;
+    g_sfx_pan = SEQ_PAN_C;
+    g_ov_pan = SEQ_PAN_C;
+    g_hit_pan = SEQ_PAN_C;
+    g_voice_pan = SEQ_PAN_C;
+    g_step_pan = SEQ_PAN_C;
     ai_reset();
     g_inited = 1;
 }
@@ -490,6 +505,37 @@ int port_audio_pan_on(void)
     return g_pan_ready != 0;
 }
 
+static uint8_t take_next_pan(void)
+{
+    uint8_t p = g_next_pan;
+    g_next_pan = SEQ_PAN_C;
+    if (p > 127u)
+        p = 127u;
+    return p;
+}
+
+void port_audio_set_sfx_pan(uint8_t pan)
+{
+    if (pan > 127u)
+        pan = 127u;
+    g_next_pan = pan;
+}
+
+int port_audio_spat_on(void)
+{
+    if (g_sfx_left > 0 && g_sfx_pan != SEQ_PAN_C)
+        return 1;
+    if (g_ov_left > 0 && g_ov_pan != SEQ_PAN_C)
+        return 1;
+    if (g_hit_left > 0 && g_hit_pan != SEQ_PAN_C)
+        return 1;
+    if (g_voice_left > 0 && g_voice_pan != SEQ_PAN_C)
+        return 1;
+    if (g_step_left > 0 && g_step_pan != SEQ_PAN_C)
+        return 1;
+    return 0;
+}
+
 static uint8_t mix_pan(uint8_t a, uint8_t b)
 {
     uint32_t p = ((uint32_t)a * (uint32_t)b) / SEQ_PAN_C;
@@ -508,6 +554,16 @@ static void pan_split(int s, uint8_t pan, int *l, int *r)
         *l = (int)(((int32_t)s * (int32_t)(127 - pan)) / 63);
         *r = s;
     }
+}
+
+static void acc_pan(int s, uint8_t pan, int *acc_l, int *acc_r)
+{
+    int sl;
+    int sr;
+
+    pan_split(s, pan, &sl, &sr);
+    *acc_l += sl;
+    *acc_r += sr;
 }
 
 static int inst_env_used(const InstSound *s)
@@ -1337,6 +1393,7 @@ static void queue_sfx(int kind, uint32_t len)
 {
     g_sfx_kind = kind;
     g_last_sfx = kind;
+    g_sfx_pan = take_next_pan();
     g_sfx_phase = 0;
     g_sfx_noise = 0xC0FFEEu ^ ((uint32_t)kind * 0x9E3779B9u);
     g_sfx_pcm_pos = 0;
@@ -1370,6 +1427,7 @@ static void queue_overlay(int kind, uint32_t len)
 {
     g_ov_kind = kind;
     g_last_sfx = kind;
+    g_ov_pan = take_next_pan();
     g_ov_phase = 0;
     g_ov_pos = 0;
     g_ov_pcm = 0;
@@ -1434,6 +1492,7 @@ static void queue_hit(int kind, uint32_t len)
 {
     g_hit_kind = kind;
     g_last_sfx = kind;
+    g_hit_pan = take_next_pan();
     g_hit_phase = 0;
     g_hit_pos = 0;
     if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
@@ -1491,6 +1550,7 @@ static void queue_voice(int kind, uint32_t len)
 {
     g_voice_kind = kind;
     g_last_sfx = kind;
+    g_voice_pan = take_next_pan();
     g_voice_phase = 0;
     g_voice_pos = 0;
     g_voice_pcm = 0;
@@ -1564,6 +1624,7 @@ static void queue_step(int kind, uint32_t len)
     g_step_pos = 0;
     g_step_foot ^= 1;
     g_step_hz = g_step_foot ? STEP_HZ1 : STEP_HZ0;
+    g_step_pan = g_step_foot ? STEP_PAN1 : STEP_PAN0;
     if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
         g_step_use_pcm = 1;
         g_step_left = g_sfx_pcm_n[kind];
@@ -1820,8 +1881,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 else
                     g_sfx_phase += ginc + ninc / 8u;
             }
-            acc_l += s;
-            acc_r += s;
+            acc_pan(s, g_sfx_pan, &acc_l, &acc_r);
             g_sfx_left--;
         }
 
@@ -1837,8 +1897,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_ov_phase, amp);
                 g_ov_phase += finc;
             }
-            acc_l += s;
-            acc_r += s;
+            acc_pan(s, g_ov_pan, &acc_l, &acc_r);
             g_ov_left--;
         }
 
@@ -1860,8 +1919,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_hit_phase, amp) + osc_noise(&g_sfx_noise, amp / 2);
                 g_hit_phase += hinc;
             }
-            acc_l += s;
-            acc_r += s;
+            acc_pan(s, g_hit_pan, &acc_l, &acc_r);
             g_hit_left--;
         }
 
@@ -1882,8 +1940,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_voice_phase, amp);
                 g_voice_phase += yinc;
             }
-            acc_l += s;
-            acc_r += s;
+            acc_pan(s, g_voice_pan, &acc_l, &acc_r);
             g_voice_left--;
         }
 
@@ -1904,8 +1961,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                     s += osc_noise(&g_sfx_noise, amp / 2);
                 g_step_phase += sinc;
             }
-            acc_l += s;
-            acc_r += s;
+            acc_pan(s, g_step_pan, &acc_l, &acc_r);
             g_step_left--;
         }
 
