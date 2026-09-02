@@ -23,6 +23,8 @@
  * walk-anim root translate (bondheadmatrices[0].m[3] * dt). A cycle is
  * ~one body length (185u) over frames 9.5–27, which is ~4.5× analog*dt. */
 #define PORT_WALK_MUL 4.5f
+/* Gait cycle ~185u / two steps. Accumulated xz after clip. */
+#define PORT_STEP_DIST 90.0f
 #define PORT_PITCH_MAX 70.0f
 /* Quantized look on the pad: degrees = q / PORT_LOOK_Q. */
 #define PORT_LOOK_Q 10

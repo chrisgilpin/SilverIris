@@ -8,7 +8,8 @@
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
  * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall / hit /
  * KF7 bolt / pickup / door-close / wall ricochet / ammo crate / armour /
- * rifle-cock reload / male yelp / Bond hurt.
+ * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
+ * placeholder (GE has no footstep SFX ID); pack install is optional.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
@@ -34,7 +35,7 @@
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
 
-static int16_t *g_owned[15];
+static int16_t *g_owned[16];
 static int16_t *g_yelp_owned[PACK_SFX_GET_HIT_MALE_N];
 static int16_t *g_fall_owned[PACK_SFX_BODY_FALL_N];
 
@@ -72,7 +73,7 @@ static int32_t bes32(const uint8_t *p)
 
 static void drop_kind(int kind)
 {
-    if (kind < 1 || kind > PORT_SFX_HURT)
+    if (kind < 1 || kind > PORT_SFX_STEP)
         return;
     port_audio_install_sfx(kind, NULL, 0, 0);
     free(g_owned[kind]);
@@ -117,6 +118,7 @@ void port_audio_unload_pack_sfx(void)
     drop_kind(PORT_SFX_YELP);
     drop_yelps();
     drop_kind(PORT_SFX_HURT);
+    drop_kind(PORT_SFX_STEP);
 }
 
 static int decode_id_pcm(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,

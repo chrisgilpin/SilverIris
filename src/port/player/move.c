@@ -13,6 +13,7 @@
 __attribute__((weak)) void port_audio_play_door(void) {}
 __attribute__((weak)) void port_audio_play_door_close(void) {}
 __attribute__((weak)) void port_audio_play_hurt(void) {}
+__attribute__((weak)) void port_audio_play_step(void) {}
 
 /*
  * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
@@ -59,6 +60,7 @@ typedef struct {
     int32_t health;
     int32_t armour;
     int dead_ticks;
+    float step_acc;
 } PortPly;
 
 static PortPly g_p[PORT_MAX_PLAYERS];
@@ -288,6 +290,7 @@ static void sit_seat(int i, float x, float y, float z, float theta)
     g_p[i].pad_look_yaw = 0;
     g_p[i].pad_look_pitch = 0;
     g_p[i].spawned = 1;
+    g_p[i].step_acc = 0.0f;
 }
 
 static void place_extra_seats(float x, float y, float z, float theta)
@@ -374,6 +377,7 @@ void port_player_spawn(void)
         g_p[i].health = PORT_PLAYER_HEALTH_MAX;
         g_p[i].armour = 0;
         g_p[i].dead_ticks = 0;
+        g_p[i].step_acc = 0.0f;
     }
     g_safe_y = PORT_EYE_HEIGHT;
     port_stan_clear_current();
@@ -566,6 +570,19 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
             p->x = nx;
             p->z = nz;
             store_y(p, ny);
+        }
+        {
+            float dx = p->x - ox, dz = p->z - oz, dist;
+            /* Gait cycle is ~one body length (185u) / two steps. */
+            dist = sqrtf(dx * dx + dz * dz);
+            if (dist > 1.0f) {
+                p->step_acc += dist;
+                while (p->step_acc >= PORT_STEP_DIST) {
+                    p->step_acc -= PORT_STEP_DIST;
+                    if (port_audio_play_step)
+                        port_audio_play_step();
+                }
+            }
         }
     }
     /* Rare bond_pressed_reload_activate -> propdoorInteract. N64 A, not fire. */

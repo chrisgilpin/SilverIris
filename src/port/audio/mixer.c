@@ -42,7 +42,14 @@
 #define HURT_HZ 185u
 #define HURT_AMP 8800
 #define HURT_LEN ((PORT_AUDIO_RATE * 200u) / 1000u)
-#define SFX_KIND_MAX 14
+/* GE has no footstep SFX ID. Short damped thud on its own mixer voice so
+ * walking does not cut gun / door / yelp. Alternate 72/96 Hz for L/R. */
+#define STEP_HZ0 72u
+#define STEP_HZ1 96u
+#define STEP_AMP 5200
+#define STEP_LEN ((PORT_AUDIO_RATE * 70u) / 1000u)
+#define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
+#define SFX_KIND_MAX 15
 #define YELP_VARS 25
 #define FALL_VARS 11
 
@@ -93,6 +100,14 @@ static uint32_t g_fall_n[FALL_VARS];
 static uint8_t g_fall_vol[FALL_VARS];
 static int g_nfall;
 static int g_fall_i;
+static int g_step_kind;
+static uint32_t g_step_left;
+static uint32_t g_step_len;
+static uint32_t g_step_pos;
+static uint32_t g_step_phase;
+static int g_step_use_pcm;
+static int g_step_foot;
+static uint32_t g_step_hz;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -224,6 +239,14 @@ void port_audio_init(void)
     g_voice_vol = 127u;
     g_yelp_i = 0;
     g_fall_i = 0;
+    g_step_kind = 0;
+    g_step_left = 0;
+    g_step_len = 0;
+    g_step_pos = 0;
+    g_step_phase = 0;
+    g_step_use_pcm = 0;
+    g_step_foot = 0;
+    g_step_hz = STEP_HZ0;
     ai_reset();
     g_inited = 1;
 }
@@ -270,6 +293,8 @@ static uint32_t placeholder_len(int kind)
         return YELP_LEN;
     if (kind == PORT_SFX_HURT)
         return HURT_LEN;
+    if (kind == PORT_SFX_STEP)
+        return STEP_LEN;
     return GUN_LEN;
 }
 
@@ -496,6 +521,30 @@ void port_audio_play_hurt(void)
     queue_voice(PORT_SFX_HURT, HURT_LEN);
 }
 
+static void queue_step(int kind, uint32_t len)
+{
+    g_step_kind = kind;
+    g_last_sfx = kind;
+    g_step_phase = 0;
+    g_step_pos = 0;
+    g_step_foot ^= 1;
+    g_step_hz = g_step_foot ? STEP_HZ1 : STEP_HZ0;
+    if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
+        g_step_use_pcm = 1;
+        g_step_left = g_sfx_pcm_n[kind];
+        g_step_len = g_sfx_pcm_n[kind];
+    } else {
+        g_step_use_pcm = 0;
+        g_step_left = len;
+        g_step_len = len;
+    }
+}
+
+void port_audio_play_step(void)
+{
+    queue_step(PORT_SFX_STEP, STEP_LEN);
+}
+
 int port_audio_last_sfx(void)
 {
     return g_last_sfx;
@@ -653,6 +702,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t cinc = phase_inc(DOOR_CLOSE_HZ);
     uint32_t yinc = phase_inc(YELP_HZ);
     uint32_t uinc = phase_inc(HURT_HZ);
+    uint32_t sinc = phase_inc(g_step_hz ? g_step_hz : STEP_HZ0);
     int i;
     int kind = g_sfx_kind;
 
@@ -792,6 +842,28 @@ void port_audio_cb(int16_t *stereo, int nframes)
             acc_l += s;
             acc_r += s;
             g_voice_left--;
+        }
+
+        if (g_step_left > 0 && g_step_len > 0) {
+            int s = 0;
+            int skind = g_step_kind;
+            if (g_step_use_pcm && skind >= 1 && skind <= SFX_KIND_MAX &&
+                g_sfx_pcm[skind] && g_step_pos < g_sfx_pcm_n[skind]) {
+                int vol = (int)g_sfx_pcm_vol[skind];
+                int32_t v = ((int32_t)g_sfx_pcm[skind][g_step_pos] * vol) / 127;
+                g_step_pos++;
+                s = (int)v;
+            } else {
+                int amp = (int)((uint32_t)STEP_AMP * g_step_left / g_step_len);
+                uint32_t spent = g_step_len - g_step_left;
+                s = osc_tri(g_step_phase, amp);
+                if (spent < STEP_CRACK)
+                    s += osc_noise(&g_sfx_noise, amp / 2);
+                g_step_phase += sinc;
+            }
+            acc_l += s;
+            acc_r += s;
+            g_step_left--;
         }
 
         stereo[i * 2] = CLAMP16(acc_l);

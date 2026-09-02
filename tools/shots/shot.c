@@ -47,7 +47,7 @@ static void place(float x, float z, float th);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un, fv;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un, sn, fv;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -64,12 +64,13 @@ static int sfx_bank_proof(void)
     ln = port_audio_sfx_frames(PORT_SFX_RELOAD);
     yn = port_audio_sfx_frames(PORT_SFX_YELP);
     un = port_audio_sfx_frames(PORT_SFX_HURT);
+    sn = port_audio_sfx_frames(PORT_SFX_STEP);
     fv = port_audio_fall_variants();
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
            "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d "
-           "reload_n=%d yelp_n=%d hurt_n=%d yelp_vars=%d fall_vars=%d\n",
+           "reload_n=%d yelp_n=%d hurt_n=%d step_n=%d yelp_vars=%d fall_vars=%d\n",
            port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn,
-           un, port_audio_yelp_variants(), fv);
+           un, sn, port_audio_yelp_variants(), fv);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -355,6 +356,27 @@ static int sfx_bank_proof(void)
         }
     }
     {
+        int16_t step[512];
+        long long es = 0;
+        int diff = 0;
+        memset(step, 0, sizeof step);
+        port_audio_play_gun();
+        port_audio_play_step();
+        port_audio_cb(step, 256);
+        for (i = 0; i < 512; i++) {
+            es += (long long)step[i] * step[i];
+            if (step[i] != gun[i])
+                diff++;
+        }
+        printf("sfx_step n=%d e=%lld last=%d mix_diff=%d\n", sn, es,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_STEP || es < 10000ll || diff < 16) {
+            fprintf(stderr, "sfx_step did not overlay gun last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), es, diff);
+            return -1;
+        }
+    }
+    {
         int16_t three[512], four[512];
         long long e3 = 0, e4 = 0;
         int diff = 0;
@@ -478,6 +500,37 @@ static int sfx_bank_proof(void)
             return -1;
         }
     }
+    return 0;
+}
+
+static int walk_step_proof(void)
+{
+    int i, nstep = 0, last = 0;
+    float x0, z0, sx, sz;
+    sx = port_player_x();
+    sz = port_player_z();
+    /* θ180 look is +Z (stick-up). Spawn hall opens that way, not into the stall. */
+    place(sx, sz, 180.f);
+    port_player_set_pitch(0.f);
+    x0 = port_player_x();
+    z0 = port_player_z();
+    port_api_set_pad(0, 0, -70, 0);
+    for (i = 0; i < 40; i++) {
+        if (port_api_sim_tick(6000u + (uint32_t)i) != 0)
+            return -1;
+        last = port_audio_last_sfx();
+        if (last == PORT_SFX_STEP)
+            nstep++;
+    }
+    printf("walk_step n=%d last=%d dx=%.1f dz=%.1f\n", nstep, last,
+           (double)(port_player_x() - x0), (double)(port_player_z() - z0));
+    if (nstep < 1) {
+        fprintf(stderr, "walk_step silent n=%d last=%d\n", nstep, last);
+        return -1;
+    }
+    port_api_set_pad(0, 0, 0, 0);
+    place(sx, sz, 270.f);
+    port_player_set_pitch(0.f);
     return 0;
 }
 
@@ -3460,6 +3513,8 @@ static int playtest_chris(const char *out_dir)
     }
     if (sfx_bank_proof() != 0)
         return -1;
+    if (walk_step_proof() != 0)
+        return -1;
     if (door_jump_yaw_proof(out_dir, spawn_x, spawn_z) != 0)
         return -1;
     place(spawn_x, spawn_z, 270.f);
@@ -5075,6 +5130,8 @@ int main(int argc, char **argv)
                     sfx = 1;
             if (sfx) {
                 int prc = sfx_bank_proof();
+                if (prc == 0)
+                    prc = walk_step_proof();
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;

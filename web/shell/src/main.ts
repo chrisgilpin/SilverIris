@@ -79,6 +79,9 @@ const held = new Set<string>();
 let simN = 1;
 let accMs = 0;
 let lastPaint = 0;
+let rafN = 0;
+let rafT0 = 0;
+let rafFps = 0;
 let seenHits = 0;
 const hitMarks: PortHit[] = [];
 const checksumLog: Array<{
@@ -222,7 +225,7 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   hudLine(
     ctx,
-    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`,
+    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}`,
     8,
     14,
   );
@@ -352,6 +355,13 @@ function paint(now: number): void {
   if (!lastPaint) lastPaint = now;
   accMs += now - lastPaint;
   lastPaint = now;
+  if (!rafT0) rafT0 = now;
+  rafN++;
+  if (now - rafT0 >= 1000) {
+    rafFps = (rafN * 1000) / (now - rafT0);
+    rafN = 0;
+    rafT0 = now;
+  }
   const n = game.playerCount();
   const pads = [padP1Move()];
   const gps = typeof navigator !== "undefined" ? navigator.getGamepads?.() ?? [] : [];
@@ -556,6 +566,9 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
   simN = 1;
   accMs = 0;
   lastPaint = 0;
+  rafN = 0;
+  rafT0 = 0;
+  rafFps = 0;
   seenHits = 0;
   hitMarks.length = 0;
   checksumLog.length = 0;

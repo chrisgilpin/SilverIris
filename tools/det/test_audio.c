@@ -345,6 +345,43 @@ int main(int argc, char **argv)
         }
 
         {
+            char hurt_hex[65];
+            memcpy(hurt_hex, hex, 65);
+            port_audio_init();
+            port_audio_play_step();
+            port_audio_cb(pcm, NFRAMES);
+            if (all_zero(pcm))
+                return fail("step was silence");
+            if (port_audio_last_sfx() != PORT_SFX_STEP)
+                return fail("step last_sfx");
+            hash_pcm(pcm, hex);
+            printf("step sha256=%s\n", hex);
+            if (strcmp(hex, gun_hex) == 0)
+                return fail("step pcm matches gun");
+            if (strcmp(hex, hurt_hex) == 0)
+                return fail("step pcm matches hurt");
+            if (check_hash(dir, "step.pcm.sha256", hex) != 0)
+                return 1;
+        }
+
+        {
+            char gun_only[65], mixed[65];
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, gun_only);
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_play_step();
+            port_audio_cb(pcm, NFRAMES);
+            if (port_audio_last_sfx() != PORT_SFX_STEP)
+                return fail("step overlay last_sfx");
+            hash_pcm(pcm, mixed);
+            if (strcmp(mixed, gun_only) == 0)
+                return fail("step did not overlay gun");
+        }
+
+        {
             char gun_only[65], mixed[65];
             port_audio_init();
             port_audio_play_gun();
