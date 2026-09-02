@@ -1039,9 +1039,11 @@ static int walk_parts(PortModel *m, uint32_t root, int use_guard)
     return m->npart ? 0 : -1;
 }
 
-/* Rare modelApplyHeadRelations replaces HeadPlaceholder.Child with Chead*Z.
- * A GDL at the same world origin (child or neck-GROUP sibling) is the
- * default head — drawing it with Jim/Sally is the spawn-hall ceiling slab. */
+/* skip=pose only. Jointed oliveguard's neck-GROUP sibling DL is not a
+ * default-head card: it G_MTX LOADs torso slot 1 then neck slot 0 and
+ * TRI4s a stitched collar (torso-local y≈375..428 + neck-local y≈-38..2).
+ * Stripping it left the Chead floating over a missing neck (LIVE 3/4).
+ * Without joints that same DL is the spawn-hall ceiling slab. */
 static void strip_default_head_dl(PortModel *m)
 {
     int p, w = 0;
@@ -1141,8 +1143,6 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         walk_parts(m, 0, use_guard);
         used = 0;
     }
-    if (use_guard)
-        strip_default_head_dl(m);
     if (use_guard && m->npart) {
         float ymin = 0.f, ymax = 0.f;
         if (chr_part_span(m, &ymin, &ymax)) {
@@ -1160,7 +1160,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
                 m->have_head = 0;
                 m->head_rx = m->head_ry = m->head_rz = 0.f;
                 walk_parts(m, used, use_guard);
-                strip_default_head_dl(m);
+                if (m->njoint < 8)
+                    strip_default_head_dl(m);
                 g_pose_rest = save;
                 if (chr_part_span(m, &ymin, &ymax))
                     fit_chr_stand(m, ymin, ymax, "skip=aabb");
@@ -1170,6 +1171,8 @@ static int bind_model_gdl(PortModel *m, int use_guard)
         }
         if (m->njoint >= 8)
             m->use_joints = 1;
+        if (use_guard && !m->use_joints)
+            strip_default_head_dl(m);
     }
     return m->npart ? 0 : -1;
 }
@@ -5452,24 +5455,20 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     pr->head->fit_scale = mdl->fit_scale;
                     pr->head->fit_ymin = mdl->fit_ymin;
                     {
-                        /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520.
-                         * Pad extra_y 52 vs 80 was bit-identical on spawn
-                         * (Mihok 1018/1032 still floated) — T.oy does not
-                         * move this njoints==1 Chead. Drop model Y on the
-                         * copied neck 4x4 instead (scale 0.123 → 160 model
-                         * ≈ 20 world). 26u/52u/80u pad-Y failed live; 220u
-                         * pad-Y buried the face. Die stays 0. */
+                        /* Cheadjim y=-38..215 on HeadPlaceholder idle T.y≈520.
+                         * Pad extra_y and neck-4x4 Y drops fought a missing
+                         * collar: the neck-GROUP sibling DL stitches torso
+                         * slot 1 to neck slot 0. Keep that DL (joint path)
+                         * and leave T unshifted. Die stays 0. */
                         float headj[4][4];
-                        const float seat_m = dead ? 0.f : 160.f;
                         memcpy(headj, mdl->head_mtx, sizeof headj);
-                        headj[1][3] -= seat_m;
                         if (g_head_joint_drawn == 0) {
                             static int s_head_log;
                             if (s_head_log < 1) {
                                 s_head_log = 1;
-                                printf("head_joint chr=%d T=%.1f,%.1f,%.1f seatM=%.0f %s\n",
+                                printf("head_joint chr=%d T=%.1f,%.1f,%.1f seatM=0 %s\n",
                                        pr->chrnum, (double)headj[0][3], (double)headj[1][3],
-                                       (double)headj[2][3], (double)seat_m,
+                                       (double)headj[2][3],
                                        dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
                             }
                         }
