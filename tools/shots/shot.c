@@ -2744,6 +2744,29 @@ static int playtest_chris(const char *out_dir)
             return -1;
         }
     }
+    /* Chris / Mihok live door poses after ff37828. Not fail-gated. */
+    {
+        static const struct {
+            const char *tag;
+            float x, z, th, ph;
+        } kdoor[3] = {
+            { "play_door_chris1", -139.2f, -2336.6f, 260.f, -3.f },
+            { "play_door_chris2", -354.5f, -2107.1f, 289.f, -5.f },
+            { "play_door_mihok", -161.f, -2382.f, 290.f, -5.f },
+        };
+        int di;
+        for (di = 0; di < 3; di++) {
+            place(kdoor[di].x, kdoor[di].z, kdoor[di].th);
+            port_player_set_pitch(kdoor[di].ph);
+            if (shot_one(out_dir, kdoor[di].tag) != 0)
+                return -1;
+            printf("door_pose %s walked=%d cur=%d slabs=%d\n", kdoor[di].tag,
+                   port_stage_rooms_walked(), port_stage_current_room(),
+                   port_prop_slab_emit_count());
+        }
+        place(spawn_x, spawn_z, 270.f);
+        port_player_set_pitch(0.f);
+    }
     if (sfx_bank_proof() != 0)
         return -1;
     if (door_jump_yaw_proof(out_dir) != 0)

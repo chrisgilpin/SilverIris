@@ -4305,31 +4305,28 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 
-/* Closed-door slab. Retail Pgas_plant_met1_do1 is a 96-vert FRAME with a
- * hole (SETTEX 685-688,706). After closed-door portal cull that hole is a
- * black void. Fitted path/alcove faces keep a solid SETTEX 685 backing so
- * the opening is a door, then 686/687 recessed panels and 706 handles on
- * top (wide openings: two leaves). Sized to the Rare portal horiz x tall.
- * The G1 room GDL already owns the jamb. */
-#define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 tile 0; imagelist "685" */
+/* Closed-door slab. Retail Pgas_plant_met1_do1 is a solid 4-panel leaf
+ * (SETTEX 685 top with the two handle bars, then 686/687/688 ribbed
+ * plates; 706 is the ±X thickness, not a face handle). A single 685
+ * backing tiled across the portal stretched those bars into a face.
+ * Fitted path/alcove/cutout faces keep the same 4-row × 1-or-2-col
+ * layout, sized to the Rare portal horiz x tall. G1 owns the jamb. */
+#define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 top panel; imagelist "685" */
 #define SLAB_PANEL0_TEX 686u
 #define SLAB_PANEL1_TEX 687u
-#define SLAB_HANDLE_TEX 706u
+#define SLAB_PANEL2_TEX 688u
 #define SLAB_RETAIL_ID 158
 #define SLAB_RETAIL_HALF_W 350.f
 #define SLAB_RETAIL_BOTTOM -787.f
-#define SLAB_CMD_MAX 40
+#define SLAB_CMD_MAX 48
 #define SLAB_VTX_BASE (4 + SLAB_CMD_MAX * 8)
 #define SLAB_QUAD_BYTES 96
 #define SLAB_QUADS_MAX 8
 #define SLAB_FILE_SIZE (SLAB_VTX_BASE + SLAB_QUADS_MAX * SLAB_QUAD_BYTES)
 #define SLAB_POOL 48
-#define SLAB_SETTEX_WRAP 0xC0000003u
-#define SLAB_SETTEX_CLAMP 0xC0A00000u /* cms=2 cmt=2 */
-#define SLAB_UV_S (32 * 32)
-#define SLAB_UV_T (33 * 32)
-#define SLAB_Z_PANEL 3
-#define SLAB_Z_HANDLE 6
+#define SLAB_SETTEX_MIRROR 0xC0580002u /* cms=1 cmt=1, same as P*Z */
+#define SLAB_UV_S 992                  /* retail panel ST */
+#define SLAB_UV_T 1024
 #define SLAB_DOUBLE_HW 160
 /* In-plane pad covers the G1 jamb. Toward-camera push wins z over the rim
  * so 1.15× oversize is not needed (that ballooned the r71 alcove). */
@@ -4455,10 +4452,11 @@ static void slab_bounds(const PortModel *m, float *half_w, float *bottom)
 }
 
 /* Two proven 3-vert G_VTX+G_TRI4 packets (same encoding as the magenta
- * door test). A 4-vert packet left stale room verts on one triangle. */
+ * door test). A 4-vert packet left stale room verts on one triangle.
+ * ST matches Pgas_plant_met1_do1: t=0 at the panel sill, t=vt at the lintel. */
 static void slab_cmd_quad(uint8_t *f, uint32_t *cmd, uint32_t *vtx, int16_t x0,
-                          int16_t y0, int16_t x1, int16_t y1, int16_t z, int16_t us,
-                          int16_t vt)
+                          int16_t y0, int16_t x1, int16_t y1, int16_t z, int16_t s0,
+                          int16_t t0, int16_t s1, int16_t t1)
 {
     uint32_t gvtx = ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16);
     uint32_t v1, v2;
@@ -4475,28 +4473,26 @@ static void slab_cmd_quad(uint8_t *f, uint32_t *cmd, uint32_t *vtx, int16_t x0,
     wr32(f + *cmd, 0xB1000002u);
     wr32(f + *cmd + 4, 0x00000010u);
     *cmd += 8;
-    wr_vtx(f + v1 + 0, x0, y0, z, 0, vt);
-    wr_vtx(f + v1 + 16, x1, y0, z, us, vt);
-    wr_vtx(f + v1 + 32, x1, y1, z, us, 0);
+    wr_vtx(f + v1 + 0, x0, y0, z, s0, t0);
+    wr_vtx(f + v1 + 16, x1, y0, z, s1, t0);
+    wr_vtx(f + v1 + 32, x1, y1, z, s1, t1);
     wr32(f + *cmd, gvtx);
     wr32(f + *cmd + 4, 0x05000000u | v2);
     *cmd += 8;
     wr32(f + *cmd, 0xB1000002u);
     wr32(f + *cmd + 4, 0x00000010u);
     *cmd += 8;
-    wr_vtx(f + v2 + 0, x0, y0, z, 0, vt);
-    wr_vtx(f + v2 + 16, x1, y1, z, us, 0);
-    wr_vtx(f + v2 + 32, x0, y1, z, 0, 0);
+    wr_vtx(f + v2 + 0, x0, y0, z, s0, t0);
+    wr_vtx(f + v2 + 16, x1, y1, z, s1, t1);
+    wr_vtx(f + v2 + 32, x0, y1, z, s0, t1);
     *vtx += 96;
 }
 
 static void slab_leaf_x(int16_t hw, int dbl, int i, int16_t *x0, int16_t *x1)
 {
-    int16_t gap = 4;
-
     if (dbl) {
-        *x0 = (i == 0) ? (int16_t)(-hw) : gap;
-        *x1 = (i == 0) ? (int16_t)(-gap) : hw;
+        *x0 = (i == 0) ? (int16_t)(-hw) : 0;
+        *x1 = (i == 0) ? 0 : hw;
     } else {
         *x0 = (int16_t)(-hw);
         *x1 = hw;
@@ -4505,14 +4501,16 @@ static void slab_leaf_x(int16_t hw, int dbl, int i, int16_t *x0, int16_t *x1)
 
 static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
 {
+    static const uint32_t k_row_tex[4] = { SLAB_PANEL2_TEX, SLAB_PANEL1_TEX,
+                                           SLAB_PANEL0_TEX, SLAB_DOOR_TEX };
     uint32_t cmd = 4;
     uint32_t vtx = SLAB_VTX_BASE;
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
     int16_t us = SLAB_UV_S, vt = SLAB_UV_T;
     int dbl = (hw >= SLAB_DOUBLE_HW);
     int nleaf = dbl ? 2 : 1;
-    int i;
-    int16_t mx, my, rail, mid;
+    int row, i;
+    int16_t y[5];
 
     memset(f, 0, SLAB_FILE_SIZE);
     wr32(f, PORT_BG_MAGIC_G1DL);
@@ -4520,75 +4518,29 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     wr32(f + cmd + 4, 0xFFFFFFFFu);
     cmd += 8;
 
-    /* Solid 685 backing fills the FRAME hole (dark=0). Tile so the metal
-     * is plates, not one 32x33 smear across the whole leaf. */
-    wr32(f + cmd, SLAB_SETTEX_WRAP);
-    wr32(f + cmd + 4, SLAB_DOOR_TEX);
-    cmd += 8;
-    slab_cmd_quad(f, &cmd, &vtx, (int16_t)(-hw), 0, hw, ht, 0, (int16_t)(us * 2),
-                  (int16_t)(vt * 3));
-
-    my = (int16_t)(ht / 12);
-    if (my < 6)
-        my = 6;
-    rail = (int16_t)(ht / 18);
-    if (rail < 4)
-        rail = 4;
-    mid = (int16_t)(ht / 2);
-
-    wr32(f + cmd, SLAB_SETTEX_CLAMP);
-    wr32(f + cmd + 4, SLAB_PANEL0_TEX);
-    cmd += 8;
-    for (i = 0; i < nleaf; i++) {
-        int16_t x0, x1;
-        slab_leaf_x(hw, dbl, i, &x0, &x1);
-        mx = (int16_t)((x1 - x0) / 8);
-        if (mx < 6)
-            mx = 6;
-        slab_cmd_quad(f, &cmd, &vtx, (int16_t)(x0 + mx), (int16_t)(mid + rail / 2),
-                      (int16_t)(x1 - mx), (int16_t)(ht - my), SLAB_Z_PANEL, us, vt);
-    }
-
-    wr32(f + cmd, SLAB_SETTEX_CLAMP);
-    wr32(f + cmd + 4, SLAB_PANEL1_TEX);
-    cmd += 8;
-    for (i = 0; i < nleaf; i++) {
-        int16_t x0, x1;
-        slab_leaf_x(hw, dbl, i, &x0, &x1);
-        mx = (int16_t)((x1 - x0) / 8);
-        if (mx < 6)
-            mx = 6;
-        slab_cmd_quad(f, &cmd, &vtx, (int16_t)(x0 + mx), my, (int16_t)(x1 - mx),
-                      (int16_t)(mid - rail / 2), SLAB_Z_PANEL, us, vt);
-    }
-
-    wr32(f + cmd, SLAB_SETTEX_CLAMP);
-    wr32(f + cmd + 4, SLAB_HANDLE_TEX);
-    cmd += 8;
-    for (i = 0; i < nleaf; i++) {
-        int16_t x0, x1, hx0, hx1, hy0, hy1, hwnd, hh;
-        int toward_right;
-        slab_leaf_x(hw, dbl, i, &x0, &x1);
-        mx = (int16_t)((x1 - x0) / 8);
-        if (mx < 6)
-            mx = 6;
-        hwnd = (int16_t)((x1 - x0) / 10);
-        if (hwnd < 6)
-            hwnd = 6;
-        hh = (int16_t)(ht / 4);
-        if (hh < 16)
-            hh = 16;
-        hy0 = (int16_t)(mid - hh / 2);
-        hy1 = (int16_t)(mid + hh / 2);
-        toward_right = dbl ? (i == 0) : 1;
-        if (toward_right) {
-            hx1 = (int16_t)(x1 - mx / 2);
-            hx0 = (int16_t)(hx1 - hwnd);
-        } else {
-            hx0 = (int16_t)(x0 + mx / 2);
-            hx1 = (int16_t)(hx0 + hwnd);
+    y[0] = 0;
+    y[1] = (int16_t)(ht / 4);
+    y[2] = (int16_t)(ht / 2);
+    y[3] = (int16_t)((ht * 3) / 4);
+    y[4] = ht;
+    /* Four stacked P*Z panels. s=0 at the meeting edge on a double leaf so
+     * 685's handle bars sit on each leaf, not stretched across the portal. */
+    for (row = 0; row < 4; row++) {
+        wr32(f + cmd, SLAB_SETTEX_MIRROR);
+        wr32(f + cmd + 4, k_row_tex[row]);
+        cmd += 8;
+        for (i = 0; i < nleaf; i++) {
+            int16_t x0, x1, s0, s1;
+            slab_leaf_x(hw, dbl, i, &x0, &x1);
+            if (dbl && i == 0) {
+                s0 = us;
+                s1 = 0;
+            } else {
+                s0 = 0;
+                s1 = us;
+            }
+            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, 0, s1, vt);
         }
-        slab_cmd_quad(f, &cmd, &vtx, hx0, hy0, hx1, hy1, SLAB_Z_HANDLE, us, us);
     }
 
     wr32(f + cmd, end);
@@ -5189,8 +5141,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     /*
      * Start-hallway openings have no PROPDEF_DOOR (those pads sit in the
      * gas-plant cluster). Fit a closed G1DL slab on door-sized portals.
-     * Size the 685 backing + 686/687 panels + 706 handles to the Rare
-     * portal so a sealed opening is a door leaf, not the FRAME hole.
+     * Size the 685/686/687/688 four-panel leaf to the Rare portal so a
+     * sealed opening is a door, not a stretched 685 smear.
      */
     {
         int o, no = port_stage_opening_count();
@@ -5326,7 +5278,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 tmp.scale = 1.f;
                 /* Cover the G1≠stan left void: room 71 mesh ends short of
                  * the stan tile, so a door-sized stamp left a black hole.
-                 * 640-wide double leaf (panels + handles), not a black slab.
+                 * 640-wide double leaf (685-688 panels), not a black slab.
                  * slab_sized must keep 640 (was capped at 450). */
                 slab = slab_sized(640.f, 360.f);
                 tmp.mdl = slab;
