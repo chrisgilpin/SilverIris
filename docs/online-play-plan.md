@@ -3867,3 +3867,74 @@ Facility-box CDP :9226 still unreachable (LAN 192.168.1.0/24 / Parallels
   placeholder `3c97070`.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 seq ALKeyMap detune `a01f1bf`)
+
+P0-2 music slice on fire-hit LIVE-CLOSED `7ab099c` / dist vol `f134481` /
+spat pan `67b7bce` / seq pan `82e68d3` / envelope `ec00f5b` / wavetable
+`9e225af` / early-Z `e6e6cb4` / hoist `ff43a68` (KEEP). SHA `a01f1bf`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA (**272239**,
+Last-Modified 23:07:35 GMT).
+
+Apply pack `instruments.ctl` ALKeyMap.detune cents on seq wavetable pitch.
+0 keeps the 12-TET `pitch_step` (seq.pcm KEEP). Pack: 46/138 sounds
+non-zero (typical ±40 cents). HUD stays `seq 1e` (320-wide).
+`port_audio_det_on` is 1 when any InstSound has detune≠0. Not ASP HLE
+(no RSP mixer). G1 greyscale unchanged. Native firehit miss 24.58 / hit
+24.31 `guard_fire_ms=1.45` after ~80ms dead=1 hits=2 kills=1. Pack smoke
+seq_on=1 inst_on=1 env_on=1 pan_on=1 det_on=1. Footsteps stay mixer thud
+`3c97070`.
+
+**1 — live walk / fire.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270` **seq 1e** wasm
+seq=1 wav=1 env=1 pan=1 **det=1**. Idle rAF **149 / 3501ms ≈ 42.6 fps**;
+walk KeyW ≈**35.0 fps** (123 / 3516ms) to x=−573.3 last_sfx=15 **spat=1
+dist=0 det=1**. Tab did not freeze. Same class as Mac 1746 (idle 43.2 /
+walk 36.0) — detune is not a freeze.
+`.local/mihok-chrome-playtest-20260902-1908.md`. Fire-at-first-enemy after
+this wasm: stall θ270 **seq 1e** hits 1 kills 1 mag 7→6, post-hit rAF
+**177 / 3501ms ≈ 50.6 fps**, no freeze.
+`.local/mihok-chrome-playtest-20260902-1909.md`. Chris 14:21 pre-fix freeze
+was wasm 252947 @ 18:18 GMT (hit 1, Incognito ~101% CPU) — still not a
+`7ab099c` result.
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Facility CDP :9226 still unreachable (LAN / Parallels /
+tailscale :9226 closed). Native g1 greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+player/gun/audio-test green (seq.pcm KEEP; wavetable distinct=1 restore=1;
+envelope distinct=1 restore=1; pan distinct=1 restore=1; cc10 left=1;
+spat sfx distinct=1 restore=1; step pan lr=1; dist sfx distinct=1
+restore=1; detune distinct=1 restore=1). No hitch ship this pass
+(audio-only). This pass did not re-run long_walk / handle_xrange / neck_gap.
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `a01f1bf` wasm:
+  stall θ270 hit 1 / kill 1, post-hit ≈51 fps). Do not reopen as walking
+  freeze. Evidence: Chris 14:21
+  `.local/mihok-chrome-playtest-chris-fire-freeze-20260902-1421.md`;
+  fix SHA `7ab099c`; latest live re-prove 1909.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~43 / walk ~35 (seq + wavetable + envelope + pan + spat
+  + dist + detune) does not close `ff37828`. Facility-box CDP :9226 was
+  not reachable this pass. Overnight box idle 24.5–28.8 (0446/0612/1147)
+  still the last Facility samples — cite, do not claim CLOSED. No remaining
+  hitch ship; audio-only.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1908/1909 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (RSP mixer). Music is pack compact MIDI plus
+  instruments.tbl PCM plus ALEnvelope plus ALSound/CC10 pan `82e68d3`
+  plus ALKeyMap.detune `a01f1bf`, not ASP. World SFX mixer pan `67b7bce`
+  + distance vol `f134481` (live spat=1 / dist=0 while walking, last_sfx=15;
+  stall fire dist=0 because extra-idle is inside 400u). Not RSP spatial.
+  Footsteps remain mixer placeholder `3c97070`.
+- Combat AI / matching engine later. Campaign out of v1.
+
