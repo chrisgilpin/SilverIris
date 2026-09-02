@@ -4353,17 +4353,18 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 #define SLAB_SETTEX_MIRROR 0xC0580002u /* cms=1 cmt=1, same as P*Z */
 #define SLAB_UV_S 992                  /* retail panel ST */
 #define SLAB_UV_T 1024
-/* Image 685 is a dusty-rose field with two handle bars in the lower-right
- * (texels s≈12–17 / 23–29, t≈16–28 of 32). A full-width 685 overlay paints
- * that mauve field over 686-688 so the pills vanish into a dark plate
- * (fea5c04 harness faint; Mihok 0645 needed the empty field for contrast).
- * Crop S/T to the bar texels and emit two narrow quads. */
-#define SLAB_BAR0_S0 384
-#define SLAB_BAR0_S1 544
-#define SLAB_BAR1_S0 736
-#define SLAB_BAR1_S1 928
-#define SLAB_BAR_T0 512
-#define SLAB_BAR_T1 896
+/* Image 685 is a dusty-rose field with two handle bars in the lower-right.
+ * Native 32x32: light highlight columns at texel x=11 / 25 (s=352 / 800),
+ * dark shadow at x=13–14 / 27–28, pills t=15–27. 5ceb364 cropped bar 0
+ * at s=384–544 (texel 12–17) so it missed the light column — dark smears
+ * on 686-688, not Mihok 0645 pills. Include highlight+shadow plus 1-texel
+ * field; keep two quads so 686-688 ribs stay between them. */
+#define SLAB_BAR0_S0 320 /* texel 10; light is 11 */
+#define SLAB_BAR0_S1 512 /* through shadow 13–14 */
+#define SLAB_BAR1_S0 768 /* texel 24; light is 25 */
+#define SLAB_BAR1_S1 960 /* through shadow 27–28 */
+#define SLAB_BAR_T0 448  /* texel 14; pill starts at 15 */
+#define SLAB_BAR_T1 896  /* texel 28; pill ends at 27 */
 #define SLAB_BAR_Y0 16 /* percent of leaf */
 #define SLAB_BAR_Y1 72
 #define SLAB_DOUBLE_HW 160
@@ -4884,8 +4885,8 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
         wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
         v += 16;
     }
-    /* Two 685 handle bars, front and back. Native 685 is a mauve field
-     * with pills at s≈384..544 / 736..928, t≈512..896. Keep 686-688
+    /* Two 685 handle bars, front and back. Native 685 pills are light
+     * columns at texel 11/25 plus shadow 13–14/27–28. Keep 686-688
      * ribs visible between them. 4u Z push in front of the plates. */
     if (n >= 16u) {
         int16_t y0 = (int16_t)((ht * SLAB_BAR_Y0) / 100);
