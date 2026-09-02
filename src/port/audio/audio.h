@@ -26,11 +26,13 @@ void port_audio_play_rico(void);
 void port_audio_play_ammo(void);
 void port_audio_play_armour(void);
 void port_audio_play_reload(void);
+void port_audio_play_yelp(void);
+void port_audio_play_hurt(void);
 int port_audio_music_on(void);
 uint32_t port_audio_rate(void);
 /* 0 none, 1 gun, 2 dry, 3 door open, 4 body-fall, 5 flesh-hit, 6 KF7,
  * 7 pickup, 8 door close, 9 wall ricochet, 10 ammo crate, 11 armour,
- * 12 rifle-cock reload. */
+ * 12 rifle-cock reload, 13 male yelp, 14 Bond hurt. */
 int port_audio_last_sfx(void);
 #define PORT_SFX_NONE 0
 #define PORT_SFX_GUN 1
@@ -45,6 +47,8 @@ int port_audio_last_sfx(void);
 #define PORT_SFX_AMMO 10
 #define PORT_SFX_ARMOUR 11
 #define PORT_SFX_RELOAD 12
+#define PORT_SFX_YELP 13
+#define PORT_SFX_HURT 14
 
 /* Host-endian PCM one-shot. Mixer does not own `pcm`. vol 0..127 (N64). */
 void port_audio_install_sfx(int kind, const int16_t *pcm, uint32_t n, uint8_t vol);

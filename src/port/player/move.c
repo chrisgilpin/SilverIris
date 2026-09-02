@@ -12,6 +12,7 @@
 
 __attribute__((weak)) void port_audio_play_door(void) {}
 __attribute__((weak)) void port_audio_play_door_close(void) {}
+__attribute__((weak)) void port_audio_play_hurt(void) {}
 
 /*
  * Analog walk slice of bondviewProcessInput + MoveBond (bondview2.c).
@@ -664,6 +665,8 @@ void port_player_damage(int amount)
         return;
     if (g_p[g_cur].health <= 0)
         return;
+    if (port_audio_play_hurt)
+        port_audio_play_hurt();
     if (g_p[g_cur].armour > 0) {
         if (amount >= g_p[g_cur].armour) {
             amount -= g_p[g_cur].armour;

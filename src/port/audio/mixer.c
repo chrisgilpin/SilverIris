@@ -36,7 +36,13 @@
 #define ARMOUR_HZ 440u
 #define RELOAD_HZ 1180u
 #define DOOR_CLOSE_HZ 62u
-#define SFX_KIND_MAX 12
+#define YELP_HZ 310u
+#define YELP_AMP 9500
+#define YELP_LEN ((PORT_AUDIO_RATE * 180u) / 1000u)
+#define HURT_HZ 185u
+#define HURT_AMP 8800
+#define HURT_LEN ((PORT_AUDIO_RATE * 200u) / 1000u)
+#define SFX_KIND_MAX 14
 
 #define CLAMP16(x) \
     ((int16_t)((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x))))
@@ -63,6 +69,12 @@ static uint32_t g_hit_len;
 static uint32_t g_hit_pos;
 static uint32_t g_hit_phase;
 static int g_hit_use_pcm;
+static int g_voice_kind;
+static uint32_t g_voice_left;
+static uint32_t g_voice_len;
+static uint32_t g_voice_pos;
+static uint32_t g_voice_phase;
+static int g_voice_use_pcm;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -180,6 +192,12 @@ void port_audio_init(void)
     g_hit_pos = 0;
     g_hit_phase = 0;
     g_hit_use_pcm = 0;
+    g_voice_kind = 0;
+    g_voice_left = 0;
+    g_voice_len = 0;
+    g_voice_pos = 0;
+    g_voice_phase = 0;
+    g_voice_use_pcm = 0;
     ai_reset();
     g_inited = 1;
 }
@@ -222,6 +240,10 @@ static uint32_t placeholder_len(int kind)
         return PICKUP_LEN;
     if (kind == PORT_SFX_DOOR_CLOSE)
         return DOOR_LEN;
+    if (kind == PORT_SFX_YELP)
+        return YELP_LEN;
+    if (kind == PORT_SFX_HURT)
+        return HURT_LEN;
     return GUN_LEN;
 }
 
@@ -335,6 +357,33 @@ void port_audio_play_pickup(void)
 void port_audio_play_door_close(void)
 {
     queue_sfx(PORT_SFX_DOOR_CLOSE, DOOR_LEN);
+}
+
+static void queue_voice(int kind, uint32_t len)
+{
+    g_voice_kind = kind;
+    g_last_sfx = kind;
+    g_voice_phase = 0;
+    g_voice_pos = 0;
+    if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
+        g_voice_use_pcm = 1;
+        g_voice_left = g_sfx_pcm_n[kind];
+        g_voice_len = g_sfx_pcm_n[kind];
+    } else {
+        g_voice_use_pcm = 0;
+        g_voice_left = len;
+        g_voice_len = len;
+    }
+}
+
+void port_audio_play_yelp(void)
+{
+    queue_voice(PORT_SFX_YELP, YELP_LEN);
+}
+
+void port_audio_play_hurt(void)
+{
+    queue_voice(PORT_SFX_HURT, HURT_LEN);
 }
 
 int port_audio_last_sfx(void)
@@ -492,6 +541,8 @@ void port_audio_cb(int16_t *stereo, int nframes)
     uint32_t arinc = phase_inc(ARMOUR_HZ);
     uint32_t rlinc = phase_inc(RELOAD_HZ);
     uint32_t cinc = phase_inc(DOOR_CLOSE_HZ);
+    uint32_t yinc = phase_inc(YELP_HZ);
+    uint32_t uinc = phase_inc(HURT_HZ);
     int i;
     int kind = g_sfx_kind;
 
@@ -611,6 +662,29 @@ void port_audio_cb(int16_t *stereo, int nframes)
             acc_l += s;
             acc_r += s;
             g_hit_left--;
+        }
+
+        if (g_voice_left > 0 && g_voice_len > 0) {
+            int s = 0;
+            int vkind = g_voice_kind;
+            if (g_voice_use_pcm && vkind >= 1 && vkind <= SFX_KIND_MAX && g_sfx_pcm[vkind] &&
+                g_voice_pos < g_sfx_pcm_n[vkind]) {
+                int vol = (int)g_sfx_pcm_vol[vkind];
+                int32_t v = ((int32_t)g_sfx_pcm[vkind][g_voice_pos] * vol) / 127;
+                g_voice_pos++;
+                s = (int)v;
+            } else if (vkind == PORT_SFX_HURT) {
+                int amp = (int)((uint32_t)HURT_AMP * g_voice_left / g_voice_len);
+                s = osc_tri(g_voice_phase, amp);
+                g_voice_phase += uinc;
+            } else {
+                int amp = (int)((uint32_t)YELP_AMP * g_voice_left / g_voice_len);
+                s = osc_tri(g_voice_phase, amp);
+                g_voice_phase += yinc;
+            }
+            acc_l += s;
+            acc_r += s;
+            g_voice_left--;
         }
 
         stereo[i * 2] = CLAMP16(acc_l);

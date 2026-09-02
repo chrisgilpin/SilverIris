@@ -309,6 +309,78 @@ int main(int argc, char **argv)
             if (check_hash(dir, "reload.pcm.sha256", hex) != 0)
                 return 1;
         }
+
+        port_audio_init();
+        port_audio_play_yelp();
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("yelp was silence");
+        if (port_audio_last_sfx() != PORT_SFX_YELP)
+            return fail("yelp last_sfx");
+        hash_pcm(pcm, hex);
+        printf("yelp sha256=%s\n", hex);
+        if (strcmp(hex, gun_hex) == 0)
+            return fail("yelp pcm matches gun");
+        if (check_hash(dir, "yelp.pcm.sha256", hex) != 0)
+            return 1;
+
+        {
+            char yelp_hex[65];
+            memcpy(yelp_hex, hex, 65);
+            port_audio_init();
+            port_audio_play_hurt();
+            port_audio_cb(pcm, NFRAMES);
+            if (all_zero(pcm))
+                return fail("hurt was silence");
+            if (port_audio_last_sfx() != PORT_SFX_HURT)
+                return fail("hurt last_sfx");
+            hash_pcm(pcm, hex);
+            printf("hurt sha256=%s\n", hex);
+            if (strcmp(hex, gun_hex) == 0)
+                return fail("hurt pcm matches gun");
+            if (strcmp(hex, yelp_hex) == 0)
+                return fail("hurt pcm matches yelp");
+            if (check_hash(dir, "hurt.pcm.sha256", hex) != 0)
+                return 1;
+        }
+
+        {
+            char gun_only[65], mixed[65];
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, gun_only);
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            if (port_audio_last_sfx() != PORT_SFX_YELP)
+                return fail("yelp overlay last_sfx");
+            hash_pcm(pcm, mixed);
+            if (strcmp(mixed, gun_only) == 0)
+                return fail("yelp did not overlay gun");
+        }
+
+        {
+            char three[65], four[65];
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_play_hit();
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, three);
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_play_hit();
+            port_audio_play_yelp();
+            port_audio_play_fall();
+            port_audio_cb(pcm, NFRAMES);
+            if (port_audio_last_sfx() != PORT_SFX_FALL)
+                return fail("yelp+fall last_sfx");
+            hash_pcm(pcm, four);
+            if (strcmp(four, three) == 0)
+                return fail("yelp cut by fall overlay");
+        }
     }
 
     port_audio_init();

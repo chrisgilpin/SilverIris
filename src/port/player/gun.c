@@ -17,6 +17,7 @@ __attribute__((weak)) void port_audio_play_rico(void) {}
 __attribute__((weak)) void port_audio_play_kf7(void) {}
 __attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_audio_play_reload(void) {}
+__attribute__((weak)) void port_audio_play_yelp(void) {}
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -178,6 +179,8 @@ static void fire_hitscan(void)
                 port_audio_play_hit();
             else if ((src == 1 || src == 3 || src == 4) && port_audio_play_rico)
                 port_audio_play_rico();
+            if ((src == 2 || src == 6 || guard) && port_audio_play_yelp)
+                port_audio_play_yelp();
         }
         if (src == 2) {
             port_chr_kill();

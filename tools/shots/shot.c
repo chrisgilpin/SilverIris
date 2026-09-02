@@ -47,7 +47,7 @@ static void place(float x, float z, float th);
 static int sfx_bank_proof(void)
 {
     int16_t gun[512], dry[512], door[512];
-    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln;
+    int i, gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un;
     long long eg = 0, ed = 0, eo = 0;
 
     gn = port_audio_sfx_frames(PORT_SFX_GUN);
@@ -62,10 +62,13 @@ static int sfx_bank_proof(void)
     an = port_audio_sfx_frames(PORT_SFX_AMMO);
     vn = port_audio_sfx_frames(PORT_SFX_ARMOUR);
     ln = port_audio_sfx_frames(PORT_SFX_RELOAD);
+    yn = port_audio_sfx_frames(PORT_SFX_YELP);
+    un = port_audio_sfx_frames(PORT_SFX_HURT);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
            "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d "
-           "reload_n=%d\n",
-           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln);
+           "reload_n=%d yelp_n=%d hurt_n=%d\n",
+           port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn,
+           un);
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -77,13 +80,17 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_RICO) ||
         !port_audio_sfx_from_bank(PORT_SFX_AMMO) ||
         !port_audio_sfx_from_bank(PORT_SFX_ARMOUR) ||
-        !port_audio_sfx_from_bank(PORT_SFX_RELOAD) || gn < 2000 || dn < 500 ||
+        !port_audio_sfx_from_bank(PORT_SFX_RELOAD) ||
+        !port_audio_sfx_from_bank(PORT_SFX_YELP) ||
+        !port_audio_sfx_from_bank(PORT_SFX_HURT) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
-        rn < 200 || an < 200 || vn < 200 || ln < 200 || gn <= dn) {
+        rn < 200 || an < 200 || vn < 200 || ln < 200 || yn < 200 || un < 200 ||
+        gn <= dn) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
-                "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d reload=%d\n",
-                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln);
+                "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d reload=%d "
+                "yelp=%d hurt=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un);
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -300,6 +307,77 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_RELOAD || el < 10000ll || diff < 16) {
             fprintf(stderr, "sfx_reload last=%d e=%lld diff=%d\n",
                     port_audio_last_sfx(), el, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t yelp[512];
+        long long ey = 0;
+        int diff = 0;
+        memset(yelp, 0, sizeof yelp);
+        port_audio_play_gun();
+        port_audio_play_yelp();
+        port_audio_cb(yelp, 256);
+        for (i = 0; i < 512; i++) {
+            ey += (long long)yelp[i] * yelp[i];
+            if (yelp[i] != gun[i])
+                diff++;
+        }
+        printf("sfx_yelp n=%d e=%lld last=%d mix_diff=%d\n", yn, ey,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_YELP || ey < 100000ll || diff < 16) {
+            fprintf(stderr, "sfx_yelp did not overlay gun last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), ey, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t hurt[512];
+        long long eu = 0;
+        int diff = 0;
+        memset(hurt, 0, sizeof hurt);
+        port_audio_play_gun();
+        port_audio_play_hurt();
+        port_audio_cb(hurt, 256);
+        for (i = 0; i < 512; i++) {
+            eu += (long long)hurt[i] * hurt[i];
+            if (hurt[i] != gun[i])
+                diff++;
+        }
+        printf("sfx_hurt n=%d e=%lld last=%d mix_diff=%d\n", un, eu,
+               port_audio_last_sfx(), diff);
+        if (port_audio_last_sfx() != PORT_SFX_HURT || eu < 100000ll || diff < 16) {
+            fprintf(stderr, "sfx_hurt did not overlay gun last=%d e=%lld diff=%d\n",
+                    port_audio_last_sfx(), eu, diff);
+            return -1;
+        }
+    }
+    {
+        int16_t three[512], four[512];
+        long long e3 = 0, e4 = 0;
+        int diff = 0;
+        memset(three, 0, sizeof three);
+        memset(four, 0, sizeof four);
+        port_audio_play_gun();
+        port_audio_play_hit();
+        port_audio_play_fall();
+        port_audio_cb(three, 256);
+        port_audio_play_gun();
+        port_audio_play_hit();
+        port_audio_play_yelp();
+        port_audio_play_fall();
+        port_audio_cb(four, 256);
+        for (i = 0; i < 512; i++) {
+            e3 += (long long)three[i] * three[i];
+            e4 += (long long)four[i] * four[i];
+            if (four[i] != three[i])
+                diff++;
+        }
+        printf("sfx_yelp_fall last=%d mix_diff=%d e3=%lld e4=%lld\n", port_audio_last_sfx(),
+               diff, e3, e4);
+        if (port_audio_last_sfx() != PORT_SFX_FALL || diff < 16) {
+            fprintf(stderr, "sfx_yelp cut by fall last=%d diff=%d\n",
+                    port_audio_last_sfx(), diff);
             return -1;
         }
     }
