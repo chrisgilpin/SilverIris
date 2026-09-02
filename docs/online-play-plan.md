@@ -3356,3 +3356,47 @@ Native player/gun/g1 playtest green (firehit re-run). Greyscale
   placeholder `3c97070`, live last_sfx=15 while walking, not pack IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 Facility compact MIDI `dd988da`)
+
+Music slice on fire-hit LIVE-CLOSED `7ab099c` (KEEP). SHA `33b62c5` (HUD
+seq-before-rAF). Wasm `9b39896` **259886** Last-Modified 19:22:29 GMT.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+Walk pack `assets/music/Mfacility.bin` compact MIDI onto eight mixer
+triangle voices. Not ASP HLE (no `instruments.tbl`, envelopes, pitch, or
+spatial). Placeholder 196/294 Hz drone stays off. `last_sfx` unchanged
+(idle 0, walk 15). HUD `seq 1` when the pack seq is running.
+
+**1 — live seq / walk.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270` **seq=1**. Idle rAF
+**149 / 3500ms ≈ 42.6 fps**; walk KeyW ≈**34.7 fps** (122 / 3516ms) to
+x=−573.3 last_sfx=15 seq=1. Tab did not freeze. Mac box, not Facility rAF
+— do not close `ff37828`. Pre-seq Mac 1508 on wasm 253721 was idle 49.7 /
+walk 40.9; seq costs ~7 fps here, not a 1 fps freeze.
+`.local/mihok-chrome-playtest-20260902-1525.md` (1508 same box pre-seq).
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Native audio-test (new `seq.pcm.sha256`) + player/gun/port-api
+green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c`. Do not reopen as walking freeze.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~43 / walk ~35 (with seq) does not close `ff37828`.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Keep closed unless a later
+  pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (wavetable, envelopes, spatial). Music is pack
+  compact MIDI on mixer triangles `dd988da`, not ASP. Footsteps remain
+  mixer placeholder `3c97070` (live last_sfx=15 while walking).
+- Combat AI / matching engine later. Campaign out of v1.
+
