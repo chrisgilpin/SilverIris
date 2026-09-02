@@ -1308,7 +1308,7 @@ static int hinge_width_park_proof(void)
 
 static void usage(void)
 {
-    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N]\n");
+    fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N] [--diag]\n");
 }
 
 static double bench_draw_tag(const char *tag, int n)
@@ -2576,6 +2576,125 @@ static void playtest_pose(const char *tag, float x, float z, float th)
     }
 }
 
+static void dump_guard_leaf(const char *tag, int gi);
+
+static void dump_walked(const char *tag)
+{
+    int wi;
+    printf("%s walked n=%d", tag, port_stage_rooms_walked());
+    for (wi = 0; wi < port_stage_rooms_walked(); wi++)
+        printf(" %d", port_stage_walked_room(wi));
+    printf(" cur=%d\n", port_stage_current_room());
+}
+
+static void dump_slabs_local(const char *tag)
+{
+    float r1[3];
+    int i, n, kind;
+    float x, z, yaw, ax = 0.f, az = 0.f, ay = 0.f;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    n = port_prop_slab_emit_count();
+    printf("%s slabs n=%d room1=%.1f,%.1f\n", tag, n, (double)r1[0], (double)r1[2]);
+    for (i = 0; i < n; i++) {
+        if (port_prop_slab_emit_at(i, &x, &z, &yaw, &kind) != 0)
+            continue;
+        printf("%s slab[%d] local=%.1f,%.1f yaw=%.0f kind=%d\n", tag, i,
+               (double)(x - r1[0]), (double)(z - r1[2]), (double)yaw, kind);
+    }
+    if (port_prop_alcove_xz(&ax, &az, &ay) == 0)
+        printf("%s alcove local=%.1f,%.1f yaw=%.0f\n", tag, (double)ax, (double)az,
+               (double)ay);
+    else
+        printf("%s alcove none\n", tag);
+}
+
+static void dump_near_guards(const char *tag, float px, float pz)
+{
+    float r1[3];
+    int i, ng;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    ng = port_prop_guard_count();
+    for (i = 0; i < ng; i++) {
+        float gx = 0.f, gy = 0.f, gz = 0.f, lx, lz, d;
+        float cx = 0.f, cz = 0.f, vr = 0.f, y0 = 0.f, vh = 0.f;
+        float x0 = 0.f, z0 = 0.f, x1 = 0.f, z1 = 0.f;
+        int rm, dead, block;
+        if (port_prop_guard_xyz(i, &gx, &gy, &gz) != 0)
+            continue;
+        lx = gx - r1[0];
+        lz = gz - r1[2];
+        d = sqrtf((lx - px) * (lx - px) + (lz - pz) * (lz - pz));
+        if (d > 520.f)
+            continue;
+        rm = port_stan_tile_room(lx, lz);
+        dead = port_stan_guard_dead_at(gx, gz);
+        block = port_stage_g1_leaf_blocks(px, pz, lx, lz);
+        printf("%s g[%d] local=%.1f,%.1f d=%.1f rm=%d dead=%d block=%d walked=%d", tag, i,
+               (double)lx, (double)lz, (double)d, rm, dead, block,
+               rm >= 1 ? port_stage_walked_has(rm) : 0);
+        if (port_prop_guard_visual_cyl(i, &cx, &cz, &vr, &y0, &vh) == 0)
+            printf(" vis=%.1f,%.1f r=%.1f", (double)cx, (double)cz, (double)vr);
+        if (port_prop_guard_visual_aabb(i, &x0, &z0, &x1, &z1) == 0)
+            printf(" aabb=%.1f,%.1f..%.1f,%.1f", (double)x0, (double)z0, (double)x1,
+                   (double)z1);
+        printf("\n");
+    }
+}
+
+static int diag_chris(const char *out_dir)
+{
+    float spawn_x, spawn_z, spawn_y, ipos[3], ilook[3];
+    int ipad = -1, di;
+    static const struct {
+        const char *tag;
+        float x, z, th, ph;
+    } kpose[] = {
+        { "play_spawn", 0.f, 0.f, 270.f, 0.f },
+        { "play_door_chris1", -139.2f, -2336.6f, 260.f, -3.f },
+        { "play_door_chris2", -354.5f, -2107.1f, 289.f, -5.f },
+        { "play_door_mihok", -161.f, -2382.f, 290.f, -5.f },
+        { "door_jump_249", -219.0f, -2364.3f, 249.f, -1.f },
+        { "play_mihok_block", -219.0f, -2093.6f, 270.f, 0.f },
+    };
+
+    spawn_x = port_api_player_x();
+    spawn_z = port_api_player_z();
+    spawn_y = port_api_player_y();
+    printf("diag spawn xz=%.1f,%.1f y=%.1f cur=%d inv=%.6f\n", (double)spawn_x,
+           (double)spawn_z, (double)spawn_y, port_api_current_room(),
+           (double)port_stage_bg_inv());
+    if (port_prop_intro(ipos, ilook, &ipad) == 0) {
+        float r1[3];
+        r1[0] = r1[1] = r1[2] = 0.f;
+        (void)port_stage_room1(r1);
+        printf("diag intro pad=%d world=%.1f,%.1f,%.1f local=%.1f,%.1f look=%.2f,%.2f,%.2f\n",
+               ipad, (double)ipos[0], (double)ipos[1], (double)ipos[2],
+               (double)(ipos[0] - r1[0]), (double)(ipos[2] - r1[2]), (double)ilook[0],
+               (double)ilook[1], (double)ilook[2]);
+    }
+    dump_path_doors();
+    for (di = 0; di < (int)(sizeof kpose / sizeof kpose[0]); di++) {
+        float x = kpose[di].x, z = kpose[di].z;
+        if (x == 0.f && z == 0.f) {
+            x = spawn_x;
+            z = spawn_z;
+        }
+        place(x, z, kpose[di].th);
+        port_player_set_pitch(kpose[di].ph);
+        if (shot_one(out_dir, kpose[di].tag) != 0)
+            return -1;
+        dump_walked(kpose[di].tag);
+        dump_slabs_local(kpose[di].tag);
+        dump_near_guards(kpose[di].tag, x, z);
+        port_stage_dump_g1_cutouts(x, port_api_player_y(), z, kpose[di].th, kpose[di].ph);
+        port_stage_dump_walls_at(x, port_api_player_y(), z);
+        dump_guard_leaf(kpose[di].tag, port_prop_idle_guard());
+    }
+    return 0;
+}
+
 static void dump_guard_leaf(const char *tag, int gi)
 {
     float gx = 0.f, gz = 0.f, cx = 0.f, cz = 0.f, vr = 0.f, y0 = 0.f, vh = 0.f;
@@ -2612,7 +2731,7 @@ static void dump_guard_leaf(const char *tag, int gi)
 #define DOOR_JUMP_TH 249.0f
 #define DOOR_JUMP_PH (-1.0f)
 
-static int door_jump_yaw_proof(const char *out_dir)
+static int door_jump_yaw_proof(const char *out_dir, float spawn_x, float spawn_z)
 {
     static const float kth[] = { 219.f, 234.f, 249.f, 264.f, 279.f };
     float ax0 = 0.f, az0 = 0.f, ay0 = 0.f;
@@ -2630,7 +2749,7 @@ static int door_jump_yaw_proof(const char *out_dir)
         return -1;
     }
     for (i = 0; i < n; i++) {
-        float ax = 0.f, az = 0.f, ay = 0.f, dx, dz;
+        float ax = 0.f, az = 0.f, ay = 0.f, dx, dz, pdx, pdz;
         char tag[32];
         port_player_set_pose(px, port_api_player_y(), pz, kth[i]);
         port_player_set_pitch(DOOR_JUMP_PH);
@@ -2641,15 +2760,29 @@ static int door_jump_yaw_proof(const char *out_dir)
             fprintf(stderr, "door_jump th=%.0f alcove not emitted\n", (double)kth[i]);
             return -1;
         }
-        dx = ax - px;
-        dz = az - pz;
-        printf("door_jump th=%.0f alcove=%.1f,%.1f yaw=%.0f d=%.1f,%.1f slabs=%d\n",
-               (double)kth[i], (double)ax, (double)az, (double)ay, (double)dx,
-               (double)dz, port_prop_slab_emit_count());
-        /* Hall-left is spawn +Z, not current look. |dx|~0 dz~116. */
+        dx = ax - spawn_x;
+        dz = az - spawn_z;
+        pdx = ax - px;
+        pdz = az - pz;
+        printf("door_jump th=%.0f alcove=%.1f,%.1f yaw=%.0f spawn_d=%.1f,%.1f "
+               "player_d=%.1f,%.1f slabs=%d\n",
+               (double)kth[i], (double)ax, (double)az, (double)ay, (double)dx, (double)dz,
+               (double)pdx, (double)pdz, port_prop_slab_emit_count());
+        /* Hall-left is spawn +Z, not the current camera. |dx|~0 dz~116 from
+         * spawn; a player-relative stamp was the chris2 glancing leaf. */
         if (dx * dx > 20.f * 20.f || dz < 80.f || dz > 160.f) {
-            fprintf(stderr, "door_jump th=%.0f alcove swung d=%.1f,%.1f (want ~0,+116)\n",
+            fprintf(stderr,
+                    "door_jump th=%.0f alcove not spawn-left spawn_d=%.1f,%.1f "
+                    "(want ~0,+116)\n",
                     (double)kth[i], (double)dx, (double)dz);
+            return -1;
+        }
+        if (pdx * pdx + (pdz - 116.f) * (pdz - 116.f) < 20.f * 20.f &&
+            (px - spawn_x) * (px - spawn_x) + (pz - spawn_z) * (pz - spawn_z) >
+                40.f * 40.f) {
+            fprintf(stderr,
+                    "door_jump th=%.0f alcove followed player player_d=%.1f,%.1f\n",
+                    (double)kth[i], (double)pdx, (double)pdz);
             return -1;
         }
         if (i == 0) {
@@ -2793,9 +2926,52 @@ static int playtest_chris(const char *out_dir)
             if (shot_one(out_dir, kdoor[di].tag) != 0)
                 return -1;
             dump_guard_leaf(kdoor[di].tag, port_prop_idle_guard());
-            printf("door_pose %s walked=%d cur=%d slabs=%d\n", kdoor[di].tag,
+            printf("door_pose %s walked=%d cur=%d slabs=%d headj=%d\n", kdoor[di].tag,
                    port_stage_rooms_walked(), port_stage_current_room(),
-                   port_prop_slab_emit_count());
+                   port_prop_slab_emit_count(), port_prop_head_joint_drawn());
+            if (!strcmp(kdoor[di].tag, "play_door_chris2")) {
+                float r1[3], ax = 0.f, az = 0.f, ay = 0.f;
+                int gi, ng;
+                r1[0] = r1[1] = r1[2] = 0.f;
+                (void)port_stage_room1(r1);
+                ng = port_prop_guard_count();
+                if (port_prop_alcove_xz(&ax, &az, &ay) == 0) {
+                    fprintf(stderr,
+                            "play_door_chris2 alcove followed to %.1f,%.1f (spawn stamp)\n",
+                            (double)ax, (double)az);
+                    return -1;
+                }
+                for (gi = 0; gi < ng; gi++) {
+                    float gx = 0.f, gz = 0.f, lx, lz, d, cx = 0.f, cz = 0.f, vr = 0.f,
+                          y0 = 0.f, vh = 0.f, pdx, pdz, pd;
+                    if (gi == port_prop_idle_guard())
+                        continue;
+                    if (port_prop_guard_xz(gi, &gx, &gz) != 0)
+                        continue;
+                    lx = gx - r1[0];
+                    lz = gz - r1[2];
+                    d = sqrtf((lx - kdoor[di].x) * (lx - kdoor[di].x) +
+                              (lz - kdoor[di].z) * (lz - kdoor[di].z));
+                    if (d > 420.f)
+                        continue;
+                    if (port_stan_guard_dead_at(gx, gz))
+                        continue;
+                    if (port_prop_guard_visual_cyl(gi, &cx, &cz, &vr, &y0, &vh) != 0)
+                        continue;
+                    pdx = cx - lx;
+                    pdz = cz - lz;
+                    pd = sqrtf(pdx * pdx + pdz * pdz);
+                    printf("chris2 vis gi=%d pad=%.1f,%.1f vis=%.1f,%.1f dpad=%.1f\n", gi,
+                           (double)lx, (double)lz, (double)cx, (double)cz, (double)pd);
+                    if (pd > 80.f) {
+                        fprintf(stderr,
+                                "play_door_chris2 gi=%d vis shoved %.1f from pad "
+                                "(want <80)\n",
+                                gi, (double)pd);
+                        return -1;
+                    }
+                }
+            }
         }
         /* Mihok live: W stuck at x=-219 z=-2093 θ270 until strafe. */
         {
@@ -2820,7 +2996,7 @@ static int playtest_chris(const char *out_dir)
     }
     if (sfx_bank_proof() != 0)
         return -1;
-    if (door_jump_yaw_proof(out_dir) != 0)
+    if (door_jump_yaw_proof(out_dir, spawn_x, spawn_z) != 0)
         return -1;
     place(spawn_x, spawn_z, 270.f);
     port_player_set_pitch(0.f);
@@ -4290,6 +4466,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--clipmap") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--diag") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "--bench") == 0) {
             if (a + 1 < argc && argv[a + 1][0] != '-')
                 a++;
@@ -4356,6 +4534,18 @@ int main(int argc, char **argv)
                     play = 1;
             if (play) {
                 int prc = playtest_chris(out_dir);
+                port_api_shutdown();
+                free(pack);
+                return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int diag = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--diag") == 0)
+                    diag = 1;
+            if (diag) {
+                int prc = diag_chris(out_dir);
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;

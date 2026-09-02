@@ -1878,6 +1878,8 @@ static int mdl_is_aim(const PortModel *m)
     return m && m->id >= PORT_AIM_ID_BASE && m->id < PORT_AIM_ID_BASE + 256;
 }
 
+static int mdl_use_joints(const PortModel *mdl);
+
 static void recount_walkers(void)
 {
     int i, n = 0;
@@ -3964,12 +3966,16 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
         if (with_leaf &&
             !port_stan_guard_dead_at(g_prop[pi].pos[0], g_prop[pi].pos[2])) {
             float r1b[3], padx, padz, x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
-            port_stan_push_cyl_off_doors(g_prop[pi].pos[0], g_prop[pi].pos[2], 160.f,
-                                         &pdx, &pdz);
+            float cr = PORT_VIS_RMIN;
+            /* skip=pose AABB needed 160u. Joint living bodies are ~40u;
+             * 160 shoved chris2 g[37] 175u into the far corner. */
+            if (pi != g_idle_prop && mdl_use_joints(g_prop[pi].mdl))
+                cr = 40.f;
+            port_stan_push_cyl_off_doors(g_prop[pi].pos[0], g_prop[pi].pos[2], cr, &pdx,
+                                         &pdz);
             {
                 float sdx = 0.f, sdz = 0.f;
-                push_off_slabs(g_prop[pi].pos[0], g_prop[pi].pos[2], PORT_VIS_RMIN, &sdx,
-                               &sdz);
+                push_off_slabs(g_prop[pi].pos[0], g_prop[pi].pos[2], cr, &sdx, &sdz);
                 pdx += sdx;
                 pdz += sdz;
             }
@@ -3977,10 +3983,12 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
             (void)port_stage_room1(r1b);
             padx = g_prop[pi].pos[0] - r1b[0];
             padz = g_prop[pi].pos[2] - r1b[2];
-            /* Extra-idle: slab push is enough. Camera-space G1 leaf push
-             * slid the mesh toward the look (into the leaf from chris2,
-             * into the right wall from spawn). */
+            /* Extra-idle and other same-room living pads: slab push is
+             * enough. Camera-space G1 leaf push slid the mesh toward the
+             * look (chris2 far-corner detached head was a 175u shove). */
             if (pi != g_idle_prop &&
+                port_stan_tile_room(padx, padz) !=
+                    port_stan_tile_room(port_player_x(), port_player_z()) &&
                 guard_visual_aabb_pr(&g_prop[pi], &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
@@ -5252,14 +5260,22 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     return k;
                 }
             }
-            port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], 160.f, &pdx, &pdz);
             {
-                float sdx = 0.f, sdz = 0.f;
-                push_off_slabs(pr->pos[0], pr->pos[2], PORT_VIS_RMIN, &sdx, &sdz);
-                pdx += sdx;
-                pdz += sdz;
+                float cr = PORT_VIS_RMIN;
+                if (!idle && mdl_use_joints(pr->mdl))
+                    cr = 40.f;
+                port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], cr, &pdx, &pdz);
+                {
+                    float sdx = 0.f, sdz = 0.f;
+                    push_off_slabs(pr->pos[0], pr->pos[2], cr, &sdx, &sdz);
+                    pdx += sdx;
+                    pdz += sdz;
+                }
             }
-            if (!idle && guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
+            if (!idle &&
+                port_stan_tile_room(padx, padz) !=
+                    port_stan_tile_room(port_player_x(), port_player_z()) &&
+                guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;
@@ -5462,28 +5478,39 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
          * spawn r71 only — synthetic G1DL tests have no r71.
          * Hall-left is intro look (spawn 270 → +Z), not current yaw. */
         if (k < cap && no > 0 && port_stage_current_room() == 71) {
-            float leftx, leftz;
+            float leftx, leftz, sx, sz, pdx, pdz;
             int o, have_left = 0, no = port_stage_opening_count();
             alcove_hall_left(&leftx, &leftz);
+            /* Stamp at spawn-left, not the current camera. A player-relative
+             * 640-wide leaf followed Bond down r71 (door-jump / chris2). */
+            if (g_have_spawn_xz) {
+                sx = g_walk_spawn_x;
+                sz = g_walk_spawn_z;
+            } else {
+                sx = port_player_x();
+                sz = port_player_z();
+            }
+            pdx = port_player_x() - sx;
+            pdz = port_player_z() - sz;
             for (o = 0; o < no; o++) {
                 float pos[3], yaw, width, tox, toz, d2;
                 int ra, rb;
                 if (port_stage_opening(o, pos, &yaw, &width, &ra, &rb) != 0)
                     continue;
-                tox = pos[0] - pwx;
-                toz = pos[2] - pwz;
+                tox = pos[0] - (room1[0] + sx);
+                toz = pos[2] - (room1[2] + sz);
                 d2 = tox * tox + toz * toz;
                 if (d2 < 400.f * 400.f && tox * leftx + toz * leftz > 50.f)
                     have_left = 1;
             }
-            if (!have_left) {
+            if (!have_left && pdx * pdx + pdz * pdz <= 280.f * 280.f) {
                 PortProp tmp;
                 PortModel *slab;
                 memset(&tmp, 0, sizeof tmp);
                 tmp.type = PDEF_DOOR;
-                tmp.pos[0] = pwx + leftx * (120.f - SLAB_ZPUSH);
+                tmp.pos[0] = room1[0] + sx + leftx * (120.f - SLAB_ZPUSH);
                 tmp.pos[1] = floor_y;
-                tmp.pos[2] = pwz + leftz * (120.f - SLAB_ZPUSH);
+                tmp.pos[2] = room1[2] + sz + leftz * (120.f - SLAB_ZPUSH);
                 /* Face the player: left wall is +Z at spawn, yaw 0 faces +Z. */
                 if (leftz > 0.f)
                     tmp.yaw = 180.f;
@@ -5492,17 +5519,16 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 else
                     tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
                 tmp.scale = 1.f;
-                /* Cover the G1≠stan left void: room 71 mesh ends short of
-                 * the stan tile, so a door-sized stamp left a black hole.
-                 * 640-wide double leaf (685-688 panels), not a black slab.
-                 * slab_sized must keep 640 (was capped at 450). */
-                slab = slab_sized(640.f, 360.f);
+                /* Cover the G1≠stan left void at spawn. A 640-wide stamp
+                 * spanned the hall (player at x=-219 still stood in front
+                 * of it). Door-sized ~280 matches the r71 G1 cutout. */
+                slab = slab_sized(280.f, 360.f);
                 tmp.mdl = slab;
                 g_alcove_x = tmp.pos[0] - room1[0];
                 g_alcove_z = tmp.pos[2] - room1[2];
                 g_alcove_yaw = tmp.yaw;
                 g_alcove_emitted = 1;
-                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1, 640.f);
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1, 280.f);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }
