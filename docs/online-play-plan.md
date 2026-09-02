@@ -2622,3 +2622,64 @@ Native player/g1 playtest green.
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 685 full-leaf + Chead model-Y `c00070a`)
+
+P0-2/P0-3 on top of 685 stretch `fe54dba` (KEEP stall/FPS). SHA
+`c00070a`. Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull
++ `make -C native wasm` + `silveriris-vite` restart. Live wasm is this
+SHA.
+
+Mihok 0612 after `fe54dba`: stall HUD x=-98.5 z=-2358.4 KEEP; live rAF
+≈24.5 (KEEP ff37828); spawn/look-left still brown ribs, no distinct 685
+bars (42% Y stretch left four thin per-half nubs); Chead 48u neck-column
+seat (~6 world units after fit=0.123) still a collar gap. Retail Pgas
+verts 0-15 are 685 at Y 394..788 with s=0 at x=0. Remap 685 to the top
+78% and one ST copy across the full leaf so the two handle bars read at
+spawn/θ263. 686-688 are a short kickplate; 706 edges follow the Y map.
+Seat Chead 100u in model Y (220u buried the face). KEEP door-jump
+`102237e`, viscyl `dfde794`, SHADE*TEXEL `6377093`, alcove pin
+`07e6b41`, G1 clip `4785f0f`, wasm-stack FPS `ff37828`, skip G_MTX
+`bad9aff`, stall clip `b3fdadf`, inward look-at `9cadb53`, 16u cap
+`2630bd1`, HUD stroke `a8d6c15`, 685 stretch `fe54dba`.
+
+**1 — spawn / doors / head.** `playtest spawn xz=-89.5,-2358.4 y=29.1
+retail_slab=1`. `play_spawn visual xz=-89.5,-2342.4 d=0.0,16.0`.
+`head_joint chr=0 T=5.8,420.1,-36.7 seatY=100 idle`. `play_spawn idle40
+xz=-98.5,-2358.4 d=-9.0,0.0` visual `-98.5,-2342.4 d=0.0,16.0` (no −X;
+x>-170). `play_spawn_idle` / `play_lookleft` (θ263 at idle40 xz) are
+brown SETTEX 685 handle bars (top ~78% of the leaf, one ST copy),
+`handle_xrange=61/63`. Extra-idle Chead on the collar. `spawn_fill
+play_spawn dark=14 metal=9877 area=13376 mauve=1199`. `play_spawn_idle
+dark=17 metal=9833 mauve=1029`. `play_lookleft dark=1 metal=11262
+mauve=2742`. `play_door_live` near_living=0 dark=65 metal=8246
+mauve=260. `chris2 vis gi=37 dpad=22.2`. `door_jump` alcove spawn-left
+(−89.5,−2242 yaw 180).
+
+**2 — hitch / FPS / clip.** `play_spawn` frame_ms=52.01 (cold; 19.2 fps)
+drawn=71 seen=2 skip_range=1 skip_leaf=22 mag=7/21 held=1 headj=1.
+`long_walk` frame_ms=30.29 (33.0 fps). `long_walk_hall` (−347,−2116)
+frame_ms=41.08 — 35ms class kept (this box; live rAF KEEP `ff37828`).
+`door_jump` frame_ms=31.86. `mihok_block` clip_step d=12.0.
+`fire_hitch miss_ms=25.69 hit_ms=23.52 hits=1`. y=29.12.
+
+Native player/g1 playtest green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 live spawn-idle rAF after hard-refresh still required. Harness
+  long_walk is 33.0 fps / 35ms class; hall walk is ~24 fps. Do not close
+  ff37828 re-prove from harness alone.
+- P0-2 live match after hard-refresh still required (Mihok 0612 was
+  `fe54dba`; live wasm after this push is `c00070a` 685 full-leaf +
+  Chead model-Y). Harness idle40 / look-left is distinct 685 bars at
+  −98.5,−2358 θ263. Do not close without Mihok/live match.
+- P0-3 live match still required. Spawn/idle stay x>-170; look-left
+  extra-idle is a full body + neck Chead in harness. `play_wall` pitch
+  −35 still reads as ceiling (already on stan skin 30). Do not close
+  without Mihok/live match.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
