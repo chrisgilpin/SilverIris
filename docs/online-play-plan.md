@@ -3557,3 +3557,65 @@ player/gun/audio-test green (seq.pcm KEEP; wavetable distinct=1 restore=1).
   remain mixer placeholder `3c97070` (live last_sfx=15 while walking).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 seq ALEnvelope `ec00f5b`)
+
+P0-3 music slice on fire-hit LIVE-CLOSED `7ab099c` / seq `dd988da` /
+wavetable `9e225af` / early-Z `e6e6cb4` / hoist `ff43a68` (KEEP). SHA
+`ec00f5b` (HUD `4a58e25` seq 1e). Pushed to `origin/main`, Hetzner
+`/home/grok/GoldenEye` pull + `make -C native wasm` + `silveriris-vite`
+restart. Live wasm is `ec00f5b` (**267781**, Last-Modified 20:48:15 GMT).
+
+Apply pack `instruments.ctl` ALEnvelope attack/decay/release on seq
+wavetable voices. decay_us==-1 sustains until note-off. Default
+(0,-1,0,127,127) keeps the pre-envelope mix. HUD `seq 1e` when envelopes
+are loaded (320-wide; `1we` cropped the `e`). Not ASP HLE (no RSP mixer
+or spatial). G1 greyscale unchanged. Native firehit miss 24.70 / hit 24.15
+`guard_fire_ms=1.33` after ~79ms dead=1 hits=2 kills=1. Pack ctl: 138/138
+sounds have a non-default envelope (mostly 2ms release). Footsteps stay
+mixer thud `3c97070`.
+
+**1 — live walk / fire.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270` wasm **seq=1 wav=1
+env=1**. Idle rAF **153 / 3533ms ≈ 43.3 fps**; walk KeyW ≈**36.4 fps**
+(128 / 3517ms) to x=−573.3 last_sfx=15. Tab did not freeze. Same class as
+Mac 1630 (idle 42.9 / walk 35.4) — envelope is not a freeze.
+`.local/mihok-chrome-playtest-20260902-1649.md`. Fire-at-first-enemy after
+this wasm + HUD 1e: stall θ261 **seq 1e** hits 1 kills 1 mag 7→6, post-hit
+rAF **182 / 3517ms ≈ 51.8 fps**, no freeze.
+`.local/mihok-chrome-playtest-20260902-1652.md`. Chris 14:21 pre-fix freeze
+was wasm 252947 @ 18:18 GMT (hit 1, Incognito ~101% CPU) — still not a
+`7ab099c` result.
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Facility CDP :9226 still unreachable (LAN / Parallels /
+tailscale :9226 closed). Native g1 greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+player/gun/audio-test green (seq.pcm KEEP; wavetable distinct=1 restore=1;
+envelope distinct=1 restore=1).
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `ec00f5b` wasm:
+  stall θ261 hit 1 / kill 1, post-hit ≈52 fps). Do not reopen as walking
+  freeze. Evidence: Chris 14:21
+  `.local/mihok-chrome-playtest-chris-fire-freeze-20260902-1421.md`;
+  fix SHA `7ab099c`; latest live re-prove 1652.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~43 / walk ~36 (seq + wavetable + envelope) does not close
+  `ff37828`. Facility-box CDP :9226 was not reachable this pass.
+  Overnight box idle 24.5–28.8 (0446/0612/1147) still the last Facility
+  samples — cite, do not claim CLOSED.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1649/1652 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (RSP mixer, spatial). Music is pack compact MIDI
+  plus instruments.tbl PCM plus ALEnvelope `ec00f5b`, not ASP. Footsteps
+  remain mixer placeholder `3c97070` (live last_sfx=15 while walking).
+- Combat AI / matching engine later. Campaign out of v1.
+
