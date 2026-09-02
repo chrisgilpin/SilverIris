@@ -3215,3 +3215,49 @@ Native player/g1 playtest green (synthetic greyscale unchanged).
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 missing-neighbor LIVE `8cc1ce1`)
+
+P0 missing-neighbor live-close of harness `23be532` (no new wasm).
+Hard-refresh Chrome on https://007.goodhouseinc.com `?ff_netplay=0`, pack
+`fff814d2…` (same IDB hash as Mihok 1018–1215), wasm 251961 Last-Modified
+15:40:41 GMT (`8cc1ce1`).
+
+Live 1215 was stall spawn/θ263 only. This capture pokes the documented
+Mihok pose (−161,−2382 θ290 φ−5) in the live wasm ply slot and
+`port_api_draw`s — same place+draw as harness `play_door_mihok`. Do not
+walk stacked r6-r71 (would BFS r8 through the closed r7 leaf). KEEP
+handles `f2a753a`, Chead `8cc1ce1`, stall −98.5/−2358.4, FPS `ff37828`.
+
+**1 — Mihok pose.** Live G1 at −161,−2382 θ290 φ−5: `cur=71 walked=1`
+`mihok_void left_clear=0 left_dark=257 area=16960` (left third, skip HUD;
+identical to the harness PNG). Crate + tiled wall + ceiling + brown
+leaf fill the frame; extra-idle Chead on the collar at frame left. No
+uncleared black rectangle. Live rAF look-at will not *park* z at −2382
+(snaps back to idle −2358.4); HUD x=−161 θ290 at that idle z is also
+not a void (`left_clear=2`). The hole was missing-neighbor G1, not
+look-at.
+
+**2 — hitch / FPS / KEEP.** No wasm. Handles/Chead/stall untouched.
+This box live rAF is not the Facility box; do not close `ff37828` from
+it. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+Native player/g1 playtest green (synthetic greyscale unchanged).
+
+**Remaining holes**
+
+- P0-1 live spawn-idle rAF after hard-refresh still required. Harness
+  long_walk is 32.7 fps / 35ms class; hall walk is ~24 fps. Do not close
+  ff37828 re-prove from a Mac capture or from harness alone.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688 ribs
+  + two 685 highlight handle bars. Keep closed unless a later pass
+  regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck DL;
+  no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290
+  (`left_clear=0`). Do not walk r6 from r71 to "fill" it.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
