@@ -3938,3 +3938,62 @@ restore=1; detune distinct=1 restore=1). No hitch ship this pass
   Footsteps remain mixer placeholder `3c97070`.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 door spat `2bd608e`)
+
+P0-2 spat slice on detune `a01f1bf` / dist vol `f134481` / spat pan
+`67b7bce` / fire-hit LIVE-CLOSED `7ab099c` (KEEP). SHA `2bd608e`. Pushed to
+`origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C native wasm`
++ `silveriris-vite` restart. Live wasm is this SHA (**272409**,
+Last-Modified 23:17:58 GMT).
+
+Door open/close take the same mixer pan + distance vol as world SFX, from
+the used door xz (`port_stan_last_use_xz`). Center/full when the leaf is
+ahead and within 400u. HUD stays `seq 1e`. Not ASP HLE. G1 greyscale
+unchanged. Native firehit miss 24.35 / hit 24.23 `guard_fire_ms=1.29`
+dead=1 hits=2 kills=1. player-test last-use xz KEEP. Footsteps stay mixer
+thud `3c97070`.
+
+**1 — live walk / fire.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270` **seq 1e** wasm
+seq=1 wav=1 env=1 pan=1 det=1. Idle rAF **153 / 3502ms ≈ 43.7 fps**; walk
+KeyW ≈**36.3 fps** (127 / 3500ms) to x=−573.3 last_sfx=15 det=1. Tab did
+not freeze. Same class as Mac 1908 (idle 42.6 / walk 35.0). Stall KeyZ did
+not latch (last_sfx=0; extra-idle is the look target, A-use range 200u).
+Door spat is the same `port_sfx_play_world` path as hit/yelp.
+`.local/mihok-chrome-playtest-20260902-1918.md`. Fire-at-first-enemy after
+this wasm: stall θ270 hits 1 kills 1 mag 7→6, post-hit rAF **180 / 3500ms
+≈ 51.4 fps**, no freeze.
+`.local/mihok-chrome-playtest-20260902-1919.md`.
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Facility CDP :9226 still unreachable. Native g1 greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+player/gun/audio-test green (seq.pcm KEEP; detune distinct=1 restore=1).
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `2bd608e` wasm:
+  stall θ270 hit 1 / kill 1, post-hit ≈51 fps). Do not reopen as walking
+  freeze. Evidence: Chris 14:21; fix SHA `7ab099c`; latest live re-prove
+  1919.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~44 / walk ~36 does not close `ff37828`. Facility-box CDP
+  :9226 was not reachable this pass. Overnight box idle 24.5–28.8
+  (0446/0612/1147) still the last Facility samples — cite, do not claim
+  CLOSED.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1918/1919 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (RSP mixer). Music is pack compact MIDI plus
+  instruments.tbl PCM plus ALEnvelope plus ALSound/CC10 pan plus
+  ALKeyMap.detune `a01f1bf`, not ASP. World SFX mixer pan + distance vol;
+  door open/close now use the same spat `2bd608e`. Footsteps remain mixer
+  placeholder `3c97070` (L/R pan). Not RSP spatial.
+- Combat AI / matching engine later. Campaign out of v1.
+
