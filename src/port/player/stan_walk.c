@@ -1659,12 +1659,15 @@ int port_stan_nudge_off_wall(float *lx, float *lz, float *ly)
 /* Draw-only: G1 walls sit inside walkable tiles. Pull the camera off
  * unlinked edges by extra slack. clip_step / PORT_WALL_SKIN stay 30. */
 #define PORT_DRAW_SKIN 46.0f
+/* Uncapped DRAW_SKIN inward/G1 push walked look-at into the stall leaf
+ * (idle40 visual −27 −X) or +48 +Z into a wall. Keep the 16u slack. */
+#define PORT_VISUAL_CAP (PORT_DRAW_SKIN - PORT_WALL_SKIN)
 
 void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
 {
-    float wx, wz;
+    float wx, wz, dx, dz, len;
     const StanTile *t;
-    int hits = 0;
+    float pdx = 0.f, pdz = 0.f, sdx = 0.f, sdz = 0.f;
 
     if (ox)
         *ox = lx;
@@ -1676,32 +1679,28 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
     t = tile_for_walk(wx, wz);
     if (!t)
         t = tile_at_world(wx, wz);
-    if (!t || t->n < 3)
-        return;
-    /* Inward along the nearest unlinked edge. Tile 147's centroid is the
-     * stall cubicle; a centroid look-at put the camera inside the leaf
-     * (mauve 4-band + no 685 handles) even after clip stayed in the hall. */
-    if (push_off_unlinked_on_tile(t, &wx, &wz, PORT_DRAW_SKIN))
-        hits++;
+    if (t && t->n >= 3)
+        (void)push_off_unlinked_on_tile(t, &wx, &wz, PORT_DRAW_SKIN);
     {
         float lx2 = wx - g_ox, lz2 = wz - g_oz;
-        float pdx = 0.f, pdz = 0.f, sdx = 0.f, sdz = 0.f;
         (void)port_stage_g1_wall_push(lx2, lz2, PORT_DRAW_SKIN, &pdx, &pdz);
         (void)port_prop_push_off_slabs_local(lx2, lz2, PORT_DRAW_SKIN, &sdx, &sdz);
-        if (pdx != 0.f || pdz != 0.f || sdx != 0.f || sdz != 0.f) {
-            lx2 += pdx + sdx;
-            lz2 += pdz + sdz;
-            wx = lx2 + g_ox;
-            wz = lz2 + g_oz;
-            hits++;
-        }
+        lx2 += pdx + sdx;
+        lz2 += pdz + sdz;
+        wx = lx2 + g_ox;
+        wz = lz2 + g_oz;
     }
-    if (!hits)
-        return;
+    dx = (wx - g_ox) - lx;
+    dz = (wz - g_oz) - lz;
+    len = sqrtf(dx * dx + dz * dz);
+    if (len > PORT_VISUAL_CAP && len > 0.1f) {
+        dx *= PORT_VISUAL_CAP / len;
+        dz *= PORT_VISUAL_CAP / len;
+    }
     if (ox)
-        *ox = wx - g_ox;
+        *ox = lx + dx;
     if (oz)
-        *oz = wz - g_oz;
+        *oz = lz + dz;
 }
 
 static int legal_step(float owx, float owz, float cwx, float cwz, int start_door)

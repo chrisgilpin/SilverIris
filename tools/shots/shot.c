@@ -3019,10 +3019,13 @@ static int playtest_chris(const char *out_dir)
         port_stan_visual_xz(spawn_x, spawn_z, &vx, &vz);
         printf("play_spawn visual xz=%.1f,%.1f d=%.1f,%.1f\n", (double)vx, (double)vz,
                (double)(vx - spawn_x), (double)(vz - spawn_z));
-        /* Centroid look-at walked the camera into the stall leaf. */
-        if (vx < -170.f) {
-            fprintf(stderr, "play_spawn visual still stall xz=%.1f,%.1f\n", (double)vx,
-                    (double)vz);
+        /* Centroid / inward-edge look-at walked the camera into the stall
+         * leaf (visual d≈−25 −X). clip keeps the body; look-at must stay
+         * in the hall so 685 handles and the extra-idle neck read. */
+        if (vx < -170.f || (vx - spawn_x) < -18.f) {
+            fprintf(stderr, "play_spawn visual still stall xz=%.1f,%.1f d=%.1f,%.1f\n",
+                    (double)vx, (double)vz, (double)(vx - spawn_x),
+                    (double)(vz - spawn_z));
             return -1;
         }
     }
@@ -3061,12 +3064,24 @@ static int playtest_chris(const char *out_dir)
             port_stan_visual_xz(x1, z1, &vx, &vz);
             printf("play_spawn idle40 visual xz=%.1f,%.1f d=%.1f,%.1f\n", (double)vx,
                    (double)vz, (double)(vx - x1), (double)(vz - z1));
-            if (vx < -170.f) {
-                fprintf(stderr, "play_spawn idle40 visual still stall xz=%.1f,%.1f\n",
-                        (double)vx, (double)vz);
+            if (vx < -170.f || (vx - x1) < -18.f) {
+                fprintf(stderr, "play_spawn idle40 visual still stall xz=%.1f,%.1f d=%.1f,%.1f\n",
+                        (double)vx, (double)vz, (double)(vx - x1), (double)(vz - z1));
                 return -1;
             }
         }
+        /* Mihok 0414: live rAF sits at idle40 xz. Look-left θ257 showed a
+         * floating Chead when look-at was in the leaf. Snap that pose. */
+        place(x1, z1, 270.f);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_spawn_idle") != 0)
+            return -1;
+        place(x1, z1, 257.f);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_lookleft") != 0)
+            return -1;
+        dump_near_guards("play_lookleft", x1, z1);
+        dump_slabs_local("play_lookleft");
         place(spawn_x, spawn_z, 270.f);
         port_player_set_pitch(0.f);
     }
@@ -4453,8 +4468,8 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
-    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_wide") ||
-        !strcmp(tag, "play_shoot_before")) {
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_idle") ||
+        !strcmp(tag, "play_spawn_wide") || !strcmp(tag, "play_shoot_before")) {
         unsigned tan;
         int w = port_api_fb_width(), h = port_api_fb_height();
         /* Extra-idle right-hip hang; skip the left door leaf. */
@@ -4476,7 +4491,8 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
-    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_idle") ||
+        !strcmp(tag, "play_lookleft") || !strcmp(tag, "play_hall_a") ||
         !strcmp(tag, "play_shoot_before") || !strcmp(tag, "play_hall_walk") ||
         !strcmp(tag, "play_aim_look") || !strcmp(tag, "play_aim_grip") ||
         !strcmp(tag, "aim_look")) {
@@ -4527,7 +4543,8 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
-    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_spawn_idle") ||
+        !strcmp(tag, "play_lookleft") || !strcmp(tag, "play_hall_a") ||
         !strcmp(tag, "play_door_live")) {
         unsigned dark, metal, area;
         int w = port_api_fb_width(), h = port_api_fb_height();

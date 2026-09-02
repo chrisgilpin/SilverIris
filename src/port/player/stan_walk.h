@@ -112,9 +112,9 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
  * linked upper keeps that floor; stacked xz with no stair link stays low.
  */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
-/* Draw-only camera xz. Pulls off unlinked edges by 46u (30+16) along the
- * inward edge normal (not the tile centroid — tile 147's centroid is the
- * stall cubicle) and off interior G1 walls / fitted leaves.
+/* Draw-only camera xz. Pulls off unlinked edges / G1 walls / fitted leaves
+ * then caps the offset at 16u (DRAW_SKIN 46 − WALL_SKIN 30). Uncapped
+ * inward-edge look-at sat in the stall leaf (mauve 4-band + floating head).
  * clip_step / PORT_WALL_SKIN stay 30. */
 void port_stan_visual_xz(float lx, float lz, float *ox, float *oz);
 /* Push room-local xz off the nearest unlinked stan edge along its inward
