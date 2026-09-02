@@ -11,6 +11,7 @@
  * rifle-cock reload / male yelp / Bond hurt.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
+ * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
  */
 
 #define PACK_SFX_EMPTY_GUN_FIRE 89
@@ -27,10 +28,12 @@
 #define PACK_SFX_RICO_8_AFDM_A 27 /* ricochet_sounds_small */
 #define PACK_SFX_BOND_GET_HIT1 68 /* BOND_GET_HIT1 */
 #define PACK_SFX_GET_HIT_MALE0 134 /* GET_HIT_MALE0 */
+#define PACK_SFX_GET_HIT_MALE_N 25
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
 
 static int16_t *g_owned[15];
+static int16_t *g_yelp_owned[PACK_SFX_GET_HIT_MALE_N];
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -73,6 +76,16 @@ static void drop_kind(int kind)
     g_owned[kind] = NULL;
 }
 
+static void drop_yelps(void)
+{
+    int i;
+    port_audio_clear_yelps();
+    for (i = 0; i < PACK_SFX_GET_HIT_MALE_N; i++) {
+        free(g_yelp_owned[i]);
+        g_yelp_owned[i] = NULL;
+    }
+}
+
 void port_audio_unload_pack_sfx(void)
 {
     drop_kind(PORT_SFX_GUN);
@@ -88,11 +101,13 @@ void port_audio_unload_pack_sfx(void)
     drop_kind(PORT_SFX_ARMOUR);
     drop_kind(PORT_SFX_RELOAD);
     drop_kind(PORT_SFX_YELP);
+    drop_yelps();
     drop_kind(PORT_SFX_HURT);
 }
 
-static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
-                     uint32_t tbl_n, int sfx_id, int kind)
+static int decode_id_pcm(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
+                         uint32_t tbl_n, int sfx_id, int16_t **out_pcm, uint32_t *out_n,
+                         uint8_t *out_vol)
 {
     uint32_t bank, inst, sound, wave, book_off, base, src_n, i;
     int16_t book[PACK_SFX_MAX_BOOK];
@@ -100,6 +115,12 @@ static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
     int order, npred, nbook, ns, vol;
     uint32_t scount, sound_off;
 
+    if (out_pcm)
+        *out_pcm = NULL;
+    if (out_n)
+        *out_n = 0;
+    if (out_vol)
+        *out_vol = 0;
     if (sfx_id < 1)
         return -1;
     if (ctl_n < 8 || be16(ctl) != 0x4231 || be16(ctl + 2) < 1)
@@ -159,9 +180,29 @@ static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
         free(pcm);
         return -1;
     }
+    if (out_pcm)
+        *out_pcm = pcm;
+    else
+        free(pcm);
+    if (out_n)
+        *out_n = (uint32_t)ns;
+    if (out_vol)
+        *out_vol = (uint8_t)vol;
+    return 0;
+}
+
+static int decode_id(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
+                     uint32_t tbl_n, int sfx_id, int kind)
+{
+    int16_t *pcm;
+    uint32_t ns;
+    uint8_t vol;
+
+    if (decode_id_pcm(ctl, ctl_n, tbl, tbl_n, sfx_id, &pcm, &ns, &vol) != 0)
+        return -1;
     drop_kind(kind);
     g_owned[kind] = pcm;
-    port_audio_install_sfx(kind, pcm, (uint32_t)ns, (uint8_t)vol);
+    port_audio_install_sfx(kind, pcm, ns, vol);
     return 0;
 }
 
@@ -216,9 +257,24 @@ int port_audio_load_pack_sfx(void)
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_GUN_RIFLECOCK,
                   PORT_SFX_RELOAD) == 0)
         n++;
-    if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_GET_HIT_MALE0,
-                  PORT_SFX_YELP) == 0)
-        n++;
+    {
+        int yi, got = 0;
+        for (yi = 0; yi < PACK_SFX_GET_HIT_MALE_N; yi++) {
+            int16_t *pcm = NULL;
+            uint32_t ns = 0;
+            uint8_t vol = 0;
+            if (decode_id_pcm(ctl->bytes, ctl->size, tbl->bytes, tbl->size,
+                              PACK_SFX_GET_HIT_MALE0 + yi, &pcm, &ns, &vol) != 0)
+                continue;
+            g_yelp_owned[got] = pcm;
+            port_audio_push_yelp(pcm, ns, vol);
+            if (got == 0)
+                port_audio_install_sfx(PORT_SFX_YELP, pcm, ns, vol);
+            got++;
+        }
+        if (got > 0)
+            n++;
+    }
     if (decode_id(ctl->bytes, ctl->size, tbl->bytes, tbl->size, PACK_SFX_BOND_GET_HIT1,
                   PORT_SFX_HURT) == 0)
         n++;

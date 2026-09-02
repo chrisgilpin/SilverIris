@@ -6,4 +6,5 @@ These tones are generated in `src/port/audio/mixer.c` when no pack bank
 is installed. They are not cartridge banks and must not be replaced with
 ROM-derived PCM. Runtime Facility play decodes pack `sfx.ctl`/`sfx.tbl`
 VADPCM into host PCM (gun / dry / door / fall / hit / rico / ammo / armour /
-reload / yelp / hurt) without shipping samples.
+reload / yelp / hurt) without shipping samples. Pack GET_HIT_MALE0–24 cycle
+on yelp (Rare counter, not game RNG); placeholders stay one tone.

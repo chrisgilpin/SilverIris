@@ -381,6 +381,56 @@ int main(int argc, char **argv)
             if (strcmp(four, three) == 0)
                 return fail("yelp cut by fall overlay");
         }
+
+        {
+            int16_t y0[256], y1[256];
+            char h0[65], h1[65], hw[65];
+            int k, v;
+            for (k = 0; k < 256; k++) {
+                y0[k] = 12000;
+                y1[k] = -12000;
+            }
+            port_audio_init();
+            port_audio_clear_yelps();
+            port_audio_push_yelp(y0, 256, 127);
+            port_audio_push_yelp(y1, 256, 127);
+            if (port_audio_yelp_variants() != 2)
+                return fail("yelp variants");
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            if (port_audio_last_sfx() != PORT_SFX_YELP)
+                return fail("yelp cycle last_sfx");
+            hash_pcm(pcm, h0);
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, h1);
+            if (strcmp(h0, h1) == 0)
+                return fail("yelp cycle same pcm");
+            if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                return fail("yelp cycle touched game RNG");
+            port_audio_init();
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hw);
+            if (strcmp(hw, h0) != 0)
+                return fail("yelp cycle reset");
+            v = port_audio_yelp_variants();
+            port_audio_init();
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            for (k = 1; k < v; k++) {
+                port_audio_play_yelp();
+                port_audio_cb(pcm, NFRAMES);
+            }
+            port_audio_play_yelp();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hw);
+            if (strcmp(hw, h0) != 0)
+                return fail("yelp cycle wrap");
+            printf("yelp_cycle variants=%d distinct=1 wrap=1\n", v);
+            port_audio_clear_yelps();
+            port_audio_install_sfx(PORT_SFX_YELP, NULL, 0, 0);
+        }
     }
 
     port_audio_init();

@@ -66,9 +66,9 @@ static int sfx_bank_proof(void)
     un = port_audio_sfx_frames(PORT_SFX_HURT);
     printf("sfx_bank ready=%d gun_n=%d dry_n=%d door_n=%d fall_n=%d hit_n=%d "
            "kf7_n=%d pickup_n=%d close_n=%d rico_n=%d ammo_n=%d armour_n=%d "
-           "reload_n=%d yelp_n=%d hurt_n=%d\n",
+           "reload_n=%d yelp_n=%d hurt_n=%d yelp_vars=%d\n",
            port_audio_bank_ready(), gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn,
-           un);
+           un, port_audio_yelp_variants());
     if (!port_audio_bank_ready() || !port_audio_sfx_from_bank(PORT_SFX_GUN) ||
         !port_audio_sfx_from_bank(PORT_SFX_DRY) ||
         !port_audio_sfx_from_bank(PORT_SFX_DOOR) ||
@@ -85,12 +85,13 @@ static int sfx_bank_proof(void)
         !port_audio_sfx_from_bank(PORT_SFX_HURT) || gn < 2000 || dn < 500 ||
         on < 1000 || fn < 500 || hn < 200 || kn < 500 || pn < 200 || cn < 500 ||
         rn < 200 || an < 200 || vn < 200 || ln < 200 || yn < 200 || un < 200 ||
-        gn <= dn) {
+        gn <= dn || port_audio_yelp_variants() < 25) {
         fprintf(stderr,
                 "sfx_bank missing pack VADPCM gun=%d dry=%d door=%d fall=%d hit=%d "
                 "kf7=%d pickup=%d close=%d rico=%d ammo=%d armour=%d reload=%d "
-                "yelp=%d hurt=%d\n",
-                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un);
+                "yelp=%d hurt=%d yelp_vars=%d\n",
+                gn, dn, on, fn, hn, kn, pn, cn, rn, an, vn, ln, yn, un,
+                port_audio_yelp_variants());
         return -1;
     }
     memset(gun, 0, sizeof gun);
@@ -378,6 +379,47 @@ static int sfx_bank_proof(void)
         if (port_audio_last_sfx() != PORT_SFX_FALL || diff < 16) {
             fprintf(stderr, "sfx_yelp cut by fall last=%d diff=%d\n",
                     port_audio_last_sfx(), diff);
+            return -1;
+        }
+    }
+    {
+        int16_t a[512], b[512];
+        long long ea = 0, eb = 0;
+        int diff = 0, wrap = 0, k, v;
+        v = port_audio_yelp_variants();
+        port_audio_init();
+        memset(a, 0, sizeof a);
+        port_audio_play_yelp();
+        port_audio_cb(a, 256);
+        memset(b, 0, sizeof b);
+        port_audio_play_yelp();
+        port_audio_cb(b, 256);
+        for (i = 0; i < 512; i++) {
+            ea += (long long)a[i] * a[i];
+            eb += (long long)b[i] * b[i];
+            if (a[i] != b[i])
+                diff++;
+        }
+        port_audio_init();
+        port_audio_play_yelp();
+        port_audio_cb(b, 256);
+        for (k = 1; k < v; k++) {
+            port_audio_play_yelp();
+            port_audio_cb(b, 256);
+        }
+        memset(b, 0, sizeof b);
+        port_audio_play_yelp();
+        port_audio_cb(b, 256);
+        for (i = 0; i < 512; i++) {
+            if (a[i] != b[i])
+                wrap++;
+        }
+        printf("sfx_yelp_cycle vars=%d e0=%lld e1=%lld mix_diff=%d wrap_diff=%d last=%d\n",
+               v, ea, eb, diff, wrap, port_audio_last_sfx());
+        if (v < 25 || ea < 100000ll || eb < 100000ll || diff < 16 || wrap != 0 ||
+            port_audio_last_sfx() != PORT_SFX_YELP) {
+            fprintf(stderr, "sfx_yelp_cycle vars=%d e0=%lld e1=%lld diff=%d wrap=%d\n",
+                    v, ea, eb, diff, wrap);
             return -1;
         }
     }
@@ -4558,6 +4600,8 @@ int main(int argc, char **argv)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--playtest") == 0)
             ; /* handled after stage load */
+        else if (strcmp(argv[a], "--sfx") == 0)
+            ; /* handled after stage load */
         else if (strcmp(argv[a], "--clipmap") == 0)
             ; /* handled after stage load */
         else if (strcmp(argv[a], "--diag") == 0)
@@ -4628,6 +4672,18 @@ int main(int argc, char **argv)
                     play = 1;
             if (play) {
                 int prc = playtest_chris(out_dir);
+                port_api_shutdown();
+                free(pack);
+                return prc != 0 ? 3 : 0;
+            }
+        }
+        {
+            int sfx = 0;
+            for (aa = 1; aa < argc; aa++)
+                if (strcmp(argv[aa], "--sfx") == 0)
+                    sfx = 1;
+            if (sfx) {
+                int prc = sfx_bank_proof();
                 port_api_shutdown();
                 free(pack);
                 return prc != 0 ? 3 : 0;

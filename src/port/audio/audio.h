@@ -28,6 +28,11 @@ void port_audio_play_armour(void);
 void port_audio_play_reload(void);
 void port_audio_play_yelp(void);
 void port_audio_play_hurt(void);
+/* GET_HIT_MALE0–24 one-shots. Mixer does not own `pcm`. Cycle is Rare
+ * male_guard_yelp_counter (wrap at count), not game RNG. */
+void port_audio_push_yelp(const int16_t *pcm, uint32_t n, uint8_t vol);
+void port_audio_clear_yelps(void);
+int port_audio_yelp_variants(void);
 int port_audio_music_on(void);
 uint32_t port_audio_rate(void);
 /* 0 none, 1 gun, 2 dry, 3 door open, 4 body-fall, 5 flesh-hit, 6 KF7,
