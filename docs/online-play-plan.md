@@ -2944,11 +2944,11 @@ pull + `make -C native wasm` + `silveriris-vite` restart. Live wasm is
 this SHA (251970, Last-Modified 14:36:01 GMT).
 
 Mihok 1018 after `5ceb364`: stall HUD x=-98.5 z=-2358.4 KEEP; live rAF
-≈26.0 (KEEP ff37828); spawn/look-left brown 686-688 ribs but 685 bars
-were dark smears (crop started after highlight texel 11 — `f2a753a`
-already recropped onto x=11/25). 52u world-Y seat still a high-behind
-/ θ263 neck gap. Seat Chead 80 world Y (26u/52u failed live; 220u
-buried the face). KEEP door-jump `102237e`, viscyl `dfde794`,
+≈26.0 (KEEP ff37828); 685 bars were dark smears (crop missed highlight
+texel 11). Mihok 1032 after `f2a753a` hard-refresh live-closed doors:
+brown 686-688 ribs + two 685 highlight handle bars. 52u world-Y seat
+still a high-behind / θ263 neck gap. Seat Chead 80 world Y (26u/52u
+failed live; 220u buried the face). KEEP door-jump `102237e`, viscyl `dfde794`,
 SHADE*TEXEL `6377093`, alcove pin `07e6b41`, G1 clip `4785f0f`,
 wasm-stack FPS `ff37828`, skip G_MTX `bad9aff`, stall clip `b3fdadf`,
 inward look-at `9cadb53`, 16u cap `2630bd1`, HUD stroke `a8d6c15`, 685
@@ -2985,16 +2985,15 @@ Native player/g1 playtest green. Greyscale
 - P0-1 live spawn-idle rAF after hard-refresh still required. Harness
   long_walk is 33.7 fps / 35ms class; hall walk is ~24 fps. Do not close
   ff37828 re-prove from harness alone.
-- P0-2 live match after hard-refresh still required (Mihok 1018 was
-  `5ceb364` dark smears; live wasm after this push is `f2a753a` bars +
-  `1be1d29` 80u Chead). Harness idle40 / look-left is ribbed metal +
-  two 685 highlight+shadow pills at −98.5,−2358 θ263. Do not close
-  without Mihok/live match.
+- P0-2 doors: Mihok 1032 after `f2a753a` hard-refresh (wasm 251970,
+  Last-Modified 14:22:49 GMT) live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars (0645-readable, not 1018 smears).
+  Keep closed unless a later pass regresses ribs or bars.
 - P0-3 live match still required. Spawn/idle stay x>-170; look-left
   extra-idle is 80u Y-seated from behind with a 7px profile indent in
-  harness. Mihok 1018 52u still floated. `play_wall` pitch −35 still
-  reads as ceiling (already on stan skin 30). Do not close without
-  Mihok/live match.
+  harness. Mihok 1032 (still on 52u wasm) still floated. Live wasm after
+  this push is `1be1d29` 80u. `play_wall` pitch −35 still reads as
+  ceiling (already on stan skin 30). Do not close without Mihok/live match.
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
