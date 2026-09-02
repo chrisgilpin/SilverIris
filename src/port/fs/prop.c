@@ -242,6 +242,8 @@ static float g_die_hold[PORT_SKEL_GUARD_N][3];
 static int g_walkers;
 static int g_walk_prop;
 static int g_idle_prop;
+static void push_off_slabs(float world_x, float world_z, float radius, float *pdx,
+                           float *pdz);
 static float g_chr_hit_wx, g_chr_hit_wz;
 static int g_chr_hit_ok;
 static int g_walk_frame;
@@ -1727,7 +1729,8 @@ static void place_idle_off_spawn_look(float sx, float sz, const float r1[3])
 {
     /* Stand in the tiled hall where spawn 270 / PLAY_SHOOT see a body,
      * past Z_TRIG 200 so spawn does not shoot the idle instead of the
-     * door. |dz| < 0.4*fwd keeps the pad inside fovy 60. */
+     * door. |dz| < 0.4*fwd keeps the pad inside fovy 60.
+     * Visual mesh is pushed off the r71 alcove in emit (pad stays). */
     static const float pref[][2] = {
         { -350.f, -2320.f },
         { -380.f, -2320.f },
@@ -3963,6 +3966,12 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
             float r1b[3], padx, padz, x0, z0, x1, z1, gdx = 0.f, gdz = 0.f;
             port_stan_push_cyl_off_doors(g_prop[pi].pos[0], g_prop[pi].pos[2], 160.f,
                                          &pdx, &pdz);
+            {
+                float sdx = 0.f, sdz = 0.f;
+                push_off_slabs(g_prop[pi].pos[0], g_prop[pi].pos[2], 80.f, &sdx, &sdz);
+                pdx += sdx;
+                pdz += sdz;
+            }
             r1b[0] = r1b[1] = r1b[2] = 0.f;
             (void)port_stage_room1(r1b);
             padx = g_prop[pi].pos[0] - r1b[0];
@@ -4343,17 +4352,102 @@ static int g_slab_emit_n;
 static float g_slab_emit_x[PORT_SLAB_EMIT_MAX];
 static float g_slab_emit_z[PORT_SLAB_EMIT_MAX];
 static float g_slab_emit_yaw[PORT_SLAB_EMIT_MAX];
+static float g_slab_emit_w[PORT_SLAB_EMIT_MAX];
 static int g_slab_emit_kind[PORT_SLAB_EMIT_MAX];
 
-static void slab_emit_note(float x, float z, float yaw, int kind)
+static void slab_emit_note(float x, float z, float yaw, int kind, float width)
 {
     if (g_slab_emit_n >= PORT_SLAB_EMIT_MAX)
         return;
     g_slab_emit_x[g_slab_emit_n] = x;
     g_slab_emit_z[g_slab_emit_n] = z;
     g_slab_emit_yaw[g_slab_emit_n] = yaw;
+    g_slab_emit_w[g_slab_emit_n] = width;
     g_slab_emit_kind[g_slab_emit_n] = kind;
     g_slab_emit_n++;
+}
+
+/* Keep skip=pose vis AABB off fitted leaves (r71 alcove is not a stan door). */
+static void push_off_slabs(float world_x, float world_z, float radius, float *pdx,
+                           float *pdz)
+{
+    float dx = 0.f, dz = 0.f;
+    int iter;
+    const float skin = 8.f;
+    const float cap = 120.f;
+
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    if (radius < 1.f || g_slab_emit_n < 1)
+        return;
+    for (iter = 0; iter < 4; iter++) {
+        int i, hit = 0;
+        float best_need = 0.f, bnx = 0.f, bnz = 0.f;
+        float cx = world_x + dx, cz = world_z + dz;
+        for (i = 0; i < g_slab_emit_n; i++) {
+            float yaw = g_slab_emit_yaw[i], hw = 0.5f * g_slab_emit_w[i];
+            float nx, nz, tx, tz, rx, rz, along, across, need, clear, side;
+            if (hw < 20.f)
+                continue;
+            if (yaw == 90.f) {
+                nx = 1.f;
+                nz = 0.f;
+            } else if (yaw == -90.f) {
+                nx = -1.f;
+                nz = 0.f;
+            } else if (yaw == 180.f) {
+                nx = 0.f;
+                nz = -1.f;
+            } else {
+                nx = 0.f;
+                nz = 1.f;
+            }
+            tx = -nz;
+            tz = nx;
+            rx = cx - g_slab_emit_x[i];
+            rz = cz - g_slab_emit_z[i];
+            along = rx * nx + rz * nz;
+            across = rx * tx + rz * tz;
+            if (across < 0.f)
+                across = -across;
+            if (across > hw + radius)
+                continue;
+            clear = radius + skin;
+            if (along < 0.f) {
+                if (-along >= clear)
+                    continue;
+            } else if (along >= clear)
+                continue;
+            side = (along >= 0.f) ? 1.f : -1.f;
+            need = clear - side * along;
+            if (need <= 0.f)
+                continue;
+            if (need > best_need) {
+                best_need = need;
+                bnx = nx * side;
+                bnz = nz * side;
+                hit = 1;
+            }
+        }
+        if (!hit)
+            break;
+        if (best_need > cap)
+            best_need = cap;
+        dx += bnx * best_need;
+        dz += bnz * best_need;
+        if (dx * dx + dz * dz > cap * cap) {
+            float len = sqrtf(dx * dx + dz * dz);
+            dx *= cap / len;
+            dz *= cap / len;
+            break;
+        }
+    }
+    if (pdx)
+        *pdx = dx;
+    if (pdz)
+        *pdz = dz;
 }
 
 int port_prop_slab_emit_count(void) { return g_slab_emit_n; }
@@ -5043,6 +5137,12 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                 }
             }
             port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], 160.f, &pdx, &pdz);
+            {
+                float sdx = 0.f, sdz = 0.f;
+                push_off_slabs(pr->pos[0], pr->pos[2], 80.f, &sdx, &sdz);
+                pdx += sdx;
+                pdz += sdz;
+            }
             if (guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
@@ -5223,7 +5323,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
             slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
             slab_face(&tmp, pos[0], floor_y, pos[2], yaw, pwx, pwz);
             tmp.mdl = slab;
-            slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 0);
+            slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 0, width + SLAB_RIM);
             {
                 float add_yaw = 0.f, odx = 0.f, ody = 0.f, odz = 0.f;
                 {
@@ -5286,7 +5386,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 g_alcove_z = tmp.pos[2] - room1[2];
                 g_alcove_yaw = tmp.yaw;
                 g_alcove_emitted = 1;
-                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1);
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1, 640.f);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }
@@ -5360,7 +5460,7 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                 slab = slab_sized(width + SLAB_RIM, tall + SLAB_RIM);
                 slab_face(&tmp, pos[0], pos[1], pos[2], yaw, pwx, pwz);
                 tmp.mdl = slab;
-                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 2);
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 2, width + SLAB_RIM);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }
