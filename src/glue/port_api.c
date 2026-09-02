@@ -162,6 +162,11 @@ PORT_KEEP int port_api_audio_env_on(void)
     return port_audio_env_on();
 }
 
+PORT_KEEP int port_api_audio_pan_on(void)
+{
+    return port_audio_pan_on();
+}
+
 PORT_KEEP int port_api_audio_rate(void)
 {
     return (int)port_audio_rate();

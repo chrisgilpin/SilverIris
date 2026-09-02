@@ -52,7 +52,8 @@
 #define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
 /* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
  * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
- * the bank supplies them. Not ASP HLE (no RSP mixer or spatial). */
+ * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
+ * Not ASP HLE (no RSP mixer or spatial SFX). */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -74,6 +75,8 @@
 #define SEQ_LOOPEND 0x2Du
 #define SEQ_BLOCK 0xFEu
 #define SEQ_CC_VOL 7
+#define SEQ_CC_PAN 10
+#define SEQ_PAN_C 64u
 #define ENV_ATTACK 0
 #define ENV_DECAY 1
 #define ENV_SUSTAIN 2
@@ -170,6 +173,7 @@ static uint32_t g_seq_wait;
 static int g_seq_pending;
 static uint64_t g_seq_frac;
 static uint8_t g_seq_vol[SEQ_TRACKS];
+static uint8_t g_seq_pan[SEQ_TRACKS];
 static uint8_t g_seq_prog[SEQ_TRACKS];
 static uint32_t g_seq_vleft[SEQ_VOICES];
 static uint32_t g_seq_vphase[SEQ_VOICES];
@@ -193,6 +197,7 @@ static int32_t g_seq_vedecus[SEQ_VOICES];
 static int32_t g_seq_verelus[SEQ_VOICES];
 static uint8_t g_seq_veatkvol[SEQ_VOICES];
 static uint8_t g_seq_vedecvol[SEQ_VOICES];
+static uint8_t g_seq_vpan[SEQ_VOICES];
 
 typedef struct {
     const int16_t *pcm;
@@ -211,12 +216,14 @@ typedef struct {
     int32_t rel_us;
     uint8_t atk_vol;
     uint8_t dec_vol;
+    uint8_t pan;
 } InstSound;
 
 static InstSound g_inst[INST_SOUNDS];
 static int g_ninst;
 static int g_inst_ready;
 static int g_env_ready;
+static int g_pan_ready;
 
 /* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
 static const uint16_t k_midi_hz[128] = {
@@ -425,6 +432,7 @@ static void seq_voices_clear(void)
         g_seq_verelus[i] = 0;
         g_seq_veatkvol[i] = 127u;
         g_seq_vedecvol[i] = 127u;
+        g_seq_vpan[i] = SEQ_PAN_C;
     }
     g_seq_alive = 0;
 }
@@ -448,6 +456,7 @@ static void seq_walker_clear(void)
         g_seq_status[i] = 0;
         g_seq_delta[i] = 0;
         g_seq_vol[i] = 100u;
+        g_seq_pan[i] = SEQ_PAN_C;
         g_seq_prog[i] = 0;
     }
     seq_voices_clear();
@@ -476,6 +485,31 @@ int port_audio_env_on(void)
     return g_env_ready != 0;
 }
 
+int port_audio_pan_on(void)
+{
+    return g_pan_ready != 0;
+}
+
+static uint8_t mix_pan(uint8_t a, uint8_t b)
+{
+    uint32_t p = ((uint32_t)a * (uint32_t)b) / SEQ_PAN_C;
+    if (p > 127u)
+        p = 127u;
+    return (uint8_t)p;
+}
+
+/* pan 64 keeps both channels at full (pre-pan mix). 0=left, 127=right. */
+static void pan_split(int s, uint8_t pan, int *l, int *r)
+{
+    if (pan <= SEQ_PAN_C) {
+        *l = s;
+        *r = (int)(((int32_t)s * (int32_t)pan) / (int32_t)SEQ_PAN_C);
+    } else {
+        *l = (int)(((int32_t)s * (int32_t)(127 - pan)) / 63);
+        *r = s;
+    }
+}
+
 static int inst_env_used(const InstSound *s)
 {
     if (!s)
@@ -496,11 +530,24 @@ static void inst_recompute_env(void)
     }
 }
 
+static void inst_recompute_pan(void)
+{
+    int i;
+    g_pan_ready = 0;
+    for (i = 0; i < g_ninst; i++) {
+        if (g_inst[i].pan != SEQ_PAN_C) {
+            g_pan_ready = 1;
+            return;
+        }
+    }
+}
+
 void port_audio_unload_inst(void)
 {
     g_ninst = 0;
     g_inst_ready = 0;
     g_env_ready = 0;
+    g_pan_ready = 0;
     memset(g_inst, 0, sizeof g_inst);
     seq_voices_clear();
 }
@@ -541,8 +588,10 @@ int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key
     s->rel_us = 0;
     s->atk_vol = 127u;
     s->dec_vol = 127u;
+    s->pan = SEQ_PAN_C;
     g_inst_ready = 1;
     inst_recompute_env();
+    inst_recompute_pan();
     return 0;
 }
 
@@ -568,6 +617,19 @@ void port_audio_inst_set_env(int32_t attack_us, int32_t decay_us, int32_t releas
     s->atk_vol = attack_vol;
     s->dec_vol = decay_vol;
     inst_recompute_env();
+}
+
+void port_audio_inst_set_pan(uint8_t pan)
+{
+    InstSound *s;
+
+    if (g_ninst < 1)
+        return;
+    s = &g_inst[g_ninst - 1];
+    if (pan > 127u)
+        pan = 127u;
+    s->pan = pan;
+    inst_recompute_pan();
 }
 
 static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
@@ -922,6 +984,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     g_seq_verelus[slot] = 0;
     g_seq_veatkvol[slot] = 127u;
     g_seq_vedecvol[slot] = 127u;
+    g_seq_vpan[slot] = g_seq_pan[ch & 15u];
     prog = g_seq_prog[ch & 15u];
     snd = (prog < INST_PROGS) ? inst_pick(prog, note, vel) : 0;
     if (snd) {
@@ -934,6 +997,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         g_seq_vloop1[slot] = snd->loop1;
         g_seq_vinc[slot] = pitch_step(note, snd->kbase);
         g_seq_vamp[slot] = amp;
+        g_seq_vpan[slot] = mix_pan(g_seq_pan[ch & 15u], snd->pan);
         if (inst_env_used(snd)) {
             g_seq_veon[slot] = 1;
             g_seq_veatkus[slot] = snd->atk_us;
@@ -1042,6 +1106,8 @@ static void seq_apply_event(uint32_t tr)
         seq_note_off(b1);
     else if (cmd == SEQ_CC && b1 == SEQ_CC_VOL)
         g_seq_vol[ch] = b2;
+    else if (cmd == SEQ_CC && b1 == SEQ_CC_PAN)
+        g_seq_pan[ch] = b2 > 127u ? 127u : b2;
     else if (cmd == SEQ_PROG)
         g_seq_prog[ch] = b1;
 }
@@ -1165,11 +1231,12 @@ static void seq_pump_due(void)
     }
 }
 
-static int seq_mix_sample(void)
+static void seq_mix_sample(int *acc_l, int *acc_r)
 {
     int i;
-    int acc = 0;
 
+    *acc_l = 0;
+    *acc_r = 0;
     if (g_seq_on) {
         if (g_seq_wait > 0)
             g_seq_wait--;
@@ -1177,9 +1244,12 @@ static int seq_mix_sample(void)
             seq_pump_due();
     }
     if (!g_seq_alive)
-        return 0;
+        return;
     for (i = 0; i < SEQ_VOICES; i++) {
         int amp;
+        int s;
+        int sl;
+        int sr;
         int done_rel = 0;
 
         if (!(g_seq_alive & (1u << i)))
@@ -1210,12 +1280,15 @@ static int seq_mix_sample(void)
             }
             if (idx >= n)
                 idx = n - 1u;
-            acc += (int)(((int32_t)g_seq_vpcm[i][idx] * amp) / INST_PCM_DIV);
+            s = (int)(((int32_t)g_seq_vpcm[i][idx] * amp) / INST_PCM_DIV);
             g_seq_vpos[i] += g_seq_vinc[i];
         } else {
-            acc += osc_tri(g_seq_vphase[i], amp);
+            s = osc_tri(g_seq_vphase[i], amp);
             g_seq_vphase[i] += g_seq_vinc[i];
         }
+        pan_split(s, g_seq_vpan[i], &sl, &sr);
+        *acc_l += sl;
+        *acc_r += sr;
         if (g_seq_veon[i])
             done_rel = env_step(i);
         if (g_seq_vleft[i] > 0) {
@@ -1232,7 +1305,6 @@ static int seq_mix_sample(void)
             seq_voice_kill(i);
         }
     }
-    return acc;
 }
 
 static uint32_t placeholder_len(int kind)
@@ -1693,9 +1765,11 @@ void port_audio_cb(int16_t *stereo, int nframes)
         }
 
         if (g_seq_on || g_seq_alive) {
-            int ms = seq_mix_sample();
-            acc_l += ms;
-            acc_r += ms;
+            int ms_l = 0;
+            int ms_r = 0;
+            seq_mix_sample(&ms_l, &ms_r);
+            acc_l += ms_l;
+            acc_r += ms_r;
         }
 
         if (g_sfx_left > 0 && g_sfx_len > 0) {

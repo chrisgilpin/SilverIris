@@ -42,6 +42,7 @@ PORT_KEEP int port_api_audio_last_sfx(void);
 PORT_KEEP int port_api_audio_seq_on(void);
 PORT_KEEP int port_api_audio_inst_on(void);
 PORT_KEEP int port_api_audio_env_on(void);
+PORT_KEEP int port_api_audio_pan_on(void);
 
 PORT_KEEP int port_api_load_stage(int level_id);
 PORT_KEEP int port_api_sim_tick(uint32_t tick);

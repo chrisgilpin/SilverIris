@@ -735,6 +735,101 @@ int main(int argc, char **argv)
                     return fail("wav after env unload");
                 printf("envelope seq distinct=1 restore=1\n");
             }
+
+            {
+                char pan_hex[65];
+                int li, lsum, rsum;
+
+                port_audio_unload_inst();
+                if (port_audio_pan_on())
+                    return fail("pan on before set");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push pan");
+                if (port_audio_pan_on())
+                    return fail("pan default");
+                port_audio_inst_set_pan(64);
+                if (port_audio_pan_on())
+                    return fail("pan center set");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load pan center");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("center pan changed wav");
+                port_audio_inst_set_pan(0);
+                if (!port_audio_pan_on())
+                    return fail("pan flag");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load pan left");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("pan seq silence");
+                hash_pcm(pcm, pan_hex);
+                if (strcmp(pan_hex, wav_hex) == 0)
+                    return fail("left pan matches center wav");
+                lsum = 0;
+                rsum = 0;
+                for (li = 0; li < NFRAMES; li++) {
+                    int l = pcm[li * 2];
+                    int r = pcm[li * 2 + 1];
+                    if (l < 0)
+                        l = -l;
+                    if (r < 0)
+                        r = -r;
+                    lsum += l;
+                    rsum += r;
+                }
+                if (rsum != 0)
+                    return fail("left pan leaked right");
+                if (lsum < 1000)
+                    return fail("left pan quiet");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("pan seq touched game RNG");
+                port_audio_unload_inst();
+                if (port_audio_pan_on())
+                    return fail("pan after unload");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push after pan");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load after pan");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("wav after pan unload");
+                printf("pan seq distinct=1 restore=1\n");
+            }
+
+            {
+                /* Same one-track seq with CC10=0 before the note. */
+                static const uint8_t k_seq_ccpan[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0xB0, 0x0A, 0x00, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x00,
+                    0xFF, 0x2F,
+                };
+                int li, rsum;
+
+                port_audio_unload_inst();
+                if (port_audio_load_seq(k_seq_ccpan, (uint32_t)sizeof k_seq_ccpan) != 0)
+                    return fail("seq load cc10");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("cc10 seq silence");
+                rsum = 0;
+                for (li = 0; li < NFRAMES; li++) {
+                    int r = pcm[li * 2 + 1];
+                    if (r < 0)
+                        r = -r;
+                    rsum += r;
+                }
+                if (rsum != 0)
+                    return fail("cc10 pan 0 leaked right");
+                printf("cc10 pan left=1\n");
+            }
         }
     }
 

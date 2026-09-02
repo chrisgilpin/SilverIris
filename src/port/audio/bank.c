@@ -11,8 +11,8 @@
  * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
  * placeholder (GE has no footstep SFX ID); pack install is optional.
  * Music seq may also decode instruments.ctl / instruments.tbl VADPCM
- * into host PCM for pitched loop playback plus ALEnvelope ramps.
- * Still not ASP HLE.
+ * into host PCM for pitched loop playback plus ALEnvelope ramps and
+ * ALSound.samplePan. Still not ASP HLE.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
@@ -405,7 +405,7 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
     uint32_t bank, inst, sound, wave, keymap, loop_off, env_off;
     int16_t ninst, scount;
     int i, s, n = 0, wi;
-    uint8_t ivol, svol, kmin, kmax, kbase, vmin, vmax, vol, atk_vol, dec_vol;
+    uint8_t ivol, ipan, svol, span, kmin, kmax, kbase, vmin, vmax, vol, atk_vol, dec_vol, pan;
     uint32_t loop0, loop1, loop_ct;
     int32_t atk_us, dec_us, rel_us;
 
@@ -425,8 +425,11 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
         if (inst + 16 > ctl_n)
             continue;
         ivol = ctl[inst];
+        ipan = ctl[inst + 1];
         if (ivol < 1)
             ivol = 127;
+        if (ipan > 127u)
+            ipan = 127u;
         scount = bes16(ctl + inst + 14);
         if (scount < 1)
             continue;
@@ -439,9 +442,12 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
             env_off = be32(ctl + sound);
             keymap = be32(ctl + sound + 4);
             wave = be32(ctl + sound + 8);
+            span = ctl[sound + 12];
             svol = ctl[sound + 13];
             if (svol < 1)
                 svol = 127;
+            if (span > 127u)
+                span = 127u;
             if (keymap + 6 > ctl_n)
                 continue;
             vmin = ctl[keymap];
@@ -492,6 +498,10 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
                     rel_us = 0;
             }
             port_audio_inst_set_env(atk_us, dec_us, rel_us, atk_vol, dec_vol);
+            pan = (uint8_t)(((uint32_t)ipan * (uint32_t)span) / 64u);
+            if (pan > 127u)
+                pan = 127u;
+            port_audio_inst_set_pan(pan);
             n++;
         }
     }
