@@ -4665,18 +4665,25 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     cmd += 8;
 
     y[0] = 0;
-    /* 685 is the handle panel. Top 25/42% stayed a lintel of nubs on live
-     * (Mihok 0612). Kickplate 686-688 in the bottom 22%; 685 is the face. */
-    y[1] = (int16_t)((ht * 7) / 100);
-    y[2] = (int16_t)((ht * 14) / 100);
-    y[3] = (int16_t)((ht * 22) / 100);
+    /* 686-688 are the ribbed metal plates (bottom ~62%). 685 is the handle
+     * band (top ~38%). Mapping 685 onto 78% left a smooth mauve face on
+     * Mihok 0645; bars stay readable via one ST copy + T crop. */
+    y[1] = (int16_t)((ht * 21) / 100);
+    y[2] = (int16_t)((ht * 42) / 100);
+    y[3] = (int16_t)((ht * 62) / 100);
     y[4] = ht;
     /* Four stacked P*Z panels. s=0 at the meeting edge on a double leaf so
      * 685's handle bars sit on each leaf, not stretched across the portal. */
     for (row = 0; row < 4; row++) {
+        int16_t t0 = 0, t1 = vt;
         wr32(f + cmd, SLAB_SETTEX_MIRROR);
         wr32(f + cmd + 4, k_row_tex[row]);
         cmd += 8;
+        /* 685 texels 0-15 are empty mauve; bars live at t≈512..896. */
+        if (row == 3) {
+            t0 = 512;
+            t1 = 896;
+        }
         for (i = 0; i < nleaf; i++) {
             int16_t x0, x1, s0, s1;
             slab_leaf_x(hw, dbl, i, &x0, &x1);
@@ -4687,7 +4694,7 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
                 s0 = 0;
                 s1 = us;
             }
-            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, 0, s1, vt,
+            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, t0, s1, t1,
                           k_row_cn[row], k_row_cn[row + 1]);
         }
     }
@@ -4821,30 +4828,34 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
         y = (int16_t)((v[2] << 8) | v[3]);
         z = (int16_t)((v[4] << 8) | v[5]);
         /* Retail 685 is verts 0-15, Y 394..788 (top 25%), s=0 at x=0 so
-         * each half copies the two handle bars — four thin nubs. Mihok
-         * 0612 live still read brown ribs after a 42% Y stretch. Give 685
-         * the top 78% and one ST copy across the full leaf. 686-688 are a
-         * short kickplate; 706 edges follow the same Y map. */
+         * each half copies the two bars (four nubs). Keep one ST copy
+         * across the leaf. 78% Y (c00070a) made the empty-mauve 685
+         * field the face (Mihok 0645). 685 stays the top ~38% with T
+         * cropped to the bar texels; 686-688 are the ribbed plates. */
         orig_t = ((float)y - bottom) / tall;
         if (orig_t < 0.f)
             orig_t = 0.f;
         if (orig_t > 1.f)
             orig_t = 1.f;
         if (orig_t >= 0.75f)
-            new_t = 0.22f + (orig_t - 0.75f) / 0.25f * 0.78f;
+            new_t = 0.62f + (orig_t - 0.75f) / 0.25f * 0.38f;
         else if (orig_t >= 0.50f)
-            new_t = 0.14f + (orig_t - 0.50f) / 0.25f * 0.08f;
+            new_t = 0.42f + (orig_t - 0.50f) / 0.25f * 0.20f;
         else if (orig_t >= 0.25f)
-            new_t = 0.07f + (orig_t - 0.25f) / 0.25f * 0.07f;
+            new_t = 0.21f + (orig_t - 0.25f) / 0.25f * 0.21f;
         else
-            new_t = orig_t / 0.25f * 0.07f;
+            new_t = orig_t / 0.25f * 0.21f;
         wr16(v + 0, (uint16_t)slab_i16((float)x * ((float)hw / half_w)));
         wr16(v + 2, (uint16_t)slab_i16(new_t * (float)ht));
         wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
         if (i < 16u && half_w > 1.f) {
-            int16_t sfull =
-                slab_i16(((float)x + half_w) / (2.f * half_w) * (float)SLAB_UV_S);
+            int16_t sfull, tsrc, tbar;
+            sfull = slab_i16(((float)x + half_w) / (2.f * half_w) * (float)SLAB_UV_S);
             wr16(v + 8, (uint16_t)sfull);
+            tsrc = (int16_t)((v[10] << 8) | v[11]);
+            /* Native 685: empty mauve in t=0..512, bars in ~512..896. */
+            tbar = (int16_t)(512 + ((int)tsrc * 384) / 1024);
+            wr16(v + 10, (uint16_t)tbar);
         }
         v += 16;
     }
@@ -5378,30 +5389,29 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     pr->head->fit_scale = mdl->fit_scale;
                     pr->head->fit_ymin = mdl->fit_ymin;
                     {
-                        /* Cheadjim dump y=-38..215. HeadPlaceholder idle
-                         * T.y=520 sits above the oliveguard collar. 48u along
-                         * the neck column was ~6 world units after fit_scale
-                         * (~0.123) and Mihok 0612 still showed a neck hole;
-                         * 220u world-Y buried the face in the torso. Seat
-                         * ~100u in model Y (copy, not the shared table). */
+                        /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520
+                         * sits above the oliveguard collar (default-head DL
+                         * stripped). 100u model Y (~12 world) left a live
+                         * θ263 hole; neck-column / pad-yaw XZ shoved the
+                         * head into the torso or off to the side. Drop
+                         * world Y only (copy, not the shared table). */
                         float headj[4][4];
-                        const float seat = 100.f;
+                        const float seat_y = 26.f;
                         memcpy(headj, mdl->head_mtx, sizeof headj);
-                        headj[1][3] -= seat;
                         if (g_head_joint_drawn == 0) {
                             static int s_head_log;
                             if (s_head_log < 1) {
                                 s_head_log = 1;
                                 printf("head_joint chr=%d T=%.1f,%.1f,%.1f seatY=%.0f %s\n",
                                        pr->chrnum, (double)headj[0][3], (double)headj[1][3],
-                                       (double)headj[2][3], (double)seat,
+                                       (double)headj[2][3], (double)seat_y,
                                        dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
                             }
                         }
                         g_emit_jtab = &headj[0][0];
                         g_emit_nj = 1;
-                        k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
-                                       0.f, 0.f, add_yaw, pdx, 0.f, pdz);
+                        k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, -seat_y, 0.f,
+                                       0.f, 0.f, 0.f, add_yaw, pdx, 0.f, pdz);
                     }
                     g_head_joint_drawn++;
                 } else

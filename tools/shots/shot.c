@@ -1996,6 +1996,107 @@ static unsigned metal_col_range(const uint8_t *rgba, int w, int h, int x0, int y
     return maxm - minm;
 }
 
+/* Row luma range among metal pixels. 686-688 ribs vary in Y; a 685-only
+ * mauve face is flat. */
+static unsigned metal_row_range(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                                int y1)
+{
+    unsigned row_sum[160], row_n[160];
+    unsigned i, n = 0;
+    unsigned minm = 255, maxm = 0;
+    int x, y, nrows;
+
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    nrows = y1 - y0;
+    if (nrows < 8 || nrows > 160)
+        return 0;
+    memset(row_sum, 0, sizeof row_sum);
+    memset(row_n, 0, sizeof row_n);
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2], luma;
+            if (pr < 50u || pg > pr + 8u || pb > pr + 16u)
+                continue;
+            if (pg >= 50u && pg > pr + 8u && pg > pb + 8u)
+                continue;
+            luma = (pr + pg + pb) / 3u;
+            row_sum[y - y0] += luma;
+            row_n[y - y0]++;
+        }
+    }
+    for (i = 0; i < (unsigned)nrows; i++) {
+        unsigned m;
+        if (row_n[i] < 4u)
+            continue;
+        m = row_sum[i] / row_n[i];
+        if (m < minm)
+            minm = m;
+        if (m > maxm)
+            maxm = m;
+        n++;
+    }
+    if (n < 8u || maxm < minm)
+        return 0;
+    return maxm - minm;
+}
+
+/* Profile neck hole: wall-grey run between Jim skin/hair and olive camo. */
+static int neck_gap_px(const uint8_t *rgba, int w, int h, int x0, int y0, int x1, int y1)
+{
+    int x, y, n = 0, sum = 0, worst = 0;
+
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (x = x0; x < x1; x++) {
+        int state = 0, gap = 0, col_gap = -1;
+        for (y = y0; y < y1; y++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2];
+            int head, olive, wall;
+            olive = (pg > 55u && pg > pr + 8u && pg > pb + 8u);
+            head = (!olive && pr > 55u && pr + 4u > pg && pr > pb + 6u && pg > 25u);
+            wall = (!olive && !head && pr > 70u && pr < 175u && (unsigned)abs((int)pr - (int)pg) < 16u &&
+                    (unsigned)abs((int)pr - (int)pb) < 16u);
+            if (head) {
+                state = 1;
+                gap = 0;
+            } else if (state == 1 && wall) {
+                gap++;
+            } else if (state == 1 && olive) {
+                col_gap = gap;
+                state = 2;
+                break;
+            } else if (state == 1 && !wall) {
+                gap = 0;
+            }
+        }
+        if (col_gap >= 0) {
+            n++;
+            sum += col_gap;
+            if (col_gap > worst)
+                worst = col_gap;
+        }
+    }
+    if (n < 4)
+        return 0;
+    (void)sum;
+    return worst;
+}
+
 /* SETTEX 685 metal / brown door face. Skip olive camo. */
 static unsigned count_metal_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
                                 int y1)
@@ -3123,8 +3224,8 @@ static int playtest_chris(const char *out_dir)
                 return -1;
             }
         }
-        /* Mihok 0612: live rAF sits at idle40 xz. Look-left θ263 still
-         * showed a Chead neck gap after a 48u seat. Snap that pose. */
+        /* Mihok 0645: live rAF sits at idle40 xz. Look-left θ263 still
+         * showed a Chead neck gap after a 100u model-Y seat. Snap that pose. */
         place(x1, z1, 270.f);
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_spawn_idle") != 0)
@@ -4624,14 +4725,33 @@ static int shot_one(const char *out_dir, const char *tag)
                 return -1;
             }
             if (!strcmp(tag, "play_lookleft") || !strcmp(tag, "play_spawn_idle")) {
-                unsigned xrange = metal_col_range(fb, w, h, 0, 48, 88, 200);
-                printf("spawn_fill %s handle_xrange=%u\n", tag, xrange);
+                unsigned xrange = metal_col_range(fb, w, h, 0, 48, 88, 130);
+                unsigned yrange = metal_row_range(fb, w, h, 0, 120, 88, 200);
+                int ngap = 0;
+                printf("spawn_fill %s handle_xrange=%u rib_yrange=%u\n", tag, xrange,
+                       yrange);
                 /* Ribs-only is a flat column mean. 685 bars are two darker
                  * vertical columns (Mihok 0612 live fail). */
                 if (xrange < 18u) {
                     fprintf(stderr, "%s left door has no 685 handle columns xrange=%u\n",
                             tag, xrange);
                     return -1;
+                }
+                /* 685-as-face (c00070a 78%) had no 686-688 ribs (Mihok 0645). */
+                if (yrange < 14u) {
+                    fprintf(stderr, "%s left door has no 686-688 rib rows yrange=%u\n",
+                            tag, yrange);
+                    return -1;
+                }
+                if (!strcmp(tag, "play_lookleft")) {
+                    ngap = neck_gap_px(fb, w, h, w / 3, 40, (w * 2) / 3, 180);
+                    printf("spawn_fill %s neck_gap=%d\n", tag, ngap);
+                    /* 7px is the profile silhouette indent once Y-seated.
+                     * Mihok 0645 float was a clear wall band; fail only that. */
+                    if (ngap > 12) {
+                        fprintf(stderr, "%s extra-idle neck gap px=%d\n", tag, ngap);
+                        return -1;
+                    }
                 }
             }
         }
