@@ -465,6 +465,52 @@ int main(int argc, char **argv)
         }
 
         {
+            char gun_hex2[65];
+            int li, e127, e32;
+
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, gun_hex2);
+            e127 = 0;
+            for (li = 0; li < NSAMPLES; li++) {
+                int v = pcm[li];
+                if (v < 0)
+                    v = -v;
+                e127 += v;
+            }
+            port_audio_init();
+            port_audio_set_sfx_vol(32);
+            port_audio_play_gun();
+            if (!port_audio_dist_on())
+                return fail("dist flag");
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hex);
+            if (strcmp(hex, gun_hex2) == 0)
+                return fail("quiet sfx vol matches full gun");
+            e32 = 0;
+            for (li = 0; li < NSAMPLES; li++) {
+                int v = pcm[li];
+                if (v < 0)
+                    v = -v;
+                e32 += v;
+            }
+            if (e32 * 2 >= e127)
+                return fail("quiet sfx vol not quieter");
+            if (e32 < 200)
+                return fail("quiet sfx vol silent");
+            port_audio_init();
+            port_audio_play_gun();
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hex);
+            if (strcmp(hex, gun_hex2) != 0)
+                return fail("gun after dist unload");
+            if (port_audio_dist_on())
+                return fail("dist after full gun");
+            printf("dist sfx distinct=1 restore=1\n");
+        }
+
+        {
             char gun_only[65], mixed[65];
             port_audio_init();
             port_audio_play_gun();

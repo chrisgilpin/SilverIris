@@ -172,6 +172,11 @@ PORT_KEEP int port_api_audio_spat_on(void)
     return port_audio_spat_on();
 }
 
+PORT_KEEP int port_api_audio_dist_on(void)
+{
+    return port_audio_dist_on();
+}
+
 PORT_KEEP int port_api_audio_rate(void)
 {
     return (int)port_audio_rate();

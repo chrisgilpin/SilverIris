@@ -19,6 +19,7 @@ __attribute__((weak)) void port_audio_play_pickup(void) {}
 __attribute__((weak)) void port_audio_play_reload(void) {}
 __attribute__((weak)) void port_audio_play_yelp(void) {}
 __attribute__((weak)) void port_audio_set_sfx_pan(uint8_t pan) { (void)pan; }
+__attribute__((weak)) void port_audio_set_sfx_vol(uint8_t vol) { (void)vol; }
 __attribute__((weak)) void port_prop_viewgun_sync(void) {}
 __attribute__((weak)) int port_prop_chr_ray_hit(float ox, float oy, float oz, float dx,
                                                 float dy, float dz, float *t_out)
@@ -125,11 +126,35 @@ static uint8_t sfx_pan_at(float sx, float sz)
     return (uint8_t)pan;
 }
 
+/* Mixer vol 0..127 from listener xz. Full within 400u so stall
+ * first-enemy (~230u) stays loud. Floor 32 at 4000u. Not ASP HLE. */
+static uint8_t sfx_vol_at(float sx, float sz)
+{
+    float dx, dz, d, t;
+    int vol;
+
+    dx = sx - port_player_x();
+    dz = sz - port_player_z();
+    d = sqrtf(dx * dx + dz * dz);
+    if (d <= 400.f)
+        return 127u;
+    if (d >= 4000.f)
+        return 32u;
+    t = (d - 400.f) / (4000.f - 400.f);
+    vol = 127 - (int)(t * (127 - 32) + 0.5f);
+    if (vol < 32)
+        vol = 32;
+    if (vol > 127)
+        vol = 127;
+    return (uint8_t)vol;
+}
+
 static void play_world(void (*fn)(void), float sx, float sz)
 {
     if (!fn)
         return;
     port_audio_set_sfx_pan(sfx_pan_at(sx, sz));
+    port_audio_set_sfx_vol(sfx_vol_at(sx, sz));
     fn();
 }
 

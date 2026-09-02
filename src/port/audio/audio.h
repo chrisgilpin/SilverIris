@@ -17,8 +17,9 @@ void port_audio_set_placeholder_music(int on);
 /* Compact MIDI (pack Mfacility.bin). Triangle voices unless a wavetable
  * bank is loaded. ALEnvelope attack/decay/release on seq voices when
  * instruments.ctl supplies them. ALSound.samplePan + MIDI CC10, center-
- * unity at 64 (both channels full). Mixer pan on world SFX (listener xz)
- * and L/R walk steps. Not ASP HLE (no RSP mixer). */
+ * unity at 64 (both channels full). Mixer pan + distance vol on world
+ * SFX (listener xz) and L/R walk steps (pan only). Not ASP HLE (no RSP
+ * mixer). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
 void port_audio_unload_seq(void);
 int port_audio_seq_on(void);
@@ -43,8 +44,13 @@ int port_audio_pan_on(void);
 /* Next play_* (except step) uses this pan, then resets to 64. 0=left,
  * 64=center (both channels full), 127=right. */
 void port_audio_set_sfx_pan(uint8_t pan);
+/* Next play_* (except step) uses this 0..127 scale, then resets to 127.
+ * 127 is bit-identical to the pre-distance mix. */
+void port_audio_set_sfx_vol(uint8_t vol);
 /* 1 while a mixer SFX voice is playing off-center (world pan or step). */
 int port_audio_spat_on(void);
+/* 1 while a mixer SFX voice is playing at vol < 127 (world distance). */
+int port_audio_dist_on(void);
 void port_audio_unload_pack_instruments(void);
 void port_audio_play_gun(void);
 void port_audio_play_dry(void);

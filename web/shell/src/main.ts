@@ -327,7 +327,8 @@ function ensurePlayer(): AudioPlayer | null {
   }, game.audioRate());
   /* Placeholder 196/294 Hz triangle drone stays off. Pack compact MIDI
    * (Mfacility.bin) mixes on seq voices; instruments.tbl PCM + ALEnvelope
-   * + ALSound/CC10 pan when loaded. Not ASP HLE. */
+   * + ALSound/CC10 pan when loaded. World SFX pan + distance vol. Not
+   * ASP HLE. */
   if (player) game.audioSetMusic(false);
   return player;
 }

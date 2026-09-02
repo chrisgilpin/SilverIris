@@ -6,7 +6,7 @@
 
 /*
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
- * RSP mixer. Mixer pan is applied at play time. Gun / dry / door / body-fall / hit /
+ * RSP mixer. Mixer pan and distance vol are applied at play time. Gun / dry / door / body-fall / hit /
  * KF7 bolt / pickup / door-close / wall ricochet / ammo crate / armour /
  * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
  * placeholder (GE has no footstep SFX ID); pack install is optional.

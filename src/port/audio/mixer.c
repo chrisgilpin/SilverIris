@@ -56,7 +56,8 @@
 /* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
  * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
  * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
- * World SFX take a one-shot mixer pan from listener xz. Not ASP HLE. */
+ * World SFX take a one-shot mixer pan + distance vol from listener xz.
+ * Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -150,6 +151,11 @@ static uint8_t g_ov_pan;
 static uint8_t g_hit_pan;
 static uint8_t g_voice_pan;
 static uint8_t g_step_pan;
+static uint8_t g_next_vol;
+static uint8_t g_sfx_atten;
+static uint8_t g_ov_atten;
+static uint8_t g_hit_atten;
+static uint8_t g_voice_atten;
 
 static uint32_t g_music_phase0;
 static uint32_t g_music_phase1;
@@ -379,6 +385,11 @@ void port_audio_init(void)
     g_hit_pan = SEQ_PAN_C;
     g_voice_pan = SEQ_PAN_C;
     g_step_pan = SEQ_PAN_C;
+    g_next_vol = 127u;
+    g_sfx_atten = 127u;
+    g_ov_atten = 127u;
+    g_hit_atten = 127u;
+    g_voice_atten = 127u;
     ai_reset();
     g_inited = 1;
 }
@@ -521,6 +532,22 @@ void port_audio_set_sfx_pan(uint8_t pan)
     g_next_pan = pan;
 }
 
+static uint8_t take_next_vol(void)
+{
+    uint8_t v = g_next_vol;
+    g_next_vol = 127u;
+    if (v > 127u)
+        v = 127u;
+    return v;
+}
+
+void port_audio_set_sfx_vol(uint8_t vol)
+{
+    if (vol > 127u)
+        vol = 127u;
+    g_next_vol = vol;
+}
+
 int port_audio_spat_on(void)
 {
     if (g_sfx_left > 0 && g_sfx_pan != SEQ_PAN_C)
@@ -532,6 +559,19 @@ int port_audio_spat_on(void)
     if (g_voice_left > 0 && g_voice_pan != SEQ_PAN_C)
         return 1;
     if (g_step_left > 0 && g_step_pan != SEQ_PAN_C)
+        return 1;
+    return 0;
+}
+
+int port_audio_dist_on(void)
+{
+    if (g_sfx_left > 0 && g_sfx_atten < 127u)
+        return 1;
+    if (g_ov_left > 0 && g_ov_atten < 127u)
+        return 1;
+    if (g_hit_left > 0 && g_hit_atten < 127u)
+        return 1;
+    if (g_voice_left > 0 && g_voice_atten < 127u)
         return 1;
     return 0;
 }
@@ -564,6 +604,19 @@ static void acc_pan(int s, uint8_t pan, int *acc_l, int *acc_r)
     pan_split(s, pan, &sl, &sr);
     *acc_l += sl;
     *acc_r += sr;
+}
+
+/* 127 is a no-op so gun.pcm / step.pcm stay bit-identical. */
+static int apply_atten(int s, uint8_t atten)
+{
+    if (atten >= 127u)
+        return s;
+    return (int)(((int32_t)s * (int32_t)atten) / 127);
+}
+
+static void acc_world(int s, uint8_t pan, uint8_t atten, int *acc_l, int *acc_r)
+{
+    acc_pan(apply_atten(s, atten), pan, acc_l, acc_r);
 }
 
 static int inst_env_used(const InstSound *s)
@@ -1394,6 +1447,7 @@ static void queue_sfx(int kind, uint32_t len)
     g_sfx_kind = kind;
     g_last_sfx = kind;
     g_sfx_pan = take_next_pan();
+    g_sfx_atten = take_next_vol();
     g_sfx_phase = 0;
     g_sfx_noise = 0xC0FFEEu ^ ((uint32_t)kind * 0x9E3779B9u);
     g_sfx_pcm_pos = 0;
@@ -1428,6 +1482,7 @@ static void queue_overlay(int kind, uint32_t len)
     g_ov_kind = kind;
     g_last_sfx = kind;
     g_ov_pan = take_next_pan();
+    g_ov_atten = take_next_vol();
     g_ov_phase = 0;
     g_ov_pos = 0;
     g_ov_pcm = 0;
@@ -1493,6 +1548,7 @@ static void queue_hit(int kind, uint32_t len)
     g_hit_kind = kind;
     g_last_sfx = kind;
     g_hit_pan = take_next_pan();
+    g_hit_atten = take_next_vol();
     g_hit_phase = 0;
     g_hit_pos = 0;
     if (kind >= 1 && kind <= SFX_KIND_MAX && g_sfx_pcm[kind] && g_sfx_pcm_n[kind] > 0) {
@@ -1551,6 +1607,7 @@ static void queue_voice(int kind, uint32_t len)
     g_voice_kind = kind;
     g_last_sfx = kind;
     g_voice_pan = take_next_pan();
+    g_voice_atten = take_next_vol();
     g_voice_phase = 0;
     g_voice_pos = 0;
     g_voice_pcm = 0;
@@ -1881,7 +1938,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 else
                     g_sfx_phase += ginc + ninc / 8u;
             }
-            acc_pan(s, g_sfx_pan, &acc_l, &acc_r);
+            acc_world(s, g_sfx_pan, g_sfx_atten, &acc_l, &acc_r);
             g_sfx_left--;
         }
 
@@ -1897,7 +1954,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_ov_phase, amp);
                 g_ov_phase += finc;
             }
-            acc_pan(s, g_ov_pan, &acc_l, &acc_r);
+            acc_world(s, g_ov_pan, g_ov_atten, &acc_l, &acc_r);
             g_ov_left--;
         }
 
@@ -1919,7 +1976,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_hit_phase, amp) + osc_noise(&g_sfx_noise, amp / 2);
                 g_hit_phase += hinc;
             }
-            acc_pan(s, g_hit_pan, &acc_l, &acc_r);
+            acc_world(s, g_hit_pan, g_hit_atten, &acc_l, &acc_r);
             g_hit_left--;
         }
 
@@ -1940,7 +1997,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
                 s = osc_tri(g_voice_phase, amp);
                 g_voice_phase += yinc;
             }
-            acc_pan(s, g_voice_pan, &acc_l, &acc_r);
+            acc_world(s, g_voice_pan, g_voice_atten, &acc_l, &acc_r);
             g_voice_left--;
         }
 
