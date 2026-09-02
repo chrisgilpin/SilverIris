@@ -3449,3 +3449,56 @@ player/gun/audio-test green.
   mixer placeholder `3c97070` (live last_sfx=15 while walking).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 inner-loop hoist `ff43a68`)
+
+P0-2 residual polish on fire-hit LIVE-CLOSED `7ab099c` / seq `dd988da` /
+early-Z `e6e6cb4` (KEEP). SHA `ff43a68`. Pushed to `origin/main`, Hetzner
+`/home/grok/GoldenEye` pull + `make -C native wasm` + `silveriris-vite`
+restart. Live wasm is this SHA (**259544**, Last-Modified 20:07:26 GMT).
+
+Hoist `keep_albedo` per triangle, run perspective ST after the z test, stamp
+clipped pixels without a second bounds/z check. Seq mix skips dead voices
+and silent seq. G1 greyscale unchanged. Spawn_fill KEEP (handle_xrange 49/52,
+neck_gap=7, mihok_void left_clear=0). Native unopt play_spawn 56.5ms;
+long_walk 35.3ms; firehit miss 24.12 / hit 24.13 `guard_fire_ms=1.34`
+after ~79ms dead=1. Not ASP.
+
+**1 — live walk / fire.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270 seq=1`. Idle rAF
+**149 / 3517ms ≈ 42.4 fps**; walk KeyW ≈**35.3 fps** (124 / 3515ms) to
+x=−573.3 last_sfx=15 seq=1. Tab did not freeze. Same class as Mac 1547
+(idle 43.1 / walk 35.7) — not a freeze and not a Facility close.
+`.local/mihok-chrome-playtest-20260902-1608.md`. Fire-at-first-enemy after
+this wasm: stall θ261 hits 1 kills 1 mag 7→6, post-hit rAF **178 / 3500ms
+≈ 50.9 fps**, no freeze. `.local/mihok-chrome-playtest-20260902-1609.md`.
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Facility CDP :9226 still unreachable (LAN / Parallels /
+tailscale :9226 closed). Native g1 greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+player/gun/audio-test green.
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `ff43a68` wasm:
+  stall θ261 hit 1 / kill 1, post-hit ≈51 fps). Do not reopen as walking
+  freeze.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~42 / walk ~35 (seq + early-Z + hoist) does not close
+  `ff37828`. Facility-box CDP :9226 was not reachable this pass.
+  Overnight box idle 24.5–28.8 (0446/0612/1147) still the last Facility
+  samples — cite, do not claim CLOSED.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1608 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (wavetable, envelopes, spatial). Music is pack
+  compact MIDI on mixer triangles `dd988da`, not ASP. Footsteps remain
+  mixer placeholder `3c97070` (live last_sfx=15 while walking).
+- Combat AI / matching engine later. Campaign out of v1.
+
