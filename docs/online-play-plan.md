@@ -3065,7 +3065,7 @@ Native player/g1 playtest green. Greyscale
 P0-3 on top of 685 highlight bars `f2a753a` (KEEP stall/FPS/ribs/handles).
 SHA `8cc1ce1`. Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye`
 pull + `make -C native wasm` + `silveriris-vite` restart. Live wasm is
-this SHA (size/Last-Modified after deploy).
+this SHA (251961, Last-Modified 15:40:41 GMT).
 
 Mihok 1058 after `de9800f`: 160 model-Y on the neck 4x4 moved harness
 pixels from behind but LIVE 3/4 still floated. Pad extra_y never moved
