@@ -1848,3 +1848,40 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 - Fitted slabs may not fill every sealed portal (black vs door mesh).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 walk FPS / wasm stack `ff37828`)
+
+P0-1 Chris live: after a short walk Chrome dropped near 1 FPS and froze the
+tab. `e01e97f` range-cull still held natively (spawn ~27ms). Cause:
+`port_stage_draw` put `G1RoomDl passes[536]` + room pos (~85KB wasm32) on
+the stack; first-room cutout collect adds ~40KB. wasm default stack is
+64KB. Overflow corrupts the heap, detaches HEAPU8 (live HUD PP7 0/0),
+grows memory, and freezes the tab after walked rooms / mallocs. Native
+macOS 8MB stack hid it.
+
+Static the draw / cutout / prop-sort arrays. Link wasm `-sSTACK_SIZE=1MB`.
+Gate per-frame `head_joint` / `held_emit` printf (once, same as
+`walk_step`). KEEP `e01e97f` 380u cull, `9b7b6e6` HEAPU8 rebind,
+door-jump `102237e`.
+
+**1 — spawn / walk FPS.** `play_spawn` frame_ms=27.58 (36.3 fps) drawn=71
+seen=2 skip_range=1 skip_leaf=22 mag=7/21 settex=258 ok=258 miss=0.
+`long_walk` frame_ms=30.25 fb=76037→76025 dark=1447. `long_walk_hall`
+(Chris door pose −348,−2117) frame_ms=45.54 (22 fps) — 35ms class, not
+500–1000ms. `door_jump` frame_ms=33.82. y=29.12.
+
+**2 — hitch / doors.** Re-measured: `clipdoor_fill dark=53 metal=4446`
+`clipdoor_olive n=34` `walked n=1 11` hunt teleports=0. Real stair still
+`-244,-2098` eye 348.2. `play_spawn` spawn_fill dark=56 metal=10501
+held=1 headj=1.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Door faces still wrong (P0-2 SETTEX 685 panels vs stretched face).
+- Guards / player still clip through walls (P0-3).
+- Combat AI / matching engine later. Campaign out of v1.
+
