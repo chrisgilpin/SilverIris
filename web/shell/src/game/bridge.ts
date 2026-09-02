@@ -51,6 +51,7 @@ export type GameModule = {
   _port_api_audio_play_gun: () => void;
   _port_api_audio_play_dry?: () => void;
   _port_api_audio_last_sfx?: () => number;
+  _port_api_audio_seq_on?: () => number;
   _port_api_audio_set_music: (on: number) => void;
   _port_api_audio_rate: () => number;
   _port_api_load_stage: (levelId: number) => number;
@@ -154,6 +155,7 @@ export type GameBridge = {
   audioCb(out: Int16Array, nframes: number): void;
   audioPlayGun(): void;
   audioLastSfx(): number;
+  audioSeqOn(): boolean;
   audioSetMusic(on: boolean): void;
   audioRate(): number;
   loadStage(levelId: number): number;
@@ -399,6 +401,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     audioLastSfx(): number {
       return alive && M._port_api_audio_last_sfx ? M._port_api_audio_last_sfx() : 0;
+    },
+    audioSeqOn(): boolean {
+      return !!(alive && M._port_api_audio_seq_on && M._port_api_audio_seq_on());
     },
     audioSetMusic(on: boolean): void {
       if (alive) M._port_api_audio_set_music(on ? 1 : 0);

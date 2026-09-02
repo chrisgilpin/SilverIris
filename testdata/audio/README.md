@@ -10,4 +10,6 @@ reload / yelp / hurt) without shipping samples. Pack GET_HIT_MALE0–24 cycle
 on yelp (Rare counter, not game RNG); BODY_FALL_C1–E3 + BODY_ROLLOVER
 cycle on fall (Rare thud_index / body_hit_SFX, wrap at 11); placeholders
 stay one tone. Walk steps are a mixer placeholder (GE has no footstep
-SFX ID) on a fifth voice so they do not cut gun/door.
+SFX ID) on a fifth voice so they do not cut gun/door. Compact MIDI seq
+is a synthetic one-note fixture (`seq.pcm.sha256`); runtime Facility
+play walks pack `Mfacility.bin` on triangle voices (not ASP / wavetable).

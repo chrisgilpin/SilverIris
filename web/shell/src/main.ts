@@ -225,7 +225,7 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   hudLine(
     ctx,
-    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}`,
+    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}  seq ${game.audioSeqOn() ? 1 : 0}`,
     8,
     14,
   );
@@ -325,7 +325,8 @@ function ensurePlayer(): AudioPlayer | null {
   player = AudioPlayer.create((out, n) => {
     game?.audioCb(out, n);
   }, game.audioRate());
-  /* Placeholder 196/294 Hz triangle drone stays off. Gun SFX still pumps. */
+  /* Placeholder 196/294 Hz triangle drone stays off. Pack compact MIDI
+   * (Mfacility.bin) mixes on seq voices once the engine loaded the pack. */
   if (player) game.audioSetMusic(false);
   return player;
 }

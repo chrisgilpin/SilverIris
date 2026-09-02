@@ -1,5 +1,6 @@
 #include "audio/audio.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #define AI_SLOTS 2
@@ -49,6 +50,25 @@
 #define STEP_AMP 5200
 #define STEP_LEN ((PORT_AUDIO_RATE * 70u) / 1000u)
 #define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
+/* Compact MIDI (ALCSeq) walker. Triangle voices, not ASP / wavetable. */
+#define SEQ_VOICES 8
+#define SEQ_TRACKS 16
+#define SEQ_HDR 68u
+#define SEQ_AMP 700
+#define SEQ_META 0xFFu
+#define SEQ_NOTEON 0x90u
+#define SEQ_NOTEOFF 0x80u
+#define SEQ_POLY 0xA0u
+#define SEQ_CC 0xB0u
+#define SEQ_PROG 0xC0u
+#define SEQ_PRESS 0xD0u
+#define SEQ_BEND 0xE0u
+#define SEQ_TEMPO 0x51u
+#define SEQ_EOT 0x2Fu
+#define SEQ_LOOPSTART 0x2Eu
+#define SEQ_LOOPEND 0x2Du
+#define SEQ_BLOCK 0xFEu
+#define SEQ_CC_VOL 7
 #define SFX_KIND_MAX 15
 #define YELP_VARS 25
 #define FALL_VARS 11
@@ -122,6 +142,43 @@ static uint32_t g_ai_len[AI_SLOTS];
 static uint32_t g_ai_pos[AI_SLOTS];
 static int g_ai_full[AI_SLOTS];
 static int g_ai_cur = -1;
+
+static uint8_t *g_seq;
+static uint32_t g_seq_n;
+static int g_seq_on;
+static uint32_t g_seq_valid;
+static uint32_t g_seq_div;
+static uint32_t g_seq_tempo;
+static uint32_t g_seq_loc[SEQ_TRACKS];
+static uint32_t g_seq_bu[SEQ_TRACKS];
+static uint8_t g_seq_bulen[SEQ_TRACKS];
+static uint8_t g_seq_status[SEQ_TRACKS];
+static uint32_t g_seq_delta[SEQ_TRACKS];
+static uint32_t g_seq_last_delta;
+static int g_seq_delta_flag;
+static uint32_t g_seq_wait;
+static int g_seq_pending;
+static uint64_t g_seq_frac;
+static uint8_t g_seq_vol[SEQ_TRACKS];
+static uint32_t g_seq_vleft[SEQ_VOICES];
+static uint32_t g_seq_vphase[SEQ_VOICES];
+static uint32_t g_seq_vinc[SEQ_VOICES];
+static int g_seq_vamp[SEQ_VOICES];
+static uint8_t g_seq_vnote[SEQ_VOICES];
+
+/* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
+static const uint16_t k_midi_hz[128] = {
+    8,    9,    9,    10,   10,   11,   12,   12,   13,   14,   15,   15,   16,   17,
+    18,   19,   21,   22,   23,   24,   26,   28,   29,   31,   33,   35,   37,   39,
+    41,   44,   46,   49,   52,   55,   58,   62,   65,   69,   73,   78,   82,   87,
+    92,   98,   104,  110,  117,  123,  131,  139,  147,  156,  165,  175,  185,  196,
+    208,  220,  233,  247,  262,  277,  294,  311,  330,  349,  370,  392,  415,  440,
+    466,  494,  523,  554,  587,  622,  659,  698,  740,  784,  831,  880,  932,  988,
+    1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217,
+    2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978,
+    5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548,11175,
+    11840,12544
+};
 
 static uint32_t phase_inc(uint32_t hz)
 {
@@ -200,6 +257,7 @@ static void dma_pop(int *l, int *r)
 
 void port_audio_init(void)
 {
+    port_audio_unload_seq();
     g_music_on = 0;
     g_sfx_kind = 0;
     g_last_sfx = 0;
@@ -270,6 +328,475 @@ int port_audio_music_on(void)
 void port_audio_set_placeholder_music(int on)
 {
     g_music_on = on ? 1 : 0;
+}
+
+static uint32_t seq_be32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static void seq_voices_clear(void)
+{
+    int i;
+    for (i = 0; i < SEQ_VOICES; i++) {
+        g_seq_vleft[i] = 0;
+        g_seq_vphase[i] = 0;
+        g_seq_vinc[i] = 0;
+        g_seq_vamp[i] = 0;
+        g_seq_vnote[i] = 0;
+    }
+}
+
+static void seq_walker_clear(void)
+{
+    int i;
+    g_seq_on = 0;
+    g_seq_valid = 0;
+    g_seq_div = 48;
+    g_seq_tempo = 500000u;
+    g_seq_last_delta = 0;
+    g_seq_delta_flag = 1;
+    g_seq_wait = 0;
+    g_seq_pending = 0;
+    g_seq_frac = 0;
+    for (i = 0; i < SEQ_TRACKS; i++) {
+        g_seq_loc[i] = 0;
+        g_seq_bu[i] = 0;
+        g_seq_bulen[i] = 0;
+        g_seq_status[i] = 0;
+        g_seq_delta[i] = 0;
+        g_seq_vol[i] = 100u;
+    }
+    seq_voices_clear();
+}
+
+void port_audio_unload_seq(void)
+{
+    seq_walker_clear();
+    free(g_seq);
+    g_seq = 0;
+    g_seq_n = 0;
+}
+
+int port_audio_seq_on(void)
+{
+    return g_seq_on != 0;
+}
+
+static int seq_ok_off(uint32_t off)
+{
+    return g_seq && off < g_seq_n;
+}
+
+static uint8_t seq_get_byte(uint32_t tr)
+{
+    uint8_t b;
+    uint8_t nxt;
+    uint32_t backup;
+    uint32_t src;
+
+    if (tr >= SEQ_TRACKS || !g_seq)
+        return 0;
+    if (g_seq_bulen[tr]) {
+        if (!seq_ok_off(g_seq_bu[tr])) {
+            g_seq_bulen[tr] = 0;
+            g_seq_valid &= ~(1u << tr);
+            return 0;
+        }
+        b = g_seq[g_seq_bu[tr]];
+        g_seq_bu[tr]++;
+        g_seq_bulen[tr]--;
+        return b;
+    }
+    if (!seq_ok_off(g_seq_loc[tr])) {
+        g_seq_valid &= ~(1u << tr);
+        return 0;
+    }
+    b = g_seq[g_seq_loc[tr]];
+    g_seq_loc[tr]++;
+    if (b != SEQ_BLOCK)
+        return b;
+    if (!seq_ok_off(g_seq_loc[tr])) {
+        g_seq_valid &= ~(1u << tr);
+        return 0;
+    }
+    nxt = g_seq[g_seq_loc[tr]];
+    g_seq_loc[tr]++;
+    if (nxt == SEQ_BLOCK)
+        return SEQ_BLOCK;
+    if (g_seq_loc[tr] + 1u >= g_seq_n) {
+        g_seq_valid &= ~(1u << tr);
+        return 0;
+    }
+    backup = ((uint32_t)nxt << 8) | g_seq[g_seq_loc[tr]];
+    g_seq_loc[tr]++;
+    g_seq_bulen[tr] = g_seq[g_seq_loc[tr]];
+    g_seq_loc[tr]++;
+    if (g_seq_loc[tr] < backup + 4u) {
+        g_seq_bulen[tr] = 0;
+        g_seq_valid &= ~(1u << tr);
+        return 0;
+    }
+    src = g_seq_loc[tr] - (backup + 4u);
+    if (!seq_ok_off(src) || !g_seq_bulen[tr]) {
+        g_seq_bulen[tr] = 0;
+        g_seq_valid &= ~(1u << tr);
+        return 0;
+    }
+    g_seq_bu[tr] = src;
+    b = g_seq[g_seq_bu[tr]];
+    g_seq_bu[tr]++;
+    g_seq_bulen[tr]--;
+    return b;
+}
+
+static uint32_t seq_varlen(uint32_t tr)
+{
+    uint32_t v;
+    uint32_t c;
+    int n;
+
+    v = seq_get_byte(tr);
+    if (!(v & 0x80u))
+        return v;
+    v &= 0x7fu;
+    for (n = 0; n < 4; n++) {
+        c = seq_get_byte(tr);
+        v = (v << 7) + (c & 0x7fu);
+        if (!(c & 0x80u))
+            break;
+    }
+    return v;
+}
+
+static int seq_next_delta(uint32_t *ticks)
+{
+    uint32_t i;
+    uint32_t first = 0xFFFFFFFFu;
+    uint32_t last = g_seq_last_delta;
+
+    if (!g_seq_valid)
+        return 0;
+    for (i = 0; i < SEQ_TRACKS; i++) {
+        if (!((g_seq_valid >> i) & 1u))
+            continue;
+        if (g_seq_delta_flag) {
+            if (g_seq_delta[i] >= last)
+                g_seq_delta[i] -= last;
+            else
+                g_seq_delta[i] = 0;
+        }
+        if (g_seq_delta[i] < first)
+            first = g_seq_delta[i];
+    }
+    g_seq_delta_flag = 0;
+    *ticks = first;
+    return 1;
+}
+
+static uint32_t seq_ticks_to_samples(uint32_t ticks)
+{
+    uint64_t den;
+    uint64_t num;
+    uint32_t samples;
+
+    if (!ticks || !g_seq_div || !g_seq_tempo)
+        return 0;
+    den = (uint64_t)g_seq_div * 1000000ull;
+    num = (uint64_t)ticks * (uint64_t)PORT_AUDIO_RATE * (uint64_t)g_seq_tempo + g_seq_frac;
+    samples = (uint32_t)(num / den);
+    g_seq_frac = num % den;
+    return samples;
+}
+
+static uint32_t seq_dur_samples(uint32_t ticks)
+{
+    uint64_t den;
+    uint64_t num;
+
+    if (!ticks || !g_seq_div || !g_seq_tempo)
+        return 1;
+    den = (uint64_t)g_seq_div * 1000000ull;
+    num = (uint64_t)ticks * (uint64_t)PORT_AUDIO_RATE * (uint64_t)g_seq_tempo;
+    return (uint32_t)(num / den);
+}
+
+static void seq_note_off(uint8_t note)
+{
+    int i;
+    for (i = 0; i < SEQ_VOICES; i++) {
+        if (g_seq_vleft[i] && g_seq_vnote[i] == note)
+            g_seq_vleft[i] = 0;
+    }
+}
+
+static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_ticks)
+{
+    int i;
+    int slot = 0;
+    uint32_t oldest = 0xFFFFFFFFu;
+    uint32_t left;
+    int amp;
+    uint32_t hz;
+    uint8_t vol;
+
+    if (note > 127u || vel == 0) {
+        seq_note_off(note);
+        return;
+    }
+    for (i = 0; i < SEQ_VOICES; i++) {
+        if (g_seq_vleft[i] == 0) {
+            slot = i;
+            break;
+        }
+        if (g_seq_vleft[i] < oldest) {
+            oldest = g_seq_vleft[i];
+            slot = i;
+        }
+    }
+    vol = g_seq_vol[ch & 15u];
+    amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)vol / (127u * 127u));
+    if (amp < 1)
+        amp = 1;
+    hz = k_midi_hz[note];
+    left = seq_dur_samples(dur_ticks);
+    if (left < 2u)
+        left = 2u;
+    g_seq_vleft[slot] = left;
+    g_seq_vphase[slot] = 0;
+    g_seq_vinc[slot] = phase_inc(hz);
+    g_seq_vamp[slot] = amp;
+    g_seq_vnote[slot] = note;
+}
+
+static void seq_apply_event(uint32_t tr)
+{
+    uint8_t status;
+    uint8_t typ;
+    uint8_t cmd;
+    uint8_t b1;
+    uint8_t b2;
+    uint8_t ch;
+    uint32_t dur;
+    uint32_t tmp;
+    uint32_t off;
+    uint8_t loop_ct;
+    uint8_t cur_lp;
+    uint32_t us;
+
+    if (tr >= SEQ_TRACKS)
+        return;
+    status = seq_get_byte(tr);
+    if (status == SEQ_META) {
+        typ = seq_get_byte(tr);
+        if (typ == SEQ_TEMPO) {
+            us = ((uint32_t)seq_get_byte(tr) << 16) | ((uint32_t)seq_get_byte(tr) << 8) |
+                 seq_get_byte(tr);
+            if (us)
+                g_seq_tempo = us;
+            g_seq_status[tr] = 0;
+            return;
+        }
+        if (typ == SEQ_EOT) {
+            g_seq_valid &= ~(1u << tr);
+            return;
+        }
+        if (typ == SEQ_LOOPSTART) {
+            (void)seq_get_byte(tr);
+            (void)seq_get_byte(tr);
+            g_seq_status[tr] = 0;
+            return;
+        }
+        if (typ == SEQ_LOOPEND) {
+            tmp = g_seq_loc[tr];
+            if (tmp + 6u > g_seq_n) {
+                g_seq_valid &= ~(1u << tr);
+                return;
+            }
+            loop_ct = g_seq[tmp];
+            cur_lp = g_seq[tmp + 1u];
+            if (cur_lp == 0) {
+                g_seq[tmp + 1u] = loop_ct;
+                g_seq_loc[tr] = tmp + 6u;
+            } else {
+                if (cur_lp != 0xFFu)
+                    g_seq[tmp + 1u] = (uint8_t)(cur_lp - 1u);
+                off = seq_be32(g_seq + tmp + 2u);
+                if (tmp + 6u < off) {
+                    g_seq_valid &= ~(1u << tr);
+                    return;
+                }
+                g_seq_loc[tr] = tmp + 6u - off;
+            }
+            g_seq_status[tr] = 0;
+            return;
+        }
+        return;
+    }
+    if (status & 0x80u) {
+        g_seq_status[tr] = status;
+        b1 = seq_get_byte(tr);
+    } else {
+        b1 = status;
+        status = g_seq_status[tr];
+        if (!(status & 0x80u))
+            return;
+    }
+    cmd = (uint8_t)(status & 0xF0u);
+    ch = (uint8_t)(status & 0x0Fu);
+    b2 = 0;
+    dur = 0;
+    if (cmd != SEQ_PROG && cmd != SEQ_PRESS) {
+        b2 = seq_get_byte(tr);
+        if (cmd == SEQ_NOTEON)
+            dur = seq_varlen(tr);
+    }
+    if (cmd == SEQ_NOTEON)
+        seq_note_on(ch, b1, b2, dur);
+    else if (cmd == SEQ_NOTEOFF)
+        seq_note_off(b1);
+    else if (cmd == SEQ_CC && b1 == SEQ_CC_VOL)
+        g_seq_vol[ch] = b2;
+}
+
+static void seq_next_event(void)
+{
+    uint32_t i;
+    uint32_t first = 0xFFFFFFFFu;
+    uint32_t first_tr = SEQ_TRACKS;
+    uint32_t last = g_seq_last_delta;
+
+    if (!g_seq_valid)
+        return;
+    for (i = 0; i < SEQ_TRACKS; i++) {
+        if (!((g_seq_valid >> i) & 1u))
+            continue;
+        if (g_seq_delta_flag) {
+            if (g_seq_delta[i] >= last)
+                g_seq_delta[i] -= last;
+            else
+                g_seq_delta[i] = 0;
+        }
+        if (g_seq_delta[i] < first) {
+            first = g_seq_delta[i];
+            first_tr = i;
+        }
+    }
+    if (first_tr >= SEQ_TRACKS)
+        return;
+    seq_apply_event(first_tr);
+    g_seq_last_delta = first;
+    if ((g_seq_valid >> first_tr) & 1u)
+        g_seq_delta[first_tr] += seq_varlen(first_tr);
+    g_seq_delta_flag = 1;
+}
+
+static int seq_prime(void)
+{
+    uint32_t i;
+    uint32_t off;
+
+    seq_walker_clear();
+    if (!g_seq || g_seq_n < SEQ_HDR)
+        return -1;
+    g_seq_div = seq_be32(g_seq + 64);
+    if (g_seq_div == 0)
+        return -1;
+    for (i = 0; i < SEQ_TRACKS; i++) {
+        off = seq_be32(g_seq + i * 4u);
+        if (!off)
+            continue;
+        if (off < SEQ_HDR || off >= g_seq_n)
+            return -1;
+        g_seq_valid |= 1u << i;
+        g_seq_loc[i] = off;
+        g_seq_delta[i] = seq_varlen(i);
+    }
+    if (!g_seq_valid)
+        return -1;
+    g_seq_on = 1;
+    g_seq_wait = 0;
+    g_seq_pending = 0;
+    g_seq_frac = 0;
+    g_seq_delta_flag = 1;
+    g_seq_last_delta = 0;
+    return 0;
+}
+
+int port_audio_load_seq(const uint8_t *bytes, uint32_t n)
+{
+    uint8_t *copy;
+
+    port_audio_unload_seq();
+    if (!bytes || n < SEQ_HDR)
+        return -1;
+    copy = (uint8_t *)malloc(n);
+    if (!copy)
+        return -1;
+    memcpy(copy, bytes, n);
+    g_seq = copy;
+    g_seq_n = n;
+    if (seq_prime() != 0) {
+        port_audio_unload_seq();
+        return -1;
+    }
+    return 0;
+}
+
+static void seq_pump_due(void)
+{
+    uint32_t ticks;
+    int n = 0;
+
+    if (!g_seq_on || !g_seq || g_seq_wait > 0)
+        return;
+    while (n++ < 64) {
+        if (g_seq_pending) {
+            seq_next_event();
+            g_seq_pending = 0;
+            if (!g_seq_valid) {
+                g_seq_on = 0;
+                return;
+            }
+        }
+        if (!seq_next_delta(&ticks)) {
+            g_seq_on = 0;
+            return;
+        }
+        if (ticks > 0) {
+            g_seq_wait = seq_ticks_to_samples(ticks);
+            g_seq_pending = 1;
+            if (g_seq_wait == 0)
+                continue;
+            return;
+        }
+        seq_next_event();
+        if (!g_seq_valid) {
+            g_seq_on = 0;
+            return;
+        }
+    }
+}
+
+static int seq_mix_sample(void)
+{
+    int i;
+    int acc = 0;
+
+    if (g_seq_on) {
+        if (g_seq_wait > 0)
+            g_seq_wait--;
+        if (g_seq_wait == 0)
+            seq_pump_due();
+    }
+    for (i = 0; i < SEQ_VOICES; i++) {
+        if (g_seq_vleft[i] == 0)
+            continue;
+        acc += osc_tri(g_seq_vphase[i], g_seq_vamp[i]);
+        g_seq_vphase[i] += g_seq_vinc[i];
+        g_seq_vleft[i]--;
+    }
+    return acc;
 }
 
 static uint32_t placeholder_len(int kind)
@@ -727,6 +1254,12 @@ void port_audio_cb(int16_t *stereo, int nframes)
             g_music_phase0 += inc0;
             g_music_phase1 += inc1;
             g_music_t++;
+        }
+
+        {
+            int ms = seq_mix_sample();
+            acc_l += ms;
+            acc_r += ms;
         }
 
         if (g_sfx_left > 0 && g_sfx_len > 0) {

@@ -14,6 +14,11 @@ void port_audio_shutdown(void);
 void port_audio_cb(int16_t *stereo, int nframes);
 
 void port_audio_set_placeholder_music(int on);
+/* Compact MIDI (pack Mfacility.bin). Triangle voices; not ASP HLE. */
+int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
+void port_audio_unload_seq(void);
+int port_audio_seq_on(void);
+int port_audio_load_pack_music(void);
 void port_audio_play_gun(void);
 void port_audio_play_dry(void);
 void port_audio_play_door(void);

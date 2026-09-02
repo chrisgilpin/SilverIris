@@ -597,6 +597,56 @@ int main(int argc, char **argv)
             return fail("bank ready without pack");
     }
 
+    {
+        /* One-track compact MIDI: tempo 500000, C4 vel 100 dur 96 ticks, EOT. */
+        static const uint8_t k_seq[] = {
+            0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+            0xA1, 0x20, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x00, 0xFF, 0x2F,
+        };
+        char seq_hex[65];
+        char gun_only[65];
+        char mixed[65];
+
+        port_audio_init();
+        if (port_audio_seq_on())
+            return fail("seq on before load");
+        if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+            return fail("seq load");
+        if (!port_audio_seq_on())
+            return fail("seq flag");
+        port_audio_cb(pcm, NFRAMES);
+        if (all_zero(pcm))
+            return fail("seq was silence");
+        if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+            return fail("seq touched game RNG");
+        hash_pcm(pcm, seq_hex);
+        printf("seq sha256=%s\n", seq_hex);
+        if (check_hash(dir, "seq.pcm.sha256", seq_hex) != 0)
+            return 1;
+        if (port_audio_last_sfx() != PORT_SFX_NONE)
+            return fail("seq last_sfx");
+
+        port_audio_init();
+        port_audio_play_gun();
+        port_audio_cb(pcm, NFRAMES);
+        hash_pcm(pcm, gun_only);
+        port_audio_init();
+        if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+            return fail("seq load overlay");
+        port_audio_play_gun();
+        port_audio_cb(pcm, NFRAMES);
+        hash_pcm(pcm, mixed);
+        if (strcmp(mixed, gun_only) == 0)
+            return fail("seq did not overlay gun");
+        if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+            return fail("seq overlay touched game RNG");
+    }
+
     port_audio_cb(NULL, 16);
     port_audio_cb(pcm, 0);
     port_audio_shutdown();

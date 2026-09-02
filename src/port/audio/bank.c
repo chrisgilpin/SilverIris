@@ -311,3 +311,18 @@ int port_audio_load_pack_sfx(void)
         n++;
     return n;
 }
+
+int port_audio_load_pack_music(void)
+{
+    const C0Pack *pack;
+    const C0PackEntry *seq;
+
+    port_audio_unload_seq();
+    pack = port_pack();
+    if (!pack)
+        return 0;
+    seq = c0pack_find(pack, "assets/music/Mfacility.bin");
+    if (!seq || !seq->bytes || seq->size < 68)
+        return 0;
+    return port_audio_load_seq(seq->bytes, seq->size) == 0 ? 1 : 0;
+}
