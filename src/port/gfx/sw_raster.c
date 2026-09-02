@@ -205,11 +205,14 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 float inv = ia + ib + ic;
                 uint8_t r, g, bl, al;
                 uint16_t z;
+                /* Same test as put_px. Skip tex/shade on occluded pixels. */
+                z = backdrop ? (uint16_t)0xffff : pack_depth(a * z0 + b * z1 + c * z2);
+                if (z > g_zb[y][x])
+                    continue;
                 r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
                 g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
                 bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
                 al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
-                z = backdrop ? (uint16_t)0xffff : pack_depth(a * z0 + b * z1 + c * z2);
                 if (tex_slot >= 0) {
                     uint8_t sr = r, sg = g, sb = bl, sa = al;
                     float ss, tt;
