@@ -18,8 +18,9 @@ void port_audio_set_placeholder_music(int on);
  * bank is loaded. ALEnvelope attack/decay/release on seq voices when
  * instruments.ctl supplies them. ALSound.samplePan + MIDI CC10, center-
  * unity at 64 (both channels full). ALKeyMap.detune in cents on pitched
- * wavetable voices (0 keeps the 12-TET step). Mixer pan + distance vol
- * on world SFX and door open/close (listener xz) and L/R walk steps
+ * wavetable voices (0 keeps the 12-TET step). MIDI pitch bend times
+ * ALInstrument.bendRange (center 8192 is a no-op). Mixer pan + distance
+ * vol on world SFX and door open/close (listener xz) and L/R walk steps
  * (pan only). Not ASP HLE (no RSP mixer). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
 void port_audio_unload_seq(void);
@@ -40,11 +41,15 @@ void port_audio_inst_set_env(int32_t attack_us, int32_t decay_us, int32_t releas
 void port_audio_inst_set_pan(uint8_t pan);
 /* Last pushed InstSound. ALKeyMap.detune cents. 0 keeps pitch_step. */
 void port_audio_inst_set_detune(int8_t cents);
+/* Last pushed InstSound. ALInstrument.bendRange cents. 200 is N64 default. */
+void port_audio_inst_set_bend_range(int16_t cents);
 void port_audio_unload_inst(void);
 int port_audio_inst_on(void);
 int port_audio_env_on(void);
 int port_audio_pan_on(void);
 int port_audio_det_on(void);
+/* 1 while any seq channel MIDI pitch bend is off center (8192). */
+int port_audio_bend_on(void);
 /* Next play_* (except step) uses this pan, then resets to 64. 0=left,
  * 64=center (both channels full), 127=right. */
 void port_audio_set_sfx_pan(uint8_t pan);

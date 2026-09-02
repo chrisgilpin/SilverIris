@@ -57,8 +57,9 @@
  * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
  * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
  * ALKeyMap.detune cents on wavetable pitch (0 is the 12-TET step).
- * World SFX take a one-shot mixer pan + distance vol from listener xz.
- * Not ASP HLE. */
+ * MIDI pitch bend (14-bit, center 8192) times ALInstrument.bendRange
+ * cents (N64 default 200). World SFX take a one-shot mixer pan +
+ * distance vol from listener xz. Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -82,6 +83,7 @@
 #define SEQ_CC_VOL 7
 #define SEQ_CC_PAN 10
 #define SEQ_PAN_C 64u
+#define SEQ_BEND_C 8192u
 #define ENV_ATTACK 0
 #define ENV_DECAY 1
 #define ENV_SUSTAIN 2
@@ -191,11 +193,16 @@ static uint64_t g_seq_frac;
 static uint8_t g_seq_vol[SEQ_TRACKS];
 static uint8_t g_seq_pan[SEQ_TRACKS];
 static uint8_t g_seq_prog[SEQ_TRACKS];
+static int16_t g_seq_brange[SEQ_TRACKS];
+static uint16_t g_seq_bend[SEQ_TRACKS];
+static uint32_t g_seq_bend_q16[SEQ_TRACKS];
 static uint32_t g_seq_vleft[SEQ_VOICES];
 static uint32_t g_seq_vphase[SEQ_VOICES];
 static uint32_t g_seq_vinc[SEQ_VOICES];
+static uint32_t g_seq_vbase[SEQ_VOICES];
 static int g_seq_vamp[SEQ_VOICES];
 static uint8_t g_seq_vnote[SEQ_VOICES];
+static uint8_t g_seq_vch[SEQ_VOICES];
 static const int16_t *g_seq_vpcm[SEQ_VOICES];
 static uint32_t g_seq_vpcn[SEQ_VOICES];
 static uint32_t g_seq_vpos[SEQ_VOICES];
@@ -234,6 +241,7 @@ typedef struct {
     uint8_t dec_vol;
     uint8_t pan;
     int8_t detune;
+    int16_t bend_range;
 } InstSound;
 
 static InstSound g_inst[INST_SOUNDS];
@@ -480,8 +488,10 @@ static void seq_voices_clear(void)
         g_seq_vleft[i] = 0;
         g_seq_vphase[i] = 0;
         g_seq_vinc[i] = 0;
+        g_seq_vbase[i] = 0;
         g_seq_vamp[i] = 0;
         g_seq_vnote[i] = 0;
+        g_seq_vch[i] = 0;
         g_seq_vpcm[i] = 0;
         g_seq_vpcn[i] = 0;
         g_seq_vpos[i] = 0;
@@ -524,6 +534,9 @@ static void seq_walker_clear(void)
         g_seq_vol[i] = 100u;
         g_seq_pan[i] = SEQ_PAN_C;
         g_seq_prog[i] = 0;
+        g_seq_brange[i] = 200;
+        g_seq_bend[i] = SEQ_BEND_C;
+        g_seq_bend_q16[i] = 65536u;
     }
     seq_voices_clear();
 }
@@ -559,6 +572,17 @@ int port_audio_pan_on(void)
 int port_audio_det_on(void)
 {
     return g_det_ready != 0;
+}
+
+int port_audio_bend_on(void)
+{
+    int i;
+
+    for (i = 0; i < SEQ_TRACKS; i++) {
+        if (g_seq_bend[i] != SEQ_BEND_C)
+            return 1;
+    }
+    return 0;
 }
 
 static uint8_t take_next_pan(void)
@@ -757,6 +781,7 @@ int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key
     s->dec_vol = 127u;
     s->pan = SEQ_PAN_C;
     s->detune = 0;
+    s->bend_range = 200;
     g_inst_ready = 1;
     inst_recompute_env();
     inst_recompute_pan();
@@ -810,6 +835,13 @@ void port_audio_inst_set_detune(int8_t cents)
     s = &g_inst[g_ninst - 1];
     s->detune = cents;
     inst_recompute_det();
+}
+
+void port_audio_inst_set_bend_range(int16_t cents)
+{
+    if (g_ninst < 1)
+        return;
+    g_inst[g_ninst - 1].bend_range = cents;
 }
 
 static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
@@ -881,6 +913,91 @@ static uint32_t pitch_step(uint8_t note, uint8_t base, int8_t detune)
             step = 1u;
     }
     return step;
+}
+
+/* 2^(cents/1200) in Q16. 0 is 65536 so apply_q16 can skip the multiply. */
+static uint32_t cents_to_q16(int32_t cents)
+{
+    uint32_t r = 65536u;
+    int neg = 0;
+
+    if (cents == 0)
+        return r;
+    if (cents < 0) {
+        neg = 1;
+        cents = -cents;
+    }
+    while (cents > 127) {
+        r = (uint32_t)(((uint64_t)r * (uint64_t)k_cents_q16[127 + 128]) >> 16);
+        cents -= 127;
+    }
+    if (cents)
+        r = (uint32_t)(((uint64_t)r * (uint64_t)k_cents_q16[cents + 128]) >> 16);
+    if (neg) {
+        if (r)
+            r = (uint32_t)((65536ull << 16) / (uint64_t)r);
+        else
+            r = 65536u;
+    }
+    if (r < 1u)
+        r = 1u;
+    return r;
+}
+
+static uint32_t apply_q16(uint32_t step, uint32_t r)
+{
+    if (r == 65536u)
+        return step;
+    step = (uint32_t)(((uint64_t)step * (uint64_t)r) >> 16);
+    if (step < 1u)
+        step = 1u;
+    return step;
+}
+
+static int16_t inst_bend_range(uint8_t prog, int16_t fallback)
+{
+    int i;
+
+    for (i = 0; i < g_ninst; i++) {
+        if (g_inst[i].prog == prog)
+            return g_inst[i].bend_range;
+    }
+    return fallback;
+}
+
+static void seq_refresh_voice_inc(int i)
+{
+    uint8_t ch;
+
+    if (i < 0 || i >= SEQ_VOICES || !(g_seq_alive & (1u << i)))
+        return;
+    ch = g_seq_vch[i] & 15u;
+    g_seq_vinc[i] = apply_q16(g_seq_vbase[i], g_seq_bend_q16[ch]);
+}
+
+static void seq_pitch_bend(uint8_t ch, uint8_t lsb, uint8_t msb)
+{
+    uint32_t val;
+    int32_t bendVal;
+    int32_t cents;
+    int i;
+
+    ch &= 15u;
+    val = ((uint32_t)msb << 7) + (uint32_t)lsb;
+    if (val > 16383u)
+        val = 16383u;
+    g_seq_bend[ch] = (uint16_t)val;
+    if (val == SEQ_BEND_C)
+        g_seq_bend_q16[ch] = 65536u;
+    else {
+        bendVal = (int32_t)val - (int32_t)SEQ_BEND_C;
+        cents = ((int32_t)g_seq_brange[ch] * bendVal) / 8192;
+        g_seq_bend_q16[ch] = cents_to_q16(cents);
+    }
+    for (i = 0; i < SEQ_VOICES; i++) {
+        if ((g_seq_alive & (1u << i)) && (g_seq_vch[i] & 15u) == ch)
+            seq_refresh_voice_inc(i);
+    }
 }
 
 static int seq_ok_off(uint32_t off)
@@ -1173,6 +1290,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     g_seq_veatkvol[slot] = 127u;
     g_seq_vedecvol[slot] = 127u;
     g_seq_vpan[slot] = g_seq_pan[ch & 15u];
+    g_seq_vch[slot] = ch & 15u;
     prog = g_seq_prog[ch & 15u];
     snd = (prog < INST_PROGS) ? inst_pick(prog, note, vel) : 0;
     if (snd) {
@@ -1183,7 +1301,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         g_seq_vpcn[slot] = snd->n;
         g_seq_vloop0[slot] = snd->loop0;
         g_seq_vloop1[slot] = snd->loop1;
-        g_seq_vinc[slot] = pitch_step(note, snd->kbase, snd->detune);
+        g_seq_vbase[slot] = pitch_step(note, snd->kbase, snd->detune);
         g_seq_vamp[slot] = amp;
         g_seq_vpan[slot] = mix_pan(g_seq_pan[ch & 15u], snd->pan);
         if (inst_env_used(snd)) {
@@ -1200,10 +1318,11 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         if (amp < 1)
             amp = 1;
         hz = k_midi_hz[note];
-        g_seq_vinc[slot] = phase_inc(hz);
+        g_seq_vbase[slot] = phase_inc(hz);
         g_seq_vamp[slot] = amp;
     }
     g_seq_alive |= (uint8_t)(1u << slot);
+    seq_refresh_voice_inc(slot);
 }
 
 static void seq_apply_event(uint32_t tr)
@@ -1296,8 +1415,11 @@ static void seq_apply_event(uint32_t tr)
         g_seq_vol[ch] = b2;
     else if (cmd == SEQ_CC && b1 == SEQ_CC_PAN)
         g_seq_pan[ch] = b2 > 127u ? 127u : b2;
-    else if (cmd == SEQ_PROG)
+    else if (cmd == SEQ_PROG) {
         g_seq_prog[ch] = b1;
+        g_seq_brange[ch] = inst_bend_range(b1, g_seq_brange[ch]);
+    } else if (cmd == SEQ_BEND)
+        seq_pitch_bend(ch, b1, b2);
 }
 
 static void seq_next_event(void)
@@ -1340,6 +1462,12 @@ static int seq_prime(void)
     seq_walker_clear();
     if (!g_seq || g_seq_n < SEQ_HDR)
         return -1;
+    {
+        int16_t br = inst_bend_range(0, 200);
+        uint32_t ci;
+        for (ci = 0; ci < SEQ_TRACKS; ci++)
+            g_seq_brange[ci] = br;
+    }
     g_seq_div = seq_be32(g_seq + 64);
     if (g_seq_div == 0)
         return -1;

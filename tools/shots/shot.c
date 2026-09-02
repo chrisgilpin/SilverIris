@@ -5260,9 +5260,9 @@ int main(int argc, char **argv)
         free(pack);
         return 1;
     }
-    printf("pack_music seq_on=%d inst_on=%d env_on=%d pan_on=%d det_on=%d\n",
+    printf("pack_music seq_on=%d inst_on=%d env_on=%d pan_on=%d det_on=%d bend_on=%d\n",
            port_audio_seq_on(), port_audio_inst_on(), port_audio_env_on(),
-           port_audio_pan_on(), port_audio_det_on());
+           port_audio_pan_on(), port_audio_det_on(), port_audio_bend_on());
     if (!port_audio_seq_on() || !port_audio_inst_on() || !port_audio_env_on() ||
         !port_audio_pan_on() || !port_audio_det_on()) {
         fprintf(stderr, "pack music flags missing seq/inst/env/pan/det\n");

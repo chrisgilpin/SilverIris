@@ -15,6 +15,7 @@ SFX ID) on a fifth voice so they do not cut gun/door; L/R feet pan
 (`seq.pcm.sha256`); runtime Facility play walks pack `Mfacility.bin` on
 seq voices. Pack `instruments.ctl` / `instruments.tbl` VADPCM is decoded
 to host PCM and pitched by MIDI key vs keyBase plus ALKeyMap.detune
-cents (loops plus ALEnvelope attack/decay/release). Without that bank
-the voices stay triangles. World SFX take a mixer pan and distance vol
-from listener xz. Not ASP HLE (no RSP mixer).
+cents (loops plus ALEnvelope attack/decay/release). MIDI pitch bend
+uses ALInstrument.bendRange (center 8192 is bit-identical). Without
+that bank the voices stay triangles. World SFX take a mixer pan and
+distance vol from listener xz. Not ASP HLE (no RSP mixer).

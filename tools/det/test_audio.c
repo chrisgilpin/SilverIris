@@ -975,6 +975,102 @@ int main(int argc, char **argv)
             }
 
             {
+                /* Same one-track seq with pitch bend before the note. */
+                static const uint8_t k_seq_bend0[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x00,
+                    0xFF, 0x2F,
+                };
+                static const uint8_t k_seq_bendc[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0xE0, 0x00, 0x40, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x00,
+                    0xFF, 0x2F,
+                };
+                char bend_hex[65];
+                char wide_hex[65];
+
+                port_audio_unload_inst();
+                if (port_audio_bend_on())
+                    return fail("bend on before seq");
+                if (port_audio_load_seq(k_seq_bendc, (uint32_t)sizeof k_seq_bendc) != 0)
+                    return fail("seq load bend center tri");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, seq_hex) != 0)
+                    return fail("center bend changed triangle seq");
+                if (port_audio_bend_on())
+                    return fail("center bend flag");
+                if (port_audio_load_seq(k_seq_bend0, (uint32_t)sizeof k_seq_bend0) != 0)
+                    return fail("seq load bend down tri");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("bend tri silence");
+                hash_pcm(pcm, bend_hex);
+                if (strcmp(bend_hex, seq_hex) == 0)
+                    return fail("down bend matches triangle seq");
+                if (!port_audio_bend_on())
+                    return fail("bend flag tri");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("bend tri touched game RNG");
+
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push bend");
+                if (port_audio_load_seq(k_seq_bendc, (uint32_t)sizeof k_seq_bendc) != 0)
+                    return fail("seq load bend center wav");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("center bend changed wav");
+                if (port_audio_bend_on())
+                    return fail("center wav bend flag");
+                if (port_audio_load_seq(k_seq_bend0, (uint32_t)sizeof k_seq_bend0) != 0)
+                    return fail("seq load bend down wav");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("bend wav silence");
+                hash_pcm(pcm, bend_hex);
+                if (strcmp(bend_hex, wav_hex) == 0)
+                    return fail("down bend matches center wav");
+                if (!port_audio_bend_on())
+                    return fail("bend flag wav");
+                port_audio_inst_set_bend_range(1200);
+                if (port_audio_load_seq(k_seq_bend0, (uint32_t)sizeof k_seq_bend0) != 0)
+                    return fail("seq load bend 1200");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, wide_hex);
+                if (strcmp(wide_hex, bend_hex) == 0)
+                    return fail("bendRange 1200 matches 200");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("bend wav touched game RNG");
+                port_audio_unload_inst();
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load after bend");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, seq_hex) != 0)
+                    return fail("triangle after bend unload");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push after bend");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load wav after bend");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("wav after bend unload");
+                printf("bend seq distinct=1 restore=1\n");
+            }
+
+            {
                 /* Same one-track seq with CC10=0 before the note. */
                 static const uint8_t k_seq_ccpan[] = {
                     0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

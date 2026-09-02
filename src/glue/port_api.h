@@ -44,6 +44,7 @@ PORT_KEEP int port_api_audio_inst_on(void);
 PORT_KEEP int port_api_audio_env_on(void);
 PORT_KEEP int port_api_audio_pan_on(void);
 PORT_KEEP int port_api_audio_det_on(void);
+PORT_KEEP int port_api_audio_bend_on(void);
 PORT_KEEP int port_api_audio_spat_on(void);
 PORT_KEEP int port_api_audio_dist_on(void);
 
