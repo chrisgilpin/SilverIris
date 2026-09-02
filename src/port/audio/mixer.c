@@ -165,6 +165,7 @@ static uint32_t g_seq_vphase[SEQ_VOICES];
 static uint32_t g_seq_vinc[SEQ_VOICES];
 static int g_seq_vamp[SEQ_VOICES];
 static uint8_t g_seq_vnote[SEQ_VOICES];
+static uint8_t g_seq_alive;
 
 /* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
 static const uint16_t k_midi_hz[128] = {
@@ -345,6 +346,7 @@ static void seq_voices_clear(void)
         g_seq_vamp[i] = 0;
         g_seq_vnote[i] = 0;
     }
+    g_seq_alive = 0;
 }
 
 static void seq_walker_clear(void)
@@ -525,8 +527,10 @@ static void seq_note_off(uint8_t note)
 {
     int i;
     for (i = 0; i < SEQ_VOICES; i++) {
-        if (g_seq_vleft[i] && g_seq_vnote[i] == note)
+        if (g_seq_vleft[i] && g_seq_vnote[i] == note) {
             g_seq_vleft[i] = 0;
+            g_seq_alive &= (uint8_t)~(1u << i);
+        }
     }
 }
 
@@ -567,6 +571,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     g_seq_vinc[slot] = phase_inc(hz);
     g_seq_vamp[slot] = amp;
     g_seq_vnote[slot] = note;
+    g_seq_alive |= (uint8_t)(1u << slot);
 }
 
 static void seq_apply_event(uint32_t tr)
@@ -789,12 +794,16 @@ static int seq_mix_sample(void)
         if (g_seq_wait == 0)
             seq_pump_due();
     }
+    if (!g_seq_alive)
+        return 0;
     for (i = 0; i < SEQ_VOICES; i++) {
         if (g_seq_vleft[i] == 0)
             continue;
         acc += osc_tri(g_seq_vphase[i], g_seq_vamp[i]);
         g_seq_vphase[i] += g_seq_vinc[i];
         g_seq_vleft[i]--;
+        if (g_seq_vleft[i] == 0)
+            g_seq_alive &= (uint8_t)~(1u << i);
     }
     return acc;
 }
@@ -1256,7 +1265,7 @@ void port_audio_cb(int16_t *stereo, int nframes)
             g_music_t++;
         }
 
-        {
+        if (g_seq_on || g_seq_alive) {
             int ms = seq_mix_sample();
             acc_l += ms;
             acc_r += ms;

@@ -135,7 +135,7 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
 {
     float x0, y0, x1, y1, x2, y2, area;
     float z0, z1, z2, iw0, iw1, iw2;
-    int minx, maxx, miny, maxy, x, y, backdrop;
+    int minx, maxx, miny, maxy, x, y, backdrop, keep_al;
 
     if (!clip_to_screen(v0, &x0, &y0) || !clip_to_screen(v1, &x1, &y1) ||
         !clip_to_screen(v2, &x2, &y2))
@@ -188,6 +188,9 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     if (maxy >= G1_FB_H)
         maxy = G1_FB_H - 1;
 
+    /* Slot albedo is per-triangle; bbox x/y are already clipped. */
+    keep_al = (tex_slot >= 0) ? g1_tex_slot_keep_albedo(tex_slot) : 0;
+
     for (y = miny; y <= maxy; y++) {
         for (x = minx; x <= maxx; x++) {
             float px = (float)x + 0.5f, py = (float)y + 0.5f;
@@ -201,8 +204,6 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 inside = (w0 <= 0 && w1 <= 0 && w2 <= 0);
             if (inside) {
                 float a = w0 / area, b = w1 / area, c = w2 / area;
-                float ia = a * iw0, ib = b * iw1, ic = c * iw2;
-                float inv = ia + ib + ic;
                 uint8_t r, g, bl, al;
                 uint16_t z;
                 /* Same test as put_px. Skip tex/shade on occluded pixels. */
@@ -215,6 +216,8 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
                 if (tex_slot >= 0) {
                     uint8_t sr = r, sg = g, sb = bl, sa = al;
+                    float ia = a * iw0, ib = b * iw1, ic = c * iw2;
+                    float inv = ia + ib + ic;
                     float ss, tt;
                     /* Perspective-correct ST. Identity-MVP (w=1) matches affine. */
                     if (inv > 1.0e-12f) {
@@ -229,8 +232,7 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                          * (G1 greyscale / SETTEX checkers use zeroed verts).
                          * oliveguard / Cheadjim keep texel off no_mtx. Door
                          * 685-688/706 modulate so the leaf is brown metal. */
-                        if (g_shade_mod && (r | g | bl) &&
-                            !g1_tex_slot_keep_albedo(tex_slot)) {
+                        if (g_shade_mod && (r | g | bl) && !keep_al) {
                             r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
                             g = (uint8_t)(((unsigned)sg * (unsigned)g) / 255u);
                             bl = (uint8_t)(((unsigned)sb * (unsigned)bl) / 255u);
@@ -248,7 +250,14 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 } else {
                     apply_untextured_grey(&r, &g, &bl, &al);
                 }
-                put_px(x, y, r, g, bl, al, z);
+                /* Alpha 0 is a punch-through miss / portal — do not stamp black. */
+                if (al == 0)
+                    continue;
+                g_zb[y][x] = z;
+                g_fb[y][x][0] = r;
+                g_fb[y][x][1] = g;
+                g_fb[y][x][2] = bl;
+                g_fb[y][x][3] = al;
             }
         }
     }
