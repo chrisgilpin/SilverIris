@@ -3121,3 +3121,51 @@ Native player/g1 playtest green. Greyscale
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 8cc1ce1 Chead LIVE 3/4 `c35de27`)
+
+P0-3 live-close of stitched-neck Chead `8cc1ce1` (no new wasm). Hard-refresh
+Chrome on https://007.goodhouseinc.com `?ff_netplay=0`, pack `fff814d2…`
+(same IDB hash as Mihok 1018–1058), wasm 251961 Last-Modified 15:40:41 GMT.
+
+Mihok 1058 was `de9800f` (160 model-Y, neck DL still stripped on that
+build) and floated on live 3/4. Do not treat 1058 as an 8cc1ce1 result.
+Live θ263 after this hard-refresh: extra-idle Chead on the olive collar,
+`neck_gap=7` (same as harness play_lookleft; profile indent, not the 1018
+wall band). Spawn/θ270 behind `neck_gap=28` matches harness
+`play_spawn_idle` (nape indent, not a detached hat). HUD
+`x=-98.5 z=-2358.4 y=29.1` stall KEEP. θ263 door face still brown 686-688
+ribs + two 685 highlight handle bars (f2a753a KEEP). Do not reintroduce
+`de9800f` 160 model-Y. Do not strip the neck-GROUP sibling DL on the
+jointed path.
+
+**1 — spawn / doors / head.** `playtest spawn xz=-89.5,-2358.4 y=29.1
+retail_slab=1`. Live spawn-idle HUD `xz=-98.5,-2358.4 θ270`. Live look-left
+forced to θ263 (same pose as `play_lookleft`). `spawn_fill` metric on the
+live canvas: look-left `neck_gap=7`; idle `neck_gap=28`. Handles/ribs
+unchanged from Mihok 1032/1058.
+
+**2 — hitch / FPS / clip.** This capture box live rAF ≈51 fps (180 /
+3513ms) — not the Facility box; do not close `ff37828` from it. Harness
+numbers unchanged from `8cc1ce1` STATUS.
+
+Native player/g1 playtest green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 live spawn-idle rAF after hard-refresh still required. Harness
+  long_walk is 32.7 fps / 35ms class; hall walk is ~24 fps. Do not close
+  ff37828 re-prove from this Mac capture (~51 fps) or from harness alone.
+- P0-2 doors: Mihok 1032 after `f2a753a` live-closed spawn/θ263 — brown
+  686-688 ribs + two 685 highlight handle bars. Live 1215 θ263 still
+  shows both. Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` after hard-refresh 3/4 (θ263 neck_gap=7,
+  Chead on collar). Behind matches harness idle nape (28px), not Mihok
+  1018/1058 wall band. KEEP stitched-neck DL; no model-Y fudge.
+  `play_wall` pitch −35 still reads as ceiling (already on stan skin 30).
+- Missing-neighbor black void / portal depth still open (not exercised).
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
