@@ -3968,7 +3968,8 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
                                          &pdx, &pdz);
             {
                 float sdx = 0.f, sdz = 0.f;
-                push_off_slabs(g_prop[pi].pos[0], g_prop[pi].pos[2], 80.f, &sdx, &sdz);
+                push_off_slabs(g_prop[pi].pos[0], g_prop[pi].pos[2], PORT_VIS_RMIN, &sdx,
+                               &sdz);
                 pdx += sdx;
                 pdz += sdz;
             }
@@ -3976,7 +3977,11 @@ static int guard_visual_cyl_pi(int pi, float *lx, float *lz, float *radius, floa
             (void)port_stage_room1(r1b);
             padx = g_prop[pi].pos[0] - r1b[0];
             padz = g_prop[pi].pos[2] - r1b[2];
-            if (guard_visual_aabb_pr(&g_prop[pi], &x0, &z0, &x1, &z1) == 0)
+            /* Extra-idle: slab push is enough. Camera-space G1 leaf push
+             * slid the mesh toward the look (into the leaf from chris2,
+             * into the right wall from spawn). */
+            if (pi != g_idle_prop &&
+                guard_visual_aabb_pr(&g_prop[pi], &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;
@@ -5139,11 +5144,11 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
             port_stan_push_cyl_off_doors(pr->pos[0], pr->pos[2], 160.f, &pdx, &pdz);
             {
                 float sdx = 0.f, sdz = 0.f;
-                push_off_slabs(pr->pos[0], pr->pos[2], 80.f, &sdx, &sdz);
+                push_off_slabs(pr->pos[0], pr->pos[2], PORT_VIS_RMIN, &sdx, &sdz);
                 pdx += sdx;
                 pdz += sdz;
             }
-            if (guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
+            if (!idle && guard_visual_aabb_pr(pr, &x0, &z0, &x1, &z1) == 0)
                 port_stage_g1_chr_push(port_player_x(), port_player_z(), padx, padz, x0, z0,
                                        x1, z1, &gdx, &gdz);
             pdx += gdx;

@@ -1965,3 +1965,38 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
   close P0-2/P0-3 without Mihok/live match.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 viscyl slab push `pending`)
+
+P0-3 follow-on to `ba5a817` (KEEP). Slab push used 80u while viscyl is
+clamped to `PORT_VIS_RMIN` 115u, so the extra-idle still overlapped the
+r71 leaf (`door_jump_249` camo on the door). Emit + viscyl now push
+115u. Extra-idle skips camera-space G1 leaf push so the mesh does not
+slide toward the look. Pad stays for hitscan. KEEP door-jump `102237e`,
+4-panel `c816f7c`, wasm-stack FPS `ff37828`.
+
+**1 — extra-idle.** `play_spawn` / `play_door_chris1` / `play_door_mihok`
+show the body in the hall with a gap from the ribbed leaf.
+`door_jump_249` is metal panels + guard to the right, not camo on the
+face. `mihok_block` clip_step d=12.0 (W at −219,−2093 θ270 is not
+stuck). `play_clip_door` clipdoor_fill dark=45 metal=4513 `olive n=34`
+hunt teleports=0. `spawn_fill play_spawn dark=5 metal=12050`.
+
+**2 — hitch / FPS.** `play_spawn` frame_ms=15.01 drawn=71 seen=2
+skip_range=1 skip_leaf=22 mag=7/21. `long_walk` frame_ms=17.64.
+`long_walk_hall` (−348,−2117) frame_ms=34.63 — 35ms class kept.
+`door_jump` frame_ms=21.37 alcove pinned +Z. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2/P0-3 live match after hard-refresh still required (Mihok ~10:35pm
+  ET was pre-`c816f7c`/`ba5a817`). Harness doors are ribbed 685–688;
+  Mihok pose dark=221 not a 30% wedge. chris2 far-corner body remains.
+  Alcove stamp is still player-left (door-jump KEEP), so extra-idle vis
+  still shifts with camera along that leaf.
+- Combat AI / matching engine later. Campaign out of v1.
+

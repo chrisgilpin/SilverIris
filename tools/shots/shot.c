@@ -2760,9 +2760,28 @@ static int playtest_chris(const char *out_dir)
             port_player_set_pitch(kdoor[di].ph);
             if (shot_one(out_dir, kdoor[di].tag) != 0)
                 return -1;
+            dump_guard_leaf(kdoor[di].tag, port_prop_idle_guard());
             printf("door_pose %s walked=%d cur=%d slabs=%d\n", kdoor[di].tag,
                    port_stage_rooms_walked(), port_stage_current_room(),
                    port_prop_slab_emit_count());
+        }
+        /* Mihok live: W stuck at x=-219 z=-2093 θ270 until strafe. */
+        {
+            float mx = -219.f, mz = -2093.6f, my = 29.1f, nx, nz, ny, ddx, ddz;
+            place(mx, mz, 270.f);
+            port_player_set_pitch(0.f);
+            (void)port_stan_eye_y(mx, mz, &my);
+            playtest_forward(270.f, 12.f, &ddx, &ddz);
+            nx = mx + ddx;
+            nz = mz + ddz;
+            ny = my;
+            port_stan_clip_step(mx, mz, &nx, &nz, &ny);
+            printf("mihok_block from=%.1f,%.1f y=%.1f to=%.1f,%.1f y=%.1f d=%.1f on=%d r=%d\n",
+                   (double)mx, (double)mz, (double)my, (double)nx, (double)nz, (double)ny,
+                   (double)sqrtf((nx - mx) * (nx - mx) + (nz - mz) * (nz - mz)),
+                   port_stan_on_tile(mx, mz), port_stan_tile_room(mx, mz));
+            if (shot_one(out_dir, "play_mihok_block") != 0)
+                return -1;
         }
         place(spawn_x, spawn_z, 270.f);
         port_player_set_pitch(0.f);
