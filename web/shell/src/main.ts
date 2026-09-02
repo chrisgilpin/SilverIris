@@ -545,6 +545,7 @@ async function startEngine(packBytes: Uint8Array, packHashHex: string): Promise<
   }
   lastPackHash = packHashHex;
   await game.init(packBytes, packHashBytes(packHashHex));
+  (window as unknown as { __si?: GameBridge }).__si = game;
   lastHp = 8;
   hurtFlash = 0;
   if (player) {
