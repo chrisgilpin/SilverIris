@@ -1609,16 +1609,13 @@ static int unlinked_edge_inward(const StanTile *t, float wx, float wz, float *nx
     return 1;
 }
 
-static int push_off_unlinked_edge(float *wx, float *wz, float skin)
+static int push_off_unlinked_on_tile(const StanTile *t, float *wx, float *wz,
+                                     float skin)
 {
-    const StanTile *t;
     float nx, nz, d, need;
 
-    if (!wx || !wz || !g_have_links)
+    if (!wx || !wz)
         return 0;
-    t = follow_clip ? tile_for_walk(*wx, *wz) : tile_at_world(*wx, *wz);
-    if (!t)
-        t = tile_at_world(*wx, *wz);
     if (!unlinked_edge_inward(t, *wx, *wz, &nx, &nz, &d) || d >= skin)
         return 0;
     need = skin + 2.f - d;
@@ -1627,15 +1624,47 @@ static int push_off_unlinked_edge(float *wx, float *wz, float skin)
     return 1;
 }
 
+static int push_off_unlinked_edge(float *wx, float *wz, float skin)
+{
+    const StanTile *t;
+
+    if (!wx || !wz || !g_have_links)
+        return 0;
+    t = follow_clip ? tile_for_walk(*wx, *wz) : tile_at_world(*wx, *wz);
+    if (!t)
+        t = tile_at_world(*wx, *wz);
+    return push_off_unlinked_on_tile(t, wx, wz, skin);
+}
+
+int port_stan_nudge_off_wall(float *lx, float *lz, float *ly)
+{
+    float wx, wz, ey;
+    const StanTile *t;
+
+    if (!lx || !lz || !g_have_links)
+        return 1;
+    local_to_world(*lx, *lz, &wx, &wz);
+    t = tile_at_world(wx, wz);
+    if (!t)
+        t = tile_for_walk(wx, wz);
+    if (!push_off_unlinked_on_tile(t, &wx, &wz, PORT_WALL_SKIN))
+        return 1;
+    *lx = wx - g_ox;
+    *lz = wz - g_oz;
+    if (ly && port_stan_eye_y(*lx, *lz, &ey) == 0)
+        *ly = ey;
+    return 0;
+}
+
 /* Draw-only: G1 walls sit inside walkable tiles. Pull the camera off
  * unlinked edges by extra slack. clip_step / PORT_WALL_SKIN stay 30. */
 #define PORT_DRAW_SKIN 46.0f
 
 void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
 {
-    float wx, wz, cx = 0.f, cz = 0.f;
+    float wx, wz;
     const StanTile *t;
-    int k, n, hits = 0;
+    int hits = 0;
 
     if (ox)
         *ox = lx;
@@ -1649,30 +1678,11 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
         t = tile_at_world(wx, wz);
     if (!t || t->n < 3)
         return;
-    for (k = 0; k < t->n; k++) {
-        cx += t->x[k];
-        cz += t->z[k];
-    }
-    cx /= (float)t->n;
-    cz /= (float)t->n;
-    for (k = 0; k < t->n; k++) {
-        float d, need, dx, dz, len;
-        n = (k + 1 == t->n) ? 0 : k + 1;
-        if (t->link[k] >> 4)
-            continue;
-        d = dist_seg(wx, wz, t->x[k], t->z[k], t->x[n], t->z[n]);
-        if (d >= PORT_DRAW_SKIN)
-            continue;
-        need = PORT_DRAW_SKIN - d;
-        dx = cx - wx;
-        dz = cz - wz;
-        len = sqrtf(dx * dx + dz * dz);
-        if (len < 0.1f)
-            continue;
-        wx += dx / len * need;
-        wz += dz / len * need;
+    /* Inward along the nearest unlinked edge. Tile 147's centroid is the
+     * stall cubicle; a centroid look-at put the camera inside the leaf
+     * (mauve 4-band + no 685 handles) even after clip stayed in the hall. */
+    if (push_off_unlinked_on_tile(t, &wx, &wz, PORT_DRAW_SKIN))
         hits++;
-    }
     {
         float lx2 = wx - g_ox, lz2 = wz - g_oz;
         float pdx = 0.f, pdz = 0.f, sdx = 0.f, sdz = 0.f;

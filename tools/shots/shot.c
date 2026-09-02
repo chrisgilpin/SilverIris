@@ -3010,9 +3010,19 @@ static int playtest_chris(const char *out_dir)
      * sliver), not the hallway snap (~-89,-2390). */
     {
         float jx = spawn_x + 219.f, jz = spawn_z + 2364.3f;
+        float vx = spawn_x, vz = spawn_z;
         if (jx * jx + jz * jz < 24.f * 24.f || spawn_x < -170.f) {
             fprintf(stderr, "playtest spawn still stall jam xz=%.1f,%.1f\n",
                     (double)spawn_x, (double)spawn_z);
+            return -1;
+        }
+        port_stan_visual_xz(spawn_x, spawn_z, &vx, &vz);
+        printf("play_spawn visual xz=%.1f,%.1f d=%.1f,%.1f\n", (double)vx, (double)vz,
+               (double)(vx - spawn_x), (double)(vz - spawn_z));
+        /* Centroid look-at walked the camera into the stall leaf. */
+        if (vx < -170.f) {
+            fprintf(stderr, "play_spawn visual still stall xz=%.1f,%.1f\n", (double)vx,
+                    (double)vz);
             return -1;
         }
     }
@@ -3045,6 +3055,17 @@ static int playtest_chris(const char *out_dir)
             fprintf(stderr, "play_spawn idle drift to stall xz=%.1f,%.1f\n", (double)x1,
                     (double)z1);
             return -1;
+        }
+        {
+            float vx = x1, vz = z1;
+            port_stan_visual_xz(x1, z1, &vx, &vz);
+            printf("play_spawn idle40 visual xz=%.1f,%.1f d=%.1f,%.1f\n", (double)vx,
+                   (double)vz, (double)(vx - x1), (double)(vz - z1));
+            if (vx < -170.f) {
+                fprintf(stderr, "play_spawn idle40 visual still stall xz=%.1f,%.1f\n",
+                        (double)vx, (double)vz);
+                return -1;
+            }
         }
         place(spawn_x, spawn_z, 270.f);
         port_player_set_pitch(0.f);

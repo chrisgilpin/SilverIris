@@ -112,9 +112,15 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
  * linked upper keeps that floor; stacked xz with no stair link stays low.
  */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
-/* Draw-only camera xz. Pulls off unlinked edges by 46u (30+16) and off
- * interior G1 walls / fitted leaves. clip_step / PORT_WALL_SKIN stay 30. */
+/* Draw-only camera xz. Pulls off unlinked edges by 46u (30+16) along the
+ * inward edge normal (not the tile centroid — tile 147's centroid is the
+ * stall cubicle) and off interior G1 walls / fitted leaves.
+ * clip_step / PORT_WALL_SKIN stay 30. */
 void port_stan_visual_xz(float lx, float lz, float *ox, float *oz);
+/* Push room-local xz off the nearest unlinked stan edge along its inward
+ * normal. Spawn on tile 147's south edge used to sit in the wall skin so
+ * every live rAF clip looked trapped. 0 if moved. */
+int port_stan_nudge_off_wall(float *lx, float *lz, float *ly);
 /* Same xz clip, but always the lowest floor (guards / chase). Does not
  * touch the player's current-tile cache. */
 void port_stan_clip_step_ground(float ox, float oz, float *nx, float *nz, float *ny);

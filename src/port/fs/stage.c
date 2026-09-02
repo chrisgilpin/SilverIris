@@ -744,6 +744,10 @@ int port_stage_load(int level_id)
                 (void)pad_y;
                 (void)got;
             }
+            /* Pad/hall snap can still sit on tile 147's unlinked south edge.
+             * Live rAF then treated every zero-stick clip as trapped. Push
+             * into the tile now so the first look-at is not in the wall. */
+            (void)port_stan_nudge_off_wall(&x, &z, &y);
             port_player_set_spawn_origin(x, y, z, th);
             {
                 int s, nseats = PORT_MAX_PLAYERS, ni = port_prop_intro_count();
