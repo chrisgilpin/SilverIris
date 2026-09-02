@@ -2088,9 +2088,9 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-02 player G1 wall clip + door-sized alcove)
+## STATUS (2026-09-02 player G1 wall clip + door-sized alcove `4785f0f`)
 
-P0-3/P0-2 slice on top of spawn-pinned alcove `07e6b41` (KEEP). This push.
+P0-3/P0-2 slice on top of spawn-pinned alcove `07e6b41` (KEEP). SHA `4785f0f`.
 Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
 native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
 
@@ -2123,7 +2123,7 @@ Native player/gun/lockstep/2p-corridor green. Greyscale
 **Remaining holes**
 
 - P0-2 live match after hard-refresh still required (Mihok ~01:06 ET was
-  `07e6b41`; this SHA narrows the alcove and keeps SHADE*TEXEL handles).
+  `07e6b41`; `4785f0f` narrows the alcove and keeps SHADE*TEXEL handles).
   Do not close without Mihok/live match.
 - P0-3 live match still required. `play_wall` pitch −35 still reads as
   ceiling (already on stan skin 30). Mihok pose left void / missing
