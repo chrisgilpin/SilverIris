@@ -4995,12 +4995,17 @@ static int emit_held_gun(G1RoomDl *out, int cap, int k, PortProp *pr, const Port
     gun->fit_ymin = body->fit_ymin;
     for (p = 0; p < gun->npart; p++)
         gun->part[p].mtxid = 0;
-    if (g_held_drawn == 0)
-        printf("held_emit chr=%d model=%d slot=%d jT=%.1f,%.1f,%.1f gT=%.1f,%.1f,%.1f\n",
-               pr->chrnum, pr->held_model, slot, (double)body->joint[slot][0][3],
-               (double)body->joint[slot][1][3], (double)body->joint[slot][2][3],
-               (double)gun->joint[0][0][3], (double)gun->joint[0][1][3],
-               (double)gun->joint[0][2][3]);
+    if (g_held_drawn == 0) {
+        static int s_held_log;
+        if (s_held_log < 1) {
+            s_held_log = 1;
+            printf("held_emit chr=%d model=%d slot=%d jT=%.1f,%.1f,%.1f gT=%.1f,%.1f,%.1f\n",
+                   pr->chrnum, pr->held_model, slot, (double)body->joint[slot][0][3],
+                   (double)body->joint[slot][1][3], (double)body->joint[slot][2][3],
+                   (double)gun->joint[0][0][3], (double)gun->joint[0][1][3],
+                   (double)gun->joint[0][2][3]);
+        }
+    }
     k = emit_parts(out, cap, k, pr, gun, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, pdx, 0.f,
                    pdz);
     memcpy(gun->joint[0], save_j, sizeof save_j);
@@ -5119,11 +5124,16 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                      * and fill restores before interpret. */
                     pr->head->fit_scale = mdl->fit_scale;
                     pr->head->fit_ymin = mdl->fit_ymin;
-                    if (g_head_joint_drawn == 0)
-                        printf("head_joint chr=%d T=%.1f,%.1f,%.1f %s\n", pr->chrnum,
-                               (double)mdl->head_mtx[0][3], (double)mdl->head_mtx[1][3],
-                               (double)mdl->head_mtx[2][3],
-                               dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
+                    if (g_head_joint_drawn == 0) {
+                        static int s_head_log;
+                        if (s_head_log < 1) {
+                            s_head_log = 1;
+                            printf("head_joint chr=%d T=%.1f,%.1f,%.1f %s\n", pr->chrnum,
+                                   (double)mdl->head_mtx[0][3], (double)mdl->head_mtx[1][3],
+                                   (double)mdl->head_mtx[2][3],
+                                   dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
+                        }
+                    }
                     g_emit_jtab = &mdl->head_mtx[0][0];
                     g_emit_nj = 1;
                     k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
@@ -5414,8 +5424,8 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     /* Nearest remaining props first so the cap spends on this room and
      * the next walked rooms, not a far setup cluster. */
     {
-        int idx[PORT_MAX_PROPS];
-        float d2[PORT_MAX_PROPS];
+        static int idx[PORT_MAX_PROPS];
+        static float d2[PORT_MAX_PROPS];
         int nidx = 0, a, b;
         float px = port_player_x() + room1[0];
         float py = port_player_y() + room1[1];

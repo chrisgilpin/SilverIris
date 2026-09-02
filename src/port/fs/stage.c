@@ -2052,14 +2052,15 @@ static int g1_cut_add(float px, float py, float pz, float yaw, float width, floa
 
 static void g1_cluster_cutouts(int room, const G1VTri *tri, int ntri, float camx, float camz)
 {
-    int used[PORT_G1_VTRI_MAX];
+    static int used[PORT_G1_VTRI_MAX];
+    static int idx[PORT_G1_VTRI_MAX];
     int c, i, j;
 
     if (ntri < 4)
         return;
     memset(used, 0, sizeof(int) * (size_t)ntri);
     for (c = 0; c < PORT_G1_CLUS_MAX; c++) {
-        int idx[PORT_G1_VTRI_MAX], nn = 0;
+        int nn = 0;
         float nx, nz, d, tx, tz, amin, amax, ymin, ymax;
         int seed = -1;
         for (i = 0; i < ntri; i++) {
@@ -2217,7 +2218,7 @@ static void g1_collect_room_cutouts(int room)
     float ox, oy, oz, sc, r1x, r1y, r1z;
     float slot[PORT_G1_VTX_CACHE][3];
     int have[PORT_G1_VTX_CACHE];
-    G1VTri tri[PORT_G1_VTRI_MAX];
+    static G1VTri tri[PORT_G1_VTRI_MAX];
     int ntri = 0;
     float camx, camz;
 
@@ -2496,9 +2497,12 @@ void port_stage_dump_g1_cutouts(float cam_lx, float cam_ly, float cam_lz, float 
 
 int port_stage_draw(void)
 {
-    G1RoomDl passes[PORT_DRAW_MAX];
+    /* Static: wasm default stack is 64KB; passes+rpos+cutout tris overflow
+     * it (~85KB+), corrupt the heap, detach HEAPU8, and freeze the tab
+     * after a few walked rooms / mallocs. Draw is not re-entrant. */
+    static G1RoomDl passes[PORT_DRAW_MAX];
+    static float rpos[PORT_MAX_BG_ROOMS * 3];
     uint8_t ids[PORT_WALK_MAX];
-    float rpos[PORT_MAX_BG_ROOMS * 3];
     int nsel, i, k;
     float ox, oy, oz;
 

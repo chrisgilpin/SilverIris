@@ -42,6 +42,7 @@ static uint32_t g_spawn_fb_adler;
 
 static uint32_t adler32(const uint8_t *p, size_t n);
 static void door_tick_n(int n);
+static void place(float x, float z, float th);
 
 static int sfx_bank_proof(void)
 {
@@ -1310,12 +1311,60 @@ static void usage(void)
     fprintf(stderr, "shot --pack ge.u.c0pack --out .local/shots [--bench N]\n");
 }
 
-static int bench_fps(int n)
+static double bench_draw_tag(const char *tag, int n)
 {
     struct timespec t0, t1;
+    int i, seen = 0, skip_r = 0, skip_l = 0, n380 = 0, ng;
+    double total_ms, frame_ms;
+    unsigned ncmds = 0;
+    const GirList *ir;
     float r1[3], px, pz;
-    int i, ng, n380 = 0, seen = 0, skip_r = 0, skip_l = 0;
-    double total_ms;
+
+    if (n < 1)
+        n = 8;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    px = port_api_player_x();
+    pz = port_api_player_z();
+    ng = port_prop_guard_count();
+    for (i = 0; i < ng; i++) {
+        float x = 0.f, y = 0.f, z = 0.f, lx, lz, dx, dz;
+        if (port_prop_guard_xyz(i, &x, &y, &z) != 0)
+            continue;
+        lx = x - r1[0];
+        lz = z - r1[2];
+        dx = lx - px;
+        dz = lz - pz;
+        if (dx * dx + dz * dz <= 380.f * 380.f)
+            n380++;
+    }
+    port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (i = 0; i < n; i++)
+        port_api_draw();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    total_ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+               (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+    frame_ms = total_ms / (double)n;
+    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
+    ir = g1_last_ir();
+    ncmds = ir ? ir->ncmds : 0;
+    printf("bench %s xz=%.1f,%.1f y=%.1f frames=%d total_ms=%.1f frame_ms=%.2f fps=%.1f "
+           "drawn=%d seen=%d skip_range=%d skip_leaf=%d within380=%d rooms=%d cur=%d "
+           "settex=%u ok=%u miss=%u ncmds=%u alerted=%d mag=%d/%d\n",
+           tag, (double)px, (double)pz, (double)port_api_player_y(), n, total_ms, frame_ms,
+           (frame_ms > 0.0) ? (1000.0 / frame_ms) : 0.0, port_prop_drawn(), seen, skip_r,
+           skip_l, n380, port_api_rooms_walked(), port_api_current_room(), port_api_settex(),
+           port_api_tex_ok(), port_api_tex_miss(), ncmds, port_prop_guard_alerted(),
+           port_gun_mag(), port_gun_reserve());
+    return frame_ms;
+}
+
+static int bench_fps(int n)
+{
+    float r1[3], px, pz, wx, wz, wy;
+    int i, ng, n380 = 0, s, tick = 1;
+    double spawn_ms, walk_ms, hall_ms, tick_ms;
 
     if (n < 1)
         n = 20;
@@ -1343,23 +1392,46 @@ static int bench_fps(int n)
                    (double)z, (double)lx, (double)lz, (double)d);
     }
     printf("bench within380=%d of %d\n", n380, ng);
-    port_api_draw();
-    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
-    printf("bench warmup drawn=%d seen=%d skip_range=%d skip_leaf=%d rooms=%d settex=%u\n",
-           port_prop_drawn(), seen, skip_r, skip_l, port_api_rooms_walked(),
-           port_api_settex());
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-    for (i = 0; i < n; i++)
-        port_api_draw();
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    total_ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
-               (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
-    port_prop_last_emit_stats(&seen, &skip_r, &skip_l);
-    printf("bench frames=%d total_ms=%.1f frame_ms=%.2f fps=%.1f drawn=%d seen=%d "
-           "skip_range=%d skip_leaf=%d rooms=%d settex=%u\n",
-           n, total_ms, total_ms / (double)n, (total_ms > 0.0) ? (1000.0 * n / total_ms) : 0.0,
-           port_prop_drawn(), seen, skip_r, skip_l, port_api_rooms_walked(),
-           port_api_settex());
+    spawn_ms = bench_draw_tag("play_spawn", n);
+    /* Time passing at spawn (wasm growth / tick leak). */
+    for (s = 0; s < 120; s++)
+        (void)port_api_sim_tick((uint32_t)tick++);
+    tick_ms = bench_draw_tag("spawn_ticks", n);
+    /* Chris 2026-09-01 live door poses (still r71). */
+    place(-139.2f, -2336.6f, 260.f);
+    (void)bench_draw_tag("chris_door1", n);
+    place(-354.5f, -2107.1f, 289.f);
+    hall_ms = bench_draw_tag("chris_door2", n);
+    /* Walk from spawn toward that pose with clip + ticks, like live WASD. */
+    place(px, pz, 270.f);
+    wx = px;
+    wz = pz;
+    wy = port_api_player_y();
+    for (s = 0; s < 400; s++) {
+        float tx = -354.5f - wx, tz = -2107.1f - wz, len, nx, nz, ny;
+        len = sqrtf(tx * tx + tz * tz);
+        if (len < 12.f)
+            break;
+        nx = wx + tx / len * 5.f;
+        nz = wz + tz / len * 5.f;
+        ny = wy;
+        port_stan_clip_step(wx, wz, &nx, &nz, &ny);
+        if ((nx - wx) * (nx - wx) + (nz - wz) * (nz - wz) < 0.01f)
+            break;
+        wx = nx;
+        wz = nz;
+        wy = ny;
+        port_player_set_pose(wx, wy, wz, 289.f);
+        (void)port_api_sim_tick((uint32_t)tick++);
+    }
+    walk_ms = bench_draw_tag("long_walk", n);
+    printf("bench_fps spawn_ms=%.2f tick_ms=%.2f hall_ms=%.2f long_walk_ms=%.2f\n", spawn_ms,
+           tick_ms, hall_ms, walk_ms);
+    if (spawn_ms > 80.0 || walk_ms > 80.0 || hall_ms > 80.0) {
+        fprintf(stderr, "bench_fps frame_ms spawn=%.2f long_walk=%.2f (want ~27-35ms class)\n",
+                spawn_ms, walk_ms);
+        return -1;
+    }
     return 0;
 }
 
@@ -2667,6 +2739,10 @@ static int playtest_chris(const char *out_dir)
         printf("play_spawn frame_ms=%.2f fps=%.1f drawn=%d seen=%d skip_range=%d skip_leaf=%d\n",
                ms / 8.0, (ms > 0.0) ? (8000.0 / ms) : 0.0, port_prop_drawn(), seen, skip_r,
                skip_l);
+        if (ms / 8.0 > 80.0) {
+            fprintf(stderr, "play_spawn frame_ms=%.2f (want ~27-35ms class)\n", ms / 8.0);
+            return -1;
+        }
     }
     if (sfx_bank_proof() != 0)
         return -1;
@@ -2759,6 +2835,45 @@ static int playtest_chris(const char *out_dir)
                 fprintf(stderr, "long_walk black frame fb=%u dark=%u/%d\n", nz1, dark,
                         w * h);
                 return -1;
+            }
+            {
+                double walk_ms = bench_draw_tag("long_walk", 8);
+                if (walk_ms > 80.0) {
+                    fprintf(stderr, "long_walk frame_ms=%.2f (want ~27-35ms class, not 500+)\n",
+                            walk_ms);
+                    return -1;
+                }
+            }
+            /* Chris 2026-09-01 live: walk the spawn hall to the far door. */
+            {
+                float hx = wx, hz = wz, hy = wy;
+                int hs, tick = 1;
+                double hall_ms;
+                for (hs = 0; hs < 400; hs++) {
+                    float tx = -354.5f - hx, tz = -2107.1f - hz, len, nx, nz, ny;
+                    len = sqrtf(tx * tx + tz * tz);
+                    if (len < 12.f)
+                        break;
+                    nx = hx + tx / len * 5.f;
+                    nz = hz + tz / len * 5.f;
+                    ny = hy;
+                    port_stan_clip_step(hx, hz, &nx, &nz, &ny);
+                    if ((nx - hx) * (nx - hx) + (nz - hz) * (nz - hz) < 0.01f)
+                        break;
+                    hx = nx;
+                    hz = nz;
+                    hy = ny;
+                    port_player_set_pose(hx, hy, hz, 289.f);
+                    (void)port_api_sim_tick((uint32_t)tick++);
+                }
+                hall_ms = bench_draw_tag("long_walk_hall", 8);
+                if (hall_ms > 80.0) {
+                    fprintf(stderr,
+                            "long_walk_hall frame_ms=%.2f (want ~35ms class, not 500+)\n",
+                            hall_ms);
+                    return -1;
+                }
+                place(wx, wz, 270.f);
             }
         }
     }
