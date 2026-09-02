@@ -2500,3 +2500,63 @@ Native player/gun/lockstep/g1/2p-corridor green. Greyscale
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 HUD + stall-ward look-at `a8d6c15`)
+
+P0-1/P0-2 on top of look-at cap `2630bd1` (KEEP). SHA `a8d6c15`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+Mihok 0446 after `2630bd1`: stall HUD x=-98.5 z=-2358.4 KEEP; live rAF
+≈28.8 (KEEP ff37828); spawn door brown-ribbed, 685 handle bars not
+distinct on the live canvas; look-left Chead still detached. Harness
+idle40 / look-left already had 685 bars — the 62px HUD `fillRect`
+painted over that band, and DRAW_SKIN 46 on tile 147's south edge still
+shoved look-at −X (capped 16u) so the leaf was edge-on / profile. Skip
+that −X unlinked shove (clip_step WALL_SKIN 30 stays). Stroke HUD text.
+Nearest-neighbor blit when the canvas is not 1:1. Harness look-left is
+θ263 (Mihok 0446). KEEP door-jump `102237e`, viscyl `dfde794`,
+SHADE*TEXEL `6377093`, alcove pin `07e6b41`, G1 clip `4785f0f`,
+wasm-stack FPS `ff37828`, skip G_MTX `bad9aff`, stall clip `b3fdadf`,
+inward look-at `9cadb53`, 16u cap `2630bd1`.
+
+**1 — spawn / doors / head.** `playtest spawn xz=-89.5,-2358.4 y=29.1
+retail_slab=1`. `play_spawn visual xz=-89.5,-2342.4 d=0.0,16.0` (not
+−16 −X). `play_spawn idle40 xz=-98.5,-2358.4 d=-9.0,0.0` visual
+`-106.2,-2344.4 d=-7.7,14.0` (x>-170). `play_spawn_idle` / `play_lookleft`
+(θ263 at idle40 xz) are brown SETTEX 685 handle bars, extra-idle Chead
+on the neck. `spawn_fill play_spawn dark=14 metal=9369 area=13376
+mauve=1139`. `play_spawn_idle dark=40 metal=9086 mauve=796`.
+`play_lookleft dark=6 metal=10893 mauve=2515`. `play_door_live`
+near_living=0 dark=77 metal=5546 mauve=129. `chris2 vis gi=37 dpad=22.2`.
+`door_jump` alcove spawn-left (−89.5,−2242 yaw 180).
+
+**2 — hitch / FPS / clip.** `play_spawn` frame_ms=50.66 (cold; 19.7 fps)
+drawn=71 seen=2 skip_range=1 skip_leaf=22 mag=7/21 held=1 headj=1.
+`long_walk` frame_ms=29.73 (33.6 fps). `long_walk_hall` (−347,−2116)
+frame_ms=40.47 — 35ms class kept (this box; live rAF KEEP `ff37828`).
+`door_jump` frame_ms=31.21. `mihok_block` clip_step d=12.0.
+`fire_hitch miss_ms=23.74 hit_ms=23.40 hits=1`. y=29.12.
+
+Native player/g1 playtest green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 live spawn-idle rAF after hard-refresh still required. Harness
+  long_walk is 33.6 fps / 35ms class; hall walk is ~25 fps. Do not close
+  ff37828 re-prove from harness alone.
+- P0-2 live match after hard-refresh still required (Mihok 0446 was
+  `2630bd1`; live wasm after this push is `a8d6c15` HUD + stall-ward
+  look-at skip). Harness idle40 / look-left is brown 685 handles at
+  −98.5,−2358 θ263. Close approach (−719,−2135) not this slice. Do not
+  close without Mihok/live match.
+- P0-3 live match still required. Spawn/idle stay x>-170; look-left
+  extra-idle is a full body + neck Chead in harness. `play_wall` pitch
+  −35 still reads as ceiling (already on stan skin 30). Mihok pose left
+  void / missing neighbor still open. Do not close without Mihok/live
+  match.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
