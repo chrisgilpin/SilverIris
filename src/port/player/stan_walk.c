@@ -4,6 +4,45 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Strong defs live in stage.c / prop.c. Synthetic player-test has no G1. */
+__attribute__((weak)) int port_stage_g1_wall_push(float lx, float lz, float radius,
+                                                  float *pdx, float *pdz)
+{
+    (void)lx;
+    (void)lz;
+    (void)radius;
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    return 0;
+}
+
+__attribute__((weak)) int port_stage_g1_wall_ray(float lx, float lz, float dx, float dz,
+                                                 float *t_out)
+{
+    (void)lx;
+    (void)lz;
+    (void)dx;
+    (void)dz;
+    if (t_out)
+        *t_out = 0.f;
+    return 0;
+}
+
+__attribute__((weak)) int port_prop_push_off_slabs_local(float lx, float lz, float radius,
+                                                         float *pdx, float *pdz)
+{
+    (void)lx;
+    (void)lz;
+    (void)radius;
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    return 0;
+}
+
 #define BG_SEG_BASE 0x0F000000u
 #define BG_SEG_BIAS 0xF1000000u
 /* Facility retail is 2599 tiles; 2048 dropped the intro walkway. */
@@ -1563,6 +1602,19 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
         wz += dz / len * need;
         hits++;
     }
+    {
+        float lx2 = wx - g_ox, lz2 = wz - g_oz;
+        float pdx = 0.f, pdz = 0.f, sdx = 0.f, sdz = 0.f;
+        (void)port_stage_g1_wall_push(lx2, lz2, PORT_DRAW_SKIN, &pdx, &pdz);
+        (void)port_prop_push_off_slabs_local(lx2, lz2, PORT_DRAW_SKIN, &sdx, &sdz);
+        if (pdx != 0.f || pdz != 0.f || sdx != 0.f || sdz != 0.f) {
+            lx2 += pdx + sdx;
+            lz2 += pdz + sdz;
+            wx = lx2 + g_ox;
+            wz = lz2 + g_oz;
+            hits++;
+        }
+    }
     if (!hits)
         return;
     if (ox)
@@ -1941,6 +1993,24 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
                 stop = 0.f;
             cx = ox + sdx * (stop / slen);
             cz = oz + sdz * (stop / slen);
+            *nx = cx;
+            *nz = cz;
+        }
+    }
+    /* Interior G1 walls sit inside walkable tiles; fitted leaves are not
+     * stan doors. Push dest off those faces so the body cannot walk through. */
+    {
+        float tx = cx, tz = cz, twx, twz;
+        float pdx = 0.f, pdz = 0.f, sdx = 0.f, sdz = 0.f;
+        (void)port_stage_g1_wall_push(tx, tz, PORT_WALL_SKIN, &pdx, &pdz);
+        (void)port_prop_push_off_slabs_local(tx, tz, PORT_WALL_SKIN, &sdx, &sdz);
+        tx += pdx + sdx;
+        tz += pdz + sdz;
+        local_to_world(tx, tz, &twx, &twz);
+        if ((pdx != 0.f || pdz != 0.f || sdx != 0.f || sdz != 0.f) &&
+            legal_world(twx, twz, start_door)) {
+            cx = tx;
+            cz = tz;
             *nx = cx;
             *nz = cz;
         }
@@ -2737,6 +2807,10 @@ int port_stan_ray_block(float local_x, float local_y, float local_z,
         best = t;
         hit = 1;
     }
+    if (port_stage_g1_wall_ray(local_x, local_z, dx, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+    }
     if (!hit)
         return 0;
     if (t_out)
@@ -2760,6 +2834,11 @@ int port_stan_ray_hit(float local_x, float local_y, float local_z,
         gi = -1;
     }
     if (tile_exit_hit(wx, wz, dx, dz, &t) && t < best) {
+        best = t;
+        hit = 1;
+        gi = -1;
+    }
+    if (port_stage_g1_wall_ray(local_x, local_z, dx, dz, &t) && t < best) {
         best = t;
         hit = 1;
         gi = -1;

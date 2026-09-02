@@ -1480,12 +1480,26 @@ static uint16_t g_rm_p0[PORT_MAX_BG_ROOMS];
 static uint8_t g_rm_pn[PORT_MAX_BG_ROOMS];
 static uint8_t g_rm_ph[PORT_MAX_BG_ROOMS];
 
+/* Interior G1 walls (half_w up to 800). Separate from door-leaf planes so
+ * guard viscyl push does not start sliding bodies along room partitions. */
+#define PORT_G1_WALL_MAX 512
+#define PORT_G1_WALL_PER 48
+static G1LeafPlane g_walls[PORT_G1_WALL_MAX];
+static int g_nwalls;
+static uint16_t g_rm_w0[PORT_MAX_BG_ROOMS];
+static uint8_t g_rm_wn[PORT_MAX_BG_ROOMS];
+static uint8_t g_rm_wh[PORT_MAX_BG_ROOMS];
+
 static void g1_clear_planes(void)
 {
     g_nplanes = 0;
+    g_nwalls = 0;
     memset(g_rm_p0, 0, sizeof g_rm_p0);
     memset(g_rm_pn, 0, sizeof g_rm_pn);
     memset(g_rm_ph, 0, sizeof g_rm_ph);
+    memset(g_rm_w0, 0, sizeof g_rm_w0);
+    memset(g_rm_wn, 0, sizeof g_rm_wn);
+    memset(g_rm_wh, 0, sizeof g_rm_wh);
 }
 
 static int g1_add_room(int *rooms, int n, int max, int r)
@@ -1530,9 +1544,9 @@ static int g1_chr_rooms(float pad_lx, float pad_lz, float cam_lx, float cam_lz, 
     return n;
 }
 
-static int g1_plane_from_tri(float x0, float y0, float z0, float x1, float y1, float z1,
-                             float x2, float y2, float z2, float sc, float ox, float oz,
-                             G1LeafPlane *out)
+static int g1_plane_from_tri_hw(float x0, float y0, float z0, float x1, float y1, float z1,
+                                float x2, float y2, float z2, float sc, float ox, float oz,
+                                float max_hw, G1LeafPlane *out)
 {
     float e1x, e1y, e1z, e2x, e2y, e2z, nx, ny, nz, nlen, wlen, wx, wz;
     float pcx, pcz, ymin, ymax, yspan;
@@ -1603,8 +1617,9 @@ static int g1_plane_from_tri(float x0, float y0, float z0, float x1, float y1, f
     if (thick > 50.f)
         return 0;
     /* Door leaf ~90 half-w; room partitions are wider. Clip-door guard 36
-     * sat behind a ~159 half-w wall. Extra idle cam-pad is hall-parallel. */
-    if (half_w < 20.f || half_w > 220.f)
+     * sat behind a ~159 half-w wall. Extra idle cam-pad is hall-parallel.
+     * Player G1 clip passes 800 so a bathroom partition is not dropped. */
+    if (half_w < 20.f || half_w > max_hw)
         return 0;
     out->pcx = pcx;
     out->pcz = pcz;
@@ -1615,6 +1630,14 @@ static int g1_plane_from_tri(float x0, float y0, float z0, float x1, float y1, f
     out->half_w = half_w;
     out->thick = thick;
     return 1;
+}
+
+static int g1_plane_from_tri(float x0, float y0, float z0, float x1, float y1, float z1,
+                             float x2, float y2, float z2, float sc, float ox, float oz,
+                             G1LeafPlane *out)
+{
+    return g1_plane_from_tri_hw(x0, y0, z0, x1, y1, z1, x2, y2, z2, sc, ox, oz, 220.f,
+                                out);
 }
 
 static int g1_hit_from_plane(const G1LeafPlane *pl, float cam_lx, float cam_lz,
@@ -1954,6 +1977,367 @@ void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float p
                (double)h->half_w, (double)h->thick, (double)h->pad_along, (double)h->amin,
                (double)h->amax, h->straddle, h->ray, h->both, (double)h->dcam,
                (double)h->need);
+    }
+}
+
+static void g1_collect_room_walls(int room)
+{
+    const PortBgRoom *rm;
+    const uint8_t *dl, *vtxbase;
+    uint32_t ncmd, i;
+    float ox, oz, sc, r1x, r1z;
+    float slot[PORT_G1_VTX_CACHE][3];
+    int have[PORT_G1_VTX_CACHE];
+
+    if (room < 1 || room > g_bg_rooms || room >= PORT_MAX_BG_ROOMS)
+        return;
+    if (g_rm_wh[room])
+        return;
+    g_rm_wh[room] = 1;
+    g_rm_w0[room] = (uint16_t)g_nwalls;
+    g_rm_wn[room] = 0;
+    rm = &g_rm[room];
+    dl = room_pri(rm);
+    if (!dl || rm->pri_ngfx == 0 || !rm->vtx)
+        return;
+    vtxbase = rm->vtx;
+    sc = (g_bg_inv != 0.f) ? g_bg_inv : 1.f;
+    r1x = g_rm[1].pos[0] * sc;
+    r1z = g_rm[1].pos[2] * sc;
+    ox = rm->pos[0] * sc - r1x;
+    oz = rm->pos[2] * sc - r1z;
+    memset(have, 0, sizeof have);
+    ncmd = rm->pri_ngfx;
+    for (i = 0; i < ncmd; i++) {
+        const uint8_t *p = dl + i * 8u;
+        uint8_t cmd = p[0];
+        uint32_t w0 = be32(p);
+        uint32_t w1 = be32(p + 4);
+        if (cmd == 0x04) {
+            uint32_t param = (w0 >> 16) & 0xFFu;
+            uint32_t n = (param >> 4) + 1u;
+            uint32_t v0 = param & 0xFu;
+            uint32_t seg = w1 >> 24;
+            uint32_t off = w1 & 0x00FFFFFFu;
+            uint32_t k;
+            const uint8_t *src;
+            if (seg != 14 || off + n * 16u > rm->vtx_len)
+                continue;
+            src = vtxbase + off;
+            for (k = 0; k < n && v0 + k < PORT_G1_VTX_CACHE; k++) {
+                const uint8_t *s = src + k * 16u;
+                slot[v0 + k][0] = (float)dump_be16(s);
+                slot[v0 + k][1] = (float)dump_be16(s + 2);
+                slot[v0 + k][2] = (float)dump_be16(s + 4);
+                have[v0 + k] = 1;
+            }
+            continue;
+        }
+        if (cmd != 0xB1)
+            continue;
+        {
+            uint32_t tris[4][3];
+            int t;
+            tris[0][0] = w1 & 0xF;
+            tris[0][1] = (w1 >> 4) & 0xF;
+            tris[0][2] = w0 & 0xF;
+            tris[1][0] = (w1 >> 8) & 0xF;
+            tris[1][1] = (w1 >> 12) & 0xF;
+            tris[1][2] = (w0 >> 4) & 0xF;
+            tris[2][0] = (w1 >> 16) & 0xF;
+            tris[2][1] = (w1 >> 20) & 0xF;
+            tris[2][2] = (w0 >> 8) & 0xF;
+            tris[3][0] = (w1 >> 24) & 0xF;
+            tris[3][1] = (w1 >> 28) & 0xF;
+            tris[3][2] = (w0 >> 12) & 0xF;
+            for (t = 0; t < 4; t++) {
+                G1LeafPlane pl;
+                float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+                int a, b, c;
+                a = (int)tris[t][0];
+                b = (int)tris[t][1];
+                c = (int)tris[t][2];
+                if (a == 0 && b == 0 && c == 0)
+                    continue;
+                if (a >= PORT_G1_VTX_CACHE || b >= PORT_G1_VTX_CACHE ||
+                    c >= PORT_G1_VTX_CACHE)
+                    continue;
+                if (!have[a] || !have[b] || !have[c])
+                    continue;
+                x0 = slot[a][0];
+                y0 = slot[a][1];
+                z0 = slot[a][2];
+                x1 = slot[b][0];
+                y1 = slot[b][1];
+                z1 = slot[b][2];
+                x2 = slot[c][0];
+                y2 = slot[c][1];
+                z2 = slot[c][2];
+                if (g_nwalls >= PORT_G1_WALL_MAX || g_rm_wn[room] >= PORT_G1_WALL_PER)
+                    return;
+                if (!g1_plane_from_tri_hw(x0, y0, z0, x1, y1, z1, x2, y2, z2, sc, ox, oz,
+                                          800.f, &pl))
+                    continue;
+                g_walls[g_nwalls++] = pl;
+                g_rm_wn[room]++;
+            }
+        }
+    }
+}
+
+static int g1_wall_is_opening(float pcx, float pcz)
+{
+    float r1[3];
+    int i, n;
+
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    n = port_stage_opening_count();
+    for (i = 0; i < n; i++) {
+        float pos[3], yaw = 0.f, w = 0.f, dx, dz;
+        int ra = 0, rb = 0;
+        if (port_stage_opening(i, pos, &yaw, &w, &ra, &rb) != 0)
+            continue;
+        if (!port_stage_path_opening(ra, rb))
+            continue;
+        dx = (pos[0] - r1[0]) - pcx;
+        dz = (pos[2] - r1[2]) - pcz;
+        if (dx * dx + dz * dz < 90.f * 90.f)
+            return 1;
+    }
+    return 0;
+}
+
+/* 1 if this vertical is a room portal (walkable both sides, different rooms)
+ * or a path opening. Interior partitions (same tile / one-sided) stay solid. */
+static int g1_wall_is_portal(const G1LeafPlane *pl)
+{
+    float fx, fz, bx, bz;
+    int fr, br;
+
+    if (g1_wall_is_opening(pl->pcx, pl->pcz))
+        return 1;
+    fx = pl->pcx + pl->wx * 40.f;
+    fz = pl->pcz + pl->wz * 40.f;
+    bx = pl->pcx - pl->wx * 40.f;
+    bz = pl->pcz - pl->wz * 40.f;
+    if (!port_stan_on_tile(fx, fz) || !port_stan_on_tile(bx, bz))
+        return 0;
+    fr = port_stan_tile_room(fx, fz);
+    br = port_stan_tile_room(bx, bz);
+    if (fr >= 1 && br >= 1 && fr != br)
+        return 1;
+    return 0;
+}
+
+static int g1_wall_rooms(float lx, float lz, int *rooms, int max)
+{
+    /* Same walked + portal-adjacent set as door-leaf scan, so a bathroom
+     * G1 face that lives in the neighbor room still clips. */
+    return g1_chr_rooms(lx, lz, lx, lz, rooms, max);
+}
+
+int port_stage_g1_wall_push(float lx, float lz, float radius, float *pdx, float *pdz)
+{
+    float dx = 0.f, dz = 0.f;
+    int rooms[8], nr, iter;
+    const float skin = 8.f;
+    const float cap = 80.f;
+    float clear;
+
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    if (g_bg_rooms < 8 || radius < 1.f)
+        return 0;
+    clear = radius + skin;
+    nr = g1_wall_rooms(lx, lz, rooms, 8);
+    for (iter = 0; iter < 4; iter++) {
+        int j, hit = 0;
+        float best_need = 0.f, bnx = 0.f, bnz = 0.f;
+        float cx = lx + dx, cz = lz + dz;
+        for (j = 0; j < nr; j++) {
+            int room = rooms[j], i, p0, pn;
+            g1_collect_room_walls(room);
+            if (room < 1 || room >= PORT_MAX_BG_ROOMS)
+                continue;
+            p0 = (int)g_rm_w0[room];
+            pn = (int)g_rm_wn[room];
+            for (i = 0; i < pn; i++) {
+                const G1LeafPlane *pl = &g_walls[p0 + i];
+                float rx, rz, along, across, need, side, tcx, tcz;
+                int k;
+                if (g1_wall_is_portal(pl))
+                    continue;
+                rx = cx - pl->pcx;
+                rz = cz - pl->pcz;
+                along = rx * pl->wx + rz * pl->wz;
+                across = rx * pl->tx + rz * pl->tz;
+                if (across < 0.f)
+                    across = -across;
+                if (across > pl->half_w + radius)
+                    continue;
+                if (along < 0.f) {
+                    if (-along >= clear)
+                        continue;
+                } else if (along >= clear)
+                    continue;
+                /* Pull toward the current-tile centroid so a camera that
+                 * already walked through the G1 face is unstuck into the
+                 * room, not shoved further out. */
+                tcx = cx;
+                tcz = cz;
+                {
+                    /* Approximate centroid: average of tile verts in local. */
+                    /* port_stan has no centroid export; probe 4 offsets. */
+                    float sx = 0.f, sz = 0.f;
+                    int n = 0;
+                    static const float kdx[4] = { 24.f, -24.f, 0.f, 0.f };
+                    static const float kdz[4] = { 0.f, 0.f, 24.f, -24.f };
+                    for (k = 0; k < 4; k++) {
+                        float px = cx + kdx[k], pz = cz + kdz[k];
+                        if (!port_stan_on_tile(px, pz))
+                            continue;
+                        if (port_stan_tile_room(px, pz) != port_stan_tile_room(cx, cz) &&
+                            port_stan_tile_room(cx, cz) >= 1)
+                            continue;
+                        sx += px;
+                        sz += pz;
+                        n++;
+                    }
+                    if (n > 0) {
+                        tcx = sx / (float)n;
+                        tcz = sz / (float)n;
+                    }
+                }
+                side = ((tcx - pl->pcx) * pl->wx + (tcz - pl->pcz) * pl->wz >= 0.f) ? 1.f
+                                                                                    : -1.f;
+                need = clear - side * along;
+                if (need <= 0.f)
+                    continue;
+                if (need > best_need) {
+                    best_need = need;
+                    bnx = pl->wx * side;
+                    bnz = pl->wz * side;
+                    hit = 1;
+                }
+            }
+        }
+        if (!hit)
+            break;
+        if (best_need > cap)
+            best_need = cap;
+        dx += bnx * best_need;
+        dz += bnz * best_need;
+        if (dx * dx + dz * dz > cap * cap) {
+            float len = sqrtf(dx * dx + dz * dz);
+            dx *= cap / len;
+            dz *= cap / len;
+            break;
+        }
+    }
+    if (dx == 0.f && dz == 0.f)
+        return 0;
+    if (pdx)
+        *pdx = dx;
+    if (pdz)
+        *pdz = dz;
+    return 1;
+}
+
+int port_stage_g1_wall_ray(float lx, float lz, float dx, float dz, float *t_out)
+{
+    int rooms[8], nr, j;
+    float best = 4000.f;
+    int hit = 0;
+    float len, ux, uz;
+
+    if (g_bg_rooms < 8)
+        return 0;
+    len = sqrtf(dx * dx + dz * dz);
+    if (len < 1e-4f)
+        return 0;
+    ux = dx / len;
+    uz = dz / len;
+    nr = g1_wall_rooms(lx, lz, rooms, 8);
+    for (j = 0; j < nr; j++) {
+        int room = rooms[j], i, p0, pn;
+        g1_collect_room_walls(room);
+        if (room < 1 || room >= PORT_MAX_BG_ROOMS)
+            continue;
+        p0 = (int)g_rm_w0[room];
+        pn = (int)g_rm_wn[room];
+        for (i = 0; i < pn; i++) {
+            const G1LeafPlane *pl = &g_walls[p0 + i];
+            float denom, t, hx, hz, across;
+            if (g1_wall_is_portal(pl))
+                continue;
+            denom = ux * pl->wx + uz * pl->wz;
+            if (fabsf(denom) < 1e-4f)
+                continue;
+            t = ((pl->pcx - lx) * pl->wx + (pl->pcz - lz) * pl->wz) / denom;
+            if (t < 0.05f || t > 4000.f)
+                continue;
+            hx = lx + ux * t;
+            hz = lz + uz * t;
+            across = (hx - pl->pcx) * pl->tx + (hz - pl->pcz) * pl->tz;
+            if (across < 0.f)
+                across = -across;
+            if (across > pl->half_w + 10.f)
+                continue;
+            if (t < best) {
+                best = t;
+                hit = 1;
+            }
+        }
+    }
+    if (!hit)
+        return 0;
+    if (t_out)
+        *t_out = best;
+    return 1;
+}
+
+void port_stage_dump_g1_walls(float lx, float lz)
+{
+    int rooms[8], nr, j, npr = 0;
+    float pdx = 0.f, pdz = 0.f, t = 0.f;
+
+    if (g_bg_rooms < 8) {
+        printf("g1clip cam=%.1f,%.1f walls=0 (no retail G1)\n", (double)lx, (double)lz);
+        return;
+    }
+    nr = g1_wall_rooms(lx, lz, rooms, 8);
+    (void)port_stage_g1_wall_push(lx, lz, 30.f, &pdx, &pdz);
+    printf("g1clip cam=%.1f,%.1f rooms=%d push=%.1f,%.1f ray=%d", (double)lx, (double)lz, nr,
+           (double)pdx, (double)pdz, port_stage_g1_wall_ray(lx, lz, 0.f, 1.f, &t));
+    if (t > 0.f)
+        printf(" t_z+=%.1f", (double)t);
+    printf("\n");
+    for (j = 0; j < nr; j++) {
+        int room = rooms[j], i, p0, pn;
+        g1_collect_room_walls(room);
+        if (room < 1 || room >= PORT_MAX_BG_ROOMS)
+            continue;
+        p0 = (int)g_rm_w0[room];
+        pn = (int)g_rm_wn[room];
+        for (i = 0; i < pn && npr < 8; i++) {
+            const G1LeafPlane *pl = &g_walls[p0 + i];
+            float rx = lx - pl->pcx, rz = lz - pl->pcz;
+            float along = rx * pl->wx + rz * pl->wz;
+            float across = rx * pl->tx + rz * pl->tz;
+            int portal = g1_wall_is_portal(pl);
+            if (across < 0.f)
+                across = -across;
+            if (across > pl->half_w + 40.f)
+                continue;
+            printf("g1clip[%d] r%d pc=%.1f,%.1f n=%.2f,%.2f hw=%.1f along=%.1f across=%.1f "
+                   "portal=%d\n",
+                   npr, room, (double)pl->pcx, (double)pl->pcz, (double)pl->wx,
+                   (double)pl->wz, (double)pl->half_w, (double)along, (double)across, portal);
+            npr++;
+        }
     }
 }
 

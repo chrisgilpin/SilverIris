@@ -58,6 +58,12 @@ int port_stage_g1_chr_push(float cam_lx, float cam_lz, float pad_lx, float pad_l
 /* 1 if the camera-to-pad segment hits a closed G1 door rectangle (pad is
  * behind the leaf). Extra idle in the same hall does not hit. */
 int port_stage_g1_leaf_blocks(float cam_lx, float cam_lz, float pad_lx, float pad_lz);
+/* Push a player cylinder off interior G1 walls (same-tile / one-sided).
+ * Path openings and different-room portals are skipped (stan doors). */
+int port_stage_g1_wall_push(float lx, float lz, float radius, float *pdx, float *pdz);
+/* First interior G1 wall along xz dir. t is distance along the unit dir. */
+int port_stage_g1_wall_ray(float lx, float lz, float dx, float dz, float *t_out);
+void port_stage_dump_g1_walls(float lx, float lz);
 /* Harness: print AABB vs nearby G1 door leaves (straddle / ray-rect). */
 void port_stage_dump_chr_vs_g1(float cam_lx, float cam_lz, float pad_lx, float pad_lz,
                                float x0, float z0, float x1, float z1);

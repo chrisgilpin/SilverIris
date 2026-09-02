@@ -4465,6 +4465,29 @@ static void push_off_slabs(float world_x, float world_z, float radius, float *pd
         *pdz = dz;
 }
 
+int port_prop_push_off_slabs_local(float lx, float lz, float radius, float *pdx, float *pdz)
+{
+    float r1[3];
+    float wx, wz, dx = 0.f, dz = 0.f;
+
+    if (pdx)
+        *pdx = 0.f;
+    if (pdz)
+        *pdz = 0.f;
+    r1[0] = r1[1] = r1[2] = 0.f;
+    (void)port_stage_room1(r1);
+    wx = lx + r1[0];
+    wz = lz + r1[2];
+    push_off_slabs(wx, wz, radius, &dx, &dz);
+    if (dx == 0.f && dz == 0.f)
+        return 0;
+    if (pdx)
+        *pdx = dx;
+    if (pdz)
+        *pdz = dz;
+    return 1;
+}
+
 int port_prop_slab_emit_count(void) { return g_slab_emit_n; }
 
 int port_prop_slab_emit_at(int i, float *x, float *z, float *yaw, int *kind)
@@ -5520,15 +5543,16 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
                     tmp.yaw = (leftx > 0.f) ? -90.f : 90.f;
                 tmp.scale = 1.f;
                 /* Cover the G1≠stan left void at spawn. A 640-wide stamp
-                 * spanned the hall (player at x=-219 still stood in front
-                 * of it). Door-sized ~280 matches the r71 G1 cutout. */
-                slab = slab_sized(280.f, 360.f);
+                 * spanned the hall; 280 still reached x=-219 so door-jump
+                 * looked along the leaf (garage door glued to the left).
+                 * Pgas native ~700x1575 → 360 tall is ~160-200 wide. */
+                slab = slab_sized(180.f, 360.f);
                 tmp.mdl = slab;
                 g_alcove_x = tmp.pos[0] - room1[0];
                 g_alcove_z = tmp.pos[2] - room1[2];
                 g_alcove_yaw = tmp.yaw;
                 g_alcove_emitted = 1;
-                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1, 280.f);
+                slab_emit_note(tmp.pos[0], tmp.pos[2], tmp.yaw, 1, 180.f);
                 k = emit_parts(out, cap, k, &tmp, slab, room1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                                0.f, 0.f, 0.f, 0.f);
             }

@@ -2559,6 +2559,7 @@ static void playtest_pose(const char *tag, float x, float z, float th)
            (double)ny, (double)tblk);
     port_stan_debug_at(x, z);
     port_stage_dump_walls_at(x, ey, z);
+    port_stage_dump_g1_walls(x, z);
     port_stan_link_reach(x, z);
     /* 8-way clip_step one tick: see if a rising floor exists. */
     {
@@ -3818,10 +3819,25 @@ static int playtest_chris(const char *out_dir)
         vx = wx;
         vz = wz;
         port_stan_visual_xz(wx, wz, &vx, &vz);
-        printf("playtest wall_close step=%d blocked=%d body=%.1f,%.1f eye=%.1f "
-               "visual=%.1f,%.1f dvis=%.1f\n",
-               step, blocked, (double)wx, (double)wz, (double)wy, (double)vx,
-               (double)vz, (double)sqrtf((vx - wx) * (vx - wx) + (vz - wz) * (vz - wz)));
+        {
+            float ldx, ldz, tg1 = 0.f;
+            int g1hit;
+            playtest_forward(PLAY_WALL_TH, 1.f, &ldx, &ldz);
+            g1hit = port_stage_g1_wall_ray(wx, wz, ldx, ldz, &tg1);
+            printf("playtest wall_close step=%d blocked=%d body=%.1f,%.1f eye=%.1f "
+                   "visual=%.1f,%.1f dvis=%.1f g1_ray=%d t=%.1f\n",
+                   step, blocked, (double)wx, (double)wz, (double)wy, (double)vx,
+                   (double)vz,
+                   (double)sqrtf((vx - wx) * (vx - wx) + (vz - wz) * (vz - wz)), g1hit,
+                   (double)tg1);
+            port_stage_dump_g1_walls(wx, wz);
+            if (g1hit && tg1 < 18.f) {
+                fprintf(stderr,
+                        "play_wall_close g1_ray t=%.1f (body through visual wall)\n",
+                        (double)tg1);
+                return -1;
+            }
+        }
         port_player_set_pose(wx, wy, wz, PLAY_WALL_TH);
         port_player_set_pitch(-35.f);
         if (shot_one(out_dir, "play_wall_close") != 0)

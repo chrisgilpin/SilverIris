@@ -2086,3 +2086,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
   Do not close P0-2/P0-3 without Mihok/live match.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 player G1 wall clip + door-sized alcove)
+
+P0-3/P0-2 slice on top of spawn-pinned alcove `07e6b41` (KEEP). This push.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+Interior G1 faces that sit inside a walkable tile were stan-only, so
+`play_corner` stood 10.6u through a visual wall. `clip_step` / visual xz /
+hitscan now push and ray against interior G1 planes (path openings and
+different-room portals skipped; neighbor rooms scanned). Fitted leaves
+(alcove / cutout / path) also push the player cylinder. Spawn alcove is
+180-wide (Pgas aspect), not 280, so door-jump at x=−219 is past the leaf
+instead of looking along a garage door. KEEP door-jump `102237e`, viscyl
+`dfde794`, SHADE*TEXEL `6377093`, alcove pin `07e6b41`, wasm-stack FPS
+`ff37828`.
+
+**1 — clip / alcove.** `play_corner` g1clip push 27u off a 10.6u-through
+face. `play_wall_close` blocked=1 on stan skin (G1/stan aligned after
+`e21097d`). `play_door_chris2` alcove none; gi=37 vis dpad=22.5; full
+standing body. `door_jump` alcove stays spawn-left (−89.5,−2274 yaw 180,
+spawn_d=0,+116). `play_spawn` / `play_door_chris1` show 685 handle bars
+on the left leaf. `play_clip_door` clipdoor_fill dark=43 metal=4185
+mauve=101 `olive n=34` hunt teleports=0. `mihok_block` clip_step d=12.0.
+
+**2 — hitch / FPS.** `play_spawn` frame_ms=11.45 drawn=71 seen=2
+skip_range=1 skip_leaf=22 mag=7/21. `long_walk` frame_ms=12.85.
+`long_walk_hall` (−348,−2117) frame_ms=13.12 — 35ms class kept.
+`door_jump` frame_ms=13.62. y=29.12.
+
+Native player/gun/lockstep/2p-corridor green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok ~01:06 ET was
+  `07e6b41`; this SHA narrows the alcove and keeps SHADE*TEXEL handles).
+  Do not close without Mihok/live match.
+- P0-3 live match still required. `play_wall` pitch −35 still reads as
+  ceiling (already on stan skin 30). Mihok pose left void / missing
+  neighbor still open. Do not close without Mihok/live match.
+- Combat AI / matching engine later. Campaign out of v1.
+
