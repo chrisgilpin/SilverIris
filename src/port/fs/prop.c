@@ -5454,13 +5454,12 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     {
                         /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520
                          * sits above the oliveguard collar (default-head DL
-                         * stripped). 26u world Y left a live θ263 wall gap
-                         * (Mihok 0732); 100u model Y (~12 world) and neck-
-                         * column / pad-yaw XZ shoved the head into the torso
-                         * or off to the side. Drop world Y only, skip die
-                         * rest (copy, not the shared table). */
+                         * stripped). 26u/52u world Y left a live θ263 / high-
+                         * behind wall gap (Mihok 0732/1018). 220u buried the
+                         * face; neck-column / pad-yaw XZ shoved. Drop world Y
+                         * only, skip die rest (copy, not the shared table). */
                         float headj[4][4];
-                        const float seat_y = dead ? 0.f : 52.f;
+                        const float seat_y = dead ? 0.f : 80.f;
                         memcpy(headj, mdl->head_mtx, sizeof headj);
                         if (g_head_joint_drawn == 0) {
                             static int s_head_log;
