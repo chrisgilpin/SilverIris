@@ -4335,7 +4335,7 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
  * tiles at cn=255 was the mauve ribbed slab: 685-688 albedo is dusty
  * rose; N64 is SHADE*TEXEL on Rare grey cn. Fitted faces copy that
  * P*Z, scale xyz to the Rare portal, and leave cn/ST alone. Missing
- * / non-seg4 packs keep a 4-row G1DL with retail-like grey cn. */
+ * / non-seg4 packs keep 686-688 full-height ribs plus two 685 bar quads. */
 #define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 top panel; imagelist "685" */
 #define SLAB_PANEL0_TEX 686u
 #define SLAB_PANEL1_TEX 687u
@@ -4353,6 +4353,19 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 #define SLAB_SETTEX_MIRROR 0xC0580002u /* cms=1 cmt=1, same as P*Z */
 #define SLAB_UV_S 992                  /* retail panel ST */
 #define SLAB_UV_T 1024
+/* Image 685 is a dusty-rose field with two handle bars in the lower-right
+ * (texels s≈12–17 / 23–29, t≈16–28 of 32). A full-width 685 overlay paints
+ * that mauve field over 686-688 so the pills vanish into a dark plate
+ * (fea5c04 harness faint; Mihok 0645 needed the empty field for contrast).
+ * Crop S/T to the bar texels and emit two narrow quads. */
+#define SLAB_BAR0_S0 384
+#define SLAB_BAR0_S1 544
+#define SLAB_BAR1_S0 736
+#define SLAB_BAR1_S1 928
+#define SLAB_BAR_T0 512
+#define SLAB_BAR_T1 896
+#define SLAB_BAR_Y0 16 /* percent of leaf */
+#define SLAB_BAR_Y1 72
 #define SLAB_DOUBLE_HW 160
 /* In-plane pad covers the G1 jamb. Toward-camera push wins z over the rim
  * so 1.15× oversize is not needed (that ballooned the r71 alcove). */
@@ -4643,14 +4656,35 @@ static void slab_leaf_x(int16_t hw, int dbl, int i, int16_t *x0, int16_t *x1)
     }
 }
 
+static int16_t slab_i16(float v)
+{
+    if (v >= 0.f)
+        return (int16_t)(v + 0.5f);
+    return (int16_t)(v - 0.5f);
+}
+
+/* One ST copy: s=0 at x=-hw, s=SLAB_UV_S at x=+hw. */
+static int16_t slab_s_to_x(int16_t hw, int s)
+{
+    return slab_i16((float)hw * ((2.f * (float)s / (float)SLAB_UV_S) - 1.f));
+}
+
+static void slab_set_xyzst(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16_t t)
+{
+    wr16(v + 0, (uint16_t)x);
+    wr16(v + 2, (uint16_t)y);
+    wr16(v + 4, (uint16_t)z);
+    wr16(v + 8, (uint16_t)s);
+    wr16(v + 10, (uint16_t)t);
+}
+
 static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
 {
-    /* 688/687 kickplate, 685 handle bars in the visible middle, 686 lintel.
-     * Top-38% 685 was a lintel sliver on Mihok 0732; 78% 685 ate the ribs. */
-    static const uint32_t k_row_tex[4] = { SLAB_PANEL2_TEX, SLAB_PANEL1_TEX,
-                                           SLAB_DOOR_TEX, SLAB_PANEL0_TEX };
-    /* Pgas dump cn, bottom 688 → 687 → 685 handles → 686 lintel. */
-    static const uint8_t k_row_cn[5] = { 120, 136, 174, 197, 197 };
+    /* 688/687/686 full-height ribs, then two T-cropped 685 handle bars.
+     * A mid-leaf 685 *panel* (fea5c04) was the mauve field, not two pills. */
+    static const uint32_t k_row_tex[3] = { SLAB_PANEL2_TEX, SLAB_PANEL1_TEX,
+                                           SLAB_PANEL0_TEX };
+    static const uint8_t k_row_cn[4] = { 120, 136, 174, 197 };
     uint32_t cmd = 4;
     uint32_t vtx = SLAB_VTX_BASE;
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
@@ -4658,7 +4692,7 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     int dbl = (hw >= SLAB_DOUBLE_HW);
     int nleaf = dbl ? 2 : 1;
     int row, i;
-    int16_t y[5];
+    int16_t y[4], y0, y1, x0, x1;
 
     memset(f, 0, SLAB_FILE_SIZE);
     wr32(f, PORT_BG_MAGIC_G1DL);
@@ -4667,25 +4701,16 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     cmd += 8;
 
     y[0] = 0;
-    y[1] = (int16_t)((ht * 16) / 100);
-    y[2] = (int16_t)((ht * 28) / 100);
-    y[3] = (int16_t)((ht * 76) / 100);
-    y[4] = ht;
-    /* Four stacked P*Z panels. s=0 at the meeting edge on a double leaf so
-     * 685's handle bars sit on each leaf, not stretched across the portal. */
-    for (row = 0; row < 4; row++) {
-        int16_t t0 = 0, t1 = vt;
+    y[1] = (int16_t)((ht * 33) / 100);
+    y[2] = (int16_t)((ht * 66) / 100);
+    y[3] = ht;
+    for (row = 0; row < 3; row++) {
         wr32(f + cmd, SLAB_SETTEX_MIRROR);
         wr32(f + cmd + 4, k_row_tex[row]);
         cmd += 8;
-        /* 685 texels t=0..512 are empty mauve; bars live at t≈512..896. */
-        if (k_row_tex[row] == SLAB_DOOR_TEX) {
-            t0 = 512;
-            t1 = 896;
-        }
         for (i = 0; i < nleaf; i++) {
-            int16_t x0, x1, s0, s1;
-            slab_leaf_x(hw, dbl, i, &x0, &x1);
+            int16_t sx0, sx1, s0, s1;
+            slab_leaf_x(hw, dbl, i, &sx0, &sx1);
             if (dbl && i == 0) {
                 s0 = us;
                 s1 = 0;
@@ -4693,10 +4718,24 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
                 s0 = 0;
                 s1 = us;
             }
-            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, t0, s1, t1,
+            slab_cmd_quad(f, &cmd, &vtx, sx0, y[row], sx1, y[row + 1], 0, s0, 0, s1, vt,
                           k_row_cn[row], k_row_cn[row + 1]);
         }
     }
+    /* Two 685 bar quads on top of the ribs (same plane; later tris win). */
+    y0 = (int16_t)((ht * SLAB_BAR_Y0) / 100);
+    y1 = (int16_t)((ht * SLAB_BAR_Y1) / 100);
+    wr32(f + cmd, SLAB_SETTEX_MIRROR);
+    wr32(f + cmd + 4, SLAB_DOOR_TEX);
+    cmd += 8;
+    x0 = slab_s_to_x(hw, SLAB_BAR0_S0);
+    x1 = slab_s_to_x(hw, SLAB_BAR0_S1);
+    slab_cmd_quad(f, &cmd, &vtx, x0, y0, x1, y1, 0, SLAB_BAR0_S0, SLAB_BAR_T0, SLAB_BAR0_S1,
+                  SLAB_BAR_T1, 174, 197);
+    x0 = slab_s_to_x(hw, SLAB_BAR1_S0);
+    x1 = slab_s_to_x(hw, SLAB_BAR1_S1);
+    slab_cmd_quad(f, &cmd, &vtx, x0, y0, x1, y1, 0, SLAB_BAR1_S0, SLAB_BAR_T0, SLAB_BAR1_S1,
+                  SLAB_BAR_T1, 174, 197);
 
     wr32(f + cmd, end);
     wr32(f + cmd + 4, 0);
@@ -4765,13 +4804,6 @@ static void alcove_hall_left(float *leftx, float *leftz)
     *leftz = 1.f;
 }
 
-static int16_t slab_i16(float v)
-{
-    if (v >= 0.f)
-        return (int16_t)(v + 0.5f);
-    return (int16_t)(v - 0.5f);
-}
-
 /* Copy Pgas and scale the 96-vert bank to this portal. Keep ST + cn. */
 static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int16_t hw,
                            int16_t ht)
@@ -4826,26 +4858,19 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
         x = (int16_t)((v[0] << 8) | v[1]);
         y = (int16_t)((v[2] << 8) | v[3]);
         z = (int16_t)((v[4] << 8) | v[5]);
-        /* Retail 685 is verts 0-15, Y 394..788 (top 25%), s=0 at x=0 so
-         * each half copies the two bars (four nubs). One ST copy + T crop
-         * keeps two pills. Top 38% (a4dd15e) was a lintel sliver on live
-         * (Mihok 0732); 78% (c00070a) ate 686-688 ribs (Mihok 0645).
-         * Stretch 686-688 over the full leaf and overlay 685 in the
-         * visible middle with a small Z push so spawn/θ263 reads bars
-         * AND brown ribs. */
+        /* Retail 685 is verts 0-15 (top 25%). Stretch 686-688 over the
+         * full leaf; 685 bars are rewritten after this loop as two
+         * S/T-cropped quads (not a mauve mid-leaf panel). */
         orig_t = ((float)y - bottom) / tall;
         if (orig_t < 0.f)
             orig_t = 0.f;
         if (orig_t > 1.f)
             orig_t = 1.f;
         if (i < 16u) {
-            float u = (orig_t - 0.75f) / 0.25f;
-            if (u < 0.f)
-                u = 0.f;
-            if (u > 1.f)
-                u = 1.f;
-            new_t = 0.16f + u * 0.56f; /* visible mid 16%..72% */
-        } else if (i < 64u) {
+            v += 16;
+            continue;
+        }
+        if (i < 64u) {
             float u = orig_t / 0.75f;
             if (u < 0.f)
                 u = 0.f;
@@ -4856,27 +4881,45 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
             new_t = orig_t;
         wr16(v + 0, (uint16_t)slab_i16((float)x * ((float)hw / half_w)));
         wr16(v + 2, (uint16_t)slab_i16(new_t * (float)ht));
-        {
-            float z_out = (float)z * zsc;
-            /* 685 in front of the stretched 686-688 plates. */
-            if (i < 16u) {
-                if (z_out > 0.f)
-                    z_out += 4.f;
-                else if (z_out < 0.f)
-                    z_out -= 4.f;
-            }
-            wr16(v + 4, (uint16_t)slab_i16(z_out));
-        }
-        if (i < 16u && half_w > 1.f) {
-            int16_t sfull, tsrc, tbar;
-            sfull = slab_i16(((float)x + half_w) / (2.f * half_w) * (float)SLAB_UV_S);
-            wr16(v + 8, (uint16_t)sfull);
-            tsrc = (int16_t)((v[10] << 8) | v[11]);
-            /* Native 685: empty mauve in t=0..512, bars in ~512..896. */
-            tbar = (int16_t)(512 + ((int)tsrc * 384) / 1024);
-            wr16(v + 10, (uint16_t)tbar);
-        }
+        wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
         v += 16;
+    }
+    /* Two 685 handle bars, front and back. Native 685 is a mauve field
+     * with pills at s≈384..544 / 736..928, t≈512..896. Keep 686-688
+     * ribs visible between them. 4u Z push in front of the plates. */
+    if (n >= 16u) {
+        int16_t y0 = (int16_t)((ht * SLAB_BAR_Y0) / 100);
+        int16_t y1 = (int16_t)((ht * SLAB_BAR_Y1) / 100);
+        int16_t x0 = slab_s_to_x(hw, SLAB_BAR0_S0);
+        int16_t x1 = slab_s_to_x(hw, SLAB_BAR0_S1);
+        int16_t x2 = slab_s_to_x(hw, SLAB_BAR1_S0);
+        int16_t x3 = slab_s_to_x(hw, SLAB_BAR1_S1);
+        float zf = SLAB_RETAIL_Z * zsc + SLAB_ZPUSH;
+        float zb = -SLAB_RETAIL_Z * zsc - SLAB_ZPUSH;
+        int16_t z_f = slab_i16(zf);
+        int16_t z_b = slab_i16(zb);
+        uint8_t *b = f + voff;
+        /* Front right 0-3 → bar 1 (right). Winding BR,TR,TL,BL. */
+        slab_set_xyzst(b + 0 * 16u, x3, y0, z_f, SLAB_BAR1_S1, SLAB_BAR_T0);
+        slab_set_xyzst(b + 1 * 16u, x3, y1, z_f, SLAB_BAR1_S1, SLAB_BAR_T1);
+        slab_set_xyzst(b + 2 * 16u, x2, y1, z_f, SLAB_BAR1_S0, SLAB_BAR_T1);
+        slab_set_xyzst(b + 3 * 16u, x2, y0, z_f, SLAB_BAR1_S0, SLAB_BAR_T0);
+        /* Front left 4-7 → bar 0. Original order center-top, left-top,
+         * left-bot, center-bot. */
+        slab_set_xyzst(b + 4 * 16u, x1, y1, z_f, SLAB_BAR0_S1, SLAB_BAR_T1);
+        slab_set_xyzst(b + 5 * 16u, x0, y1, z_f, SLAB_BAR0_S0, SLAB_BAR_T1);
+        slab_set_xyzst(b + 6 * 16u, x0, y0, z_f, SLAB_BAR0_S0, SLAB_BAR_T0);
+        slab_set_xyzst(b + 7 * 16u, x1, y0, z_f, SLAB_BAR0_S1, SLAB_BAR_T0);
+        /* Back right 8-11 → bar 1. */
+        slab_set_xyzst(b + 8 * 16u, x2, y0, z_b, SLAB_BAR1_S0, SLAB_BAR_T0);
+        slab_set_xyzst(b + 9 * 16u, x2, y1, z_b, SLAB_BAR1_S0, SLAB_BAR_T1);
+        slab_set_xyzst(b + 10 * 16u, x3, y1, z_b, SLAB_BAR1_S1, SLAB_BAR_T1);
+        slab_set_xyzst(b + 11 * 16u, x3, y0, z_b, SLAB_BAR1_S1, SLAB_BAR_T0);
+        /* Back left 12-15 → bar 0. */
+        slab_set_xyzst(b + 12 * 16u, x1, y0, z_b, SLAB_BAR0_S1, SLAB_BAR_T0);
+        slab_set_xyzst(b + 13 * 16u, x0, y0, z_b, SLAB_BAR0_S0, SLAB_BAR_T0);
+        slab_set_xyzst(b + 14 * 16u, x0, y1, z_b, SLAB_BAR0_S0, SLAB_BAR_T1);
+        slab_set_xyzst(b + 15 * 16u, x1, y1, z_b, SLAB_BAR0_S1, SLAB_BAR_T1);
     }
     memset(dst, 0, sizeof *dst);
     dst->file = f;
