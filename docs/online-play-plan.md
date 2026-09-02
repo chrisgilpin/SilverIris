@@ -2229,3 +2229,54 @@ Native player/gun/lockstep/2p-corridor/g1/audio green. Greyscale
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 pack BODY_FALL thud cycle `8b2f09e`)
+
+N64-feel SFX on top of yelp cycle `83e2b16` (KEEP). SHA `8b2f09e`.
+Guard deaths cycle pack `BODY_FALL_C1`–`E3` + `BODY_ROLLOVER` (sfx.ctl
+123–133) like Rare `thud_index` / `body_hit_SFX` (wrap at 11). Not game
+RNG. First fall stays C1 so the overlay contract is unchanged. C/D/E
+groups share a wavetable (ASP pitch still out); C≠D is the first
+distinct PCM. Placeholders remain without a pack. Fire≠use last_sfx
+contract unchanged (play_gun after hitscan; dry=2, door=3).
+
+KEEP `83e2b16` yelp cycle, `6098d45` yelp/hurt overlay, `4785f0f` G1
+clip+alcove180, `07e6b41` alcove/joint, `6377093` Pgas SHADE*TEXEL,
+`ff37828` wasm-stack FPS, `4f05c3f` rifle-cock, `6ad59c5` flesh-hit.
+
+**1 — fall cycle.** `sfx_bank ready=1 … reload_n=10320 yelp_n=1552
+hurt_n=10544 yelp_vars=25 fall_vars=11`. `sfx_fall last=4 mix_diff=512`.
+`sfx_yelp last=13 mix_diff=512`. `sfx_hurt last=14 mix_diff=512`.
+`sfx_yelp_fall last=4 mix_diff=464` (voice does not replace fall).
+`sfx_fall_cycle vars=11 nC=3904 nD=3792 eC=72772851402 eD=45187614454
+mix_diff=4096 wrap_diff=0 last=4`. `play_hall_a` hp 8→6 gfire=2 sfx=14
+(Bond hurt on guard fire). `pad_use_no_fire` sfx=3. `dry_fire` mag=0→0
+flash=0 act=2 sfx=2. `pad_fire_no_unlatch` mag=7→6 flash=3 open=0→0
+act=1 sfx=1.
+
+**2 — hitch / doors / clip.** Re-measured: `play_spawn` spawn_fill
+dark=55 metal=7175 area=13376 mauve=203 frame_ms=12.20 (82.0 fps)
+drawn=71 seen=2 skip_range=1 skip_leaf=22 mag=7/21 held=1 headj=1.
+`long_walk` frame_ms=13.58. `long_walk_hall` (−348,−2117) frame_ms=14.11
+— 35ms class kept. `door_jump` frame_ms=14.25 alcove spawn-left
+(−89.5,−2274 yaw 180, spawn_d=0,+116). `chris2 vis gi=37 dpad=22.5`.
+`play_clip_door` clipdoor_fill dark=43 metal=4185 mauve=101 `olive n=34`
+hunt teleports=0. `play_corner` g1clip push 27u. `play_wall_close`
+blocked=1. `fire_hitch miss_ms=5.95 hit_ms=5.82 hits=1`. `play_shoot_after`
+kills=2 mag 7/14 held=0 drop=1. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1/audio green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok ~01:06 ET was
+  `07e6b41`; live wasm after this push is `8b2f09e` on `4785f0f` clip +
+  SHADE*TEXEL handles). Do not close without Mihok/live match.
+- P0-3 live match still required. `play_wall` pitch −35 still reads as
+  ceiling (already on stan skin 30). Mihok pose left void / missing
+  neighbor still open. Do not close without Mihok/live match.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
