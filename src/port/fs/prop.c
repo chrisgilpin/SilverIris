@@ -4665,9 +4665,11 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
     cmd += 8;
 
     y[0] = 0;
-    y[1] = (int16_t)(ht / 4);
-    y[2] = (int16_t)(ht / 2);
-    y[3] = (int16_t)((ht * 3) / 4);
+    /* 685 is the handle panel. Equal 25% rows left it a ~8px lintel strip
+     * at spawn (Mihok 0542: ribs, no distinct bars). Top 42%. */
+    y[1] = (int16_t)((ht * 20) / 100);
+    y[2] = (int16_t)((ht * 40) / 100);
+    y[3] = (int16_t)((ht * 58) / 100);
     y[4] = ht;
     /* Four stacked P*Z panels. s=0 at the meeting edge on a double leaf so
      * 685's handle bars sit on each leaf, not stretched across the portal. */
@@ -4812,13 +4814,26 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
     v = f + voff;
     for (i = 0; i < n; i++) {
         int16_t x, y, z;
+        float orig_t, new_t;
         if (v + 16u > f + SLAB_FILE_SIZE)
             break;
         x = (int16_t)((v[0] << 8) | v[1]);
         y = (int16_t)((v[2] << 8) | v[3]);
         z = (int16_t)((v[4] << 8) | v[5]);
+        /* Retail 685 is Y 394..788 of -787..788 (top 25%). Spawn distance
+         * made that a lintel of nubs (Mihok 0542). Stretch 685 to the top
+         * 42%; 686-688 share the lower 58%. Shared Y=394 verts stay a seam. */
+        orig_t = ((float)y - bottom) / tall;
+        if (orig_t < 0.f)
+            orig_t = 0.f;
+        if (orig_t > 1.f)
+            orig_t = 1.f;
+        if (orig_t >= 0.75f)
+            new_t = 0.58f + (orig_t - 0.75f) / 0.25f * 0.42f;
+        else
+            new_t = orig_t / 0.75f * 0.58f;
         wr16(v + 0, (uint16_t)slab_i16((float)x * ((float)hw / half_w)));
-        wr16(v + 2, (uint16_t)slab_i16(((float)y - bottom) * ((float)ht / tall)));
+        wr16(v + 2, (uint16_t)slab_i16(new_t * (float)ht));
         wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
         v += 16;
     }
@@ -5361,10 +5376,22 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                                    dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
                         }
                     }
-                    g_emit_jtab = &mdl->head_mtx[0][0];
-                    g_emit_nj = 1;
-                    k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
-                                   0.f, 0.f, add_yaw, pdx, 0.f, pdz);
+                    {
+                        /* Dump neck T.y=520 sits a few units above the
+                         * oliveguard collar. Spawn crease is small; look-left
+                         * (Mihok 0542 θ263) reads a wall gap. Slide down the
+                         * neck Y axis. Copy — do not write the shared table. */
+                        float headj[4][4];
+                        const float seat = 48.f;
+                        memcpy(headj, mdl->head_mtx, sizeof headj);
+                        headj[0][3] -= seat * headj[0][1];
+                        headj[1][3] -= seat * headj[1][1];
+                        headj[2][3] -= seat * headj[2][1];
+                        g_emit_jtab = &headj[0][0];
+                        g_emit_nj = 1;
+                        k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f, 0.f,
+                                       0.f, 0.f, add_yaw, pdx, 0.f, pdz);
+                    }
                     g_head_joint_drawn++;
                 } else
                     k = emit_parts(out, cap, k, pr, pr->head, room1, hx, hy, hz, hrx, hry,

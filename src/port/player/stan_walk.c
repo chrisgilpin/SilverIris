@@ -1697,6 +1697,11 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
         float lx2 = wx - g_ox, lz2 = wz - g_oz;
         (void)port_stage_g1_wall_push(lx2, lz2, PORT_DRAW_SKIN, &pdx, &pdz);
         (void)port_prop_push_off_slabs_local(lx2, lz2, PORT_DRAW_SKIN, &sdx, &sdz);
+        /* Tile-147 −X skip is not enough: G1/slab DRAW_SKIN still pulled
+         * idle40 look-at −7.7 −X (Mihok 0542 profile neck gap). Keep +X/+Z. */
+        if (pdx + sdx < -1.f) {
+            sdx = -pdx;
+        }
         lx2 += pdx + sdx;
         lz2 += pdz + sdz;
         wx = lx2 + g_ox;
@@ -1704,6 +1709,8 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
     }
     dx = (wx - g_ox) - lx;
     dz = (wz - g_oz) - lz;
+    if (dx < -1.f)
+        dx = 0.f;
     len = sqrtf(dx * dx + dz * dz);
     if (len > PORT_VISUAL_CAP && len > 0.1f) {
         dx *= PORT_VISUAL_CAP / len;

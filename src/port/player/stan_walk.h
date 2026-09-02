@@ -113,9 +113,9 @@ int port_stan_snap_walkable(float *local_x, float *local_z, float look_x, float 
  */
 void port_stan_clip_step(float ox, float oz, float *nx, float *nz, float *ny);
 /* Draw-only camera xz. Pulls off unlinked edges / G1 walls / fitted leaves
- * then caps the offset at 16u (DRAW_SKIN 46 − WALL_SKIN 30). A −X unlinked
- * shove on tile 147 is dropped (stall leaf: no 685 bars, extra-idle neck
- * gap). Uncapped inward-edge look-at sat in that leaf. clip_step /
+ * then caps the offset at 16u (DRAW_SKIN 46 − WALL_SKIN 30). Any −X look-at
+ * (tile 147 unlinked, G1, fitted slabs) is dropped so spawn 685 bars stay
+ * face-on and the extra-idle neck is not a profile gap. clip_step /
  * PORT_WALL_SKIN stay 30. */
 void port_stan_visual_xz(float lx, float lz, float *ox, float *oz);
 /* Push room-local xz off the nearest unlinked stan edge along its inward
