@@ -1944,6 +1944,58 @@ static unsigned count_mauve_rect(const uint8_t *rgba, int w, int h, int x0, int 
     return n;
 }
 
+/* Column luma range among metal pixels. Ribs-only is flat in X; 685
+ * handle bars are two darker vertical columns. */
+static unsigned metal_col_range(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                                int y1)
+{
+    unsigned col_sum[128], col_n[128];
+    unsigned i, n = 0;
+    unsigned minm = 255, maxm = 0;
+    int x, y, ncols;
+
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    ncols = x1 - x0;
+    if (ncols < 8 || ncols > 128)
+        return 0;
+    memset(col_sum, 0, sizeof col_sum);
+    memset(col_n, 0, sizeof col_n);
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2], luma;
+            if (pr < 50u || pg > pr + 8u || pb > pr + 16u)
+                continue;
+            if (pg >= 50u && pg > pr + 8u && pg > pb + 8u)
+                continue;
+            luma = (pr + pg + pb) / 3u;
+            col_sum[x - x0] += luma;
+            col_n[x - x0]++;
+        }
+    }
+    for (i = 0; i < (unsigned)ncols; i++) {
+        unsigned m;
+        if (col_n[i] < 4u)
+            continue;
+        m = col_sum[i] / col_n[i];
+        if (m < minm)
+            minm = m;
+        if (m > maxm)
+            maxm = m;
+        n++;
+    }
+    if (n < 8u || maxm < minm)
+        return 0;
+    return maxm - minm;
+}
+
 /* SETTEX 685 metal / brown door face. Skip olive camo. */
 static unsigned count_metal_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
                                 int y1)
@@ -3071,8 +3123,8 @@ static int playtest_chris(const char *out_dir)
                 return -1;
             }
         }
-        /* Mihok 0542: live rAF sits at idle40 xz. Look-left θ263 still
-         * showed a Chead neck gap. Snap that pose. */
+        /* Mihok 0612: live rAF sits at idle40 xz. Look-left θ263 still
+         * showed a Chead neck gap after a 48u seat. Snap that pose. */
         place(x1, z1, 270.f);
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_spawn_idle") != 0)
@@ -4570,6 +4622,17 @@ static int shot_one(const char *out_dir, const char *tag)
                 fprintf(stderr, "%s left door still unshaded mauve mauve=%u/%u\n", tag,
                         mauve, area);
                 return -1;
+            }
+            if (!strcmp(tag, "play_lookleft") || !strcmp(tag, "play_spawn_idle")) {
+                unsigned xrange = metal_col_range(fb, w, h, 0, 48, 88, 200);
+                printf("spawn_fill %s handle_xrange=%u\n", tag, xrange);
+                /* Ribs-only is a flat column mean. 685 bars are two darker
+                 * vertical columns (Mihok 0612 live fail). */
+                if (xrange < 18u) {
+                    fprintf(stderr, "%s left door has no 685 handle columns xrange=%u\n",
+                            tag, xrange);
+                    return -1;
+                }
             }
         }
     }
