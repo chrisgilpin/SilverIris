@@ -2042,3 +2042,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
   P0-2/P0-3 without Mihok/live match.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 spawn-pinned alcove + joint door radius `07e6b41`)
+
+P0-2/P0-3 slice on top of retail Pgas SHADE*TEXEL `6377093` (KEEP). SHA `07e6b41`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+The r71 640-wide alcove was player-relative, so walking to chris2 / rotating at
+−219 glued a garage-door leaf to the camera (door-jump KEEP was yaw-only).
+Stamp is now spawn-left, 280-wide (G1 cutout size), and only while Bond is
+within 280u of spawn. Joint living bodies used the skip=pose 160u door
+cylinder, which shoved chris2 guard 37 175u into the far corner (detached
+hat). Radius 40u; same-room pads skip camera-space G1 leaf push (extra-idle
+already did). KEEP door-jump `102237e`, viscyl `dfde794`, SHADE*TEXEL
+`6377093`, wasm-stack FPS `ff37828`.
+
+**1 — alcove / chris2.** `door_jump` alcove stays spawn-left (−89.5,−2274
+yaw 180, spawn_d=0,+116) across 219–279; player_d=129.5,90.3 (did not
+follow). `play_door_chris2` alcove none; gi=37 vis dpad=22.5 (was 175u);
+full standing body, not a hat. `play_spawn` spawn_fill dark=55 metal=7175
+area=13376 mauve=203. `play_hall_a` dark=17 metal=10150 mauve=536.
+`play_clip_door` clipdoor_fill dark=43 metal=4185 mauve=101 `olive n=34`
+hunt teleports=0.
+
+**2 — hitch / FPS / clip.** `play_spawn` frame_ms=14.41 drawn=71 seen=2
+skip_range=1 skip_leaf=22 mag=7/21. `long_walk` frame_ms=16.83.
+`long_walk_hall` (−348,−2117) frame_ms=25.05 — 35ms class kept.
+`door_jump` frame_ms=18.32. `mihok_block` clip_step d=12.0. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok ~23:43 ET was
+  pre-`6377093`). Harness clip-door is brown panels + handles; spawn
+  alcove is a 280-wide spawn-left door, not a following 640 leaf.
+- P0-3 live match still required. chris2 far-corner is a full standing
+  guard on the pad (not a detached head). Player G1≠stan walk-through
+  (`play_wall`) and Mihok pose left void / missing neighbor still open.
+  Do not close P0-2/P0-3 without Mihok/live match.
+- Combat AI / matching engine later. Campaign out of v1.
+
