@@ -3400,3 +3400,52 @@ green. Greyscale
   mixer placeholder `3c97070` (live last_sfx=15 while walking).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 occluded-texel skip `e6e6cb4`)
+
+P0-2 walking rAF slice on fire-hit LIVE-CLOSED `7ab099c` / seq `dd988da`
+(KEEP). SHA `e6e6cb4`. Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye`
+pull + `make -C native wasm` + `silveriris-vite` restart. Live wasm is this
+SHA (**259888**, Last-Modified 19:47:32 GMT).
+
+`put_px` already dropped farther fragments (`z > zb`). Sample and shade
+after that same test so occluded texels are not fetched. G1 greyscale
+unchanged. Spawn_fill KEEP (dark/metal/mauve, handle_xrange 49/52,
+neck_gap=7, mihok_void left_clear=0). Native unopt play_spawn ~53–57ms
+class; long_walk ~32–36ms. Not ASP.
+
+**1 — live walk / fire.** Hard-refresh Chrome `?ff_netplay=0`, pack
+`fff814d2…`. Spawn HUD `x=-98.5 z=-2358.4 y=29.1 θ270 seq=1`. Idle rAF
+**151 / 3500ms ≈ 43.1 fps**; walk KeyW ≈**35.7 fps** (126 / 3533ms) to
+x=−573.3 last_sfx=15 seq=1. Tab did not freeze. Pre-e6e6cb4 Mac 1538 on
+wasm 259886 was idle 42.6 / walk 34.7 — about +1 fps here, not a freeze.
+`.local/mihok-chrome-playtest-20260902-1547.md`. Fire-at-first-enemy after
+this wasm: stall θ261 hits 1 kills 1 mag 7→6, post-hit rAF **179 / 3516ms
+≈ 50.9 fps**, no freeze. `.local/mihok-chrome-playtest-20260902-1548.md`.
+
+**2 — hitch / KEEP.** Stall xz=−98.5,−2358.4. Handles/Chead/void/fire-hit
+untouched. Native g1 greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+player/gun/audio-test green.
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `e6e6cb4` wasm:
+  stall θ261 hit 1 / kill 1, post-hit ≈51 fps). Do not reopen as walking
+  freeze.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~43 / walk ~36 (seq + early-Z) does not close `ff37828`.
+  Facility-box CDP :9226 was not reachable this pass.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1547 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (wavetable, envelopes, spatial). Music is pack
+  compact MIDI on mixer triangles `dd988da`, not ASP. Footsteps remain
+  mixer placeholder `3c97070` (live last_sfx=15 while walking).
+- Combat AI / matching engine later. Campaign out of v1.
+
