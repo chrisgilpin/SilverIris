@@ -1060,7 +1060,11 @@ int port_stage_rooms_adjacent(int a, int b)
 
 /* Rare doorActivatePortal clears PORTALFLAG_DISABLED while opening.
  * Bound path/pad slabs at the portal centre: closed (frac=0) seals vis.
- * No slab (open archway / stair) does not invent a seal. */
+ * No slab (open archway / stair) does not invent a seal.
+ * xz-only on purpose: r6-r71 is the stacked twin of closed r7-r71
+ * (same local xz 650.7,-2058.9, y=-106 vs -425). Walking r6 from r71
+ * would BFS r6→r8 (r8-r6 stacked over r8-r7) and draw the next hall
+ * through the closed leaf. Non-doorlike archways still traverse. */
 static int portal_vis_closed(const PortPortal *po)
 {
     if (!po->doorlike)

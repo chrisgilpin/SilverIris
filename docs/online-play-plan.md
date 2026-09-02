@@ -3169,3 +3169,49 @@ Native player/g1 playtest green. Greyscale
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 missing-neighbor harness)
+
+P0 missing-neighbor / portal-depth slice on `8cc1ce1` (no new wasm). Harness
+exercised `play_door_mihok` (−161,−2382 θ290). Not LIVE-closed — live 1215
+was stall spawn/θ263 only.
+
+r71 has three bg portals: path `r7-r71` and `r11-r71` (closed slabs, vis
+cull) and stacked `r6-r71` at the **same local xz** as `r7-r71`
+(650.7,−2058.9) with y=−106 vs −425. `portal_vis_closed` is xz-only on
+purpose: walking r6 from r71 would BFS r6→r8 (`r8-r6` stacked over
+`r8-r7`) and draw the next hall through the closed leaf (`e9247e9`
+clipdoor KEEP). No side-neighbor portal for the left alcove — that hole
+is one-sided in-room G1, already stamped kind=1 alcove (−89.5,−2242 yaw
+180) + kind=2 cutout (−71.1,−2224 yaw −90).
+
+**1 — Mihok pose.** `play_door_mihok walked n=1 71 cur=71 slabs=4`.
+`mihok_void left_clear=0 left_dark=259 area=16960` (uncleared FB in the
+left third, skip HUD). PNG has no left black rectangle; crate + tiled
+wall + ceiling fill the frame. `g1cut[0]` at that pose is off-screen
+(`along=-142 on=0`). Do not vis-walk stacked twins of closed path
+doors.
+
+**2 — hitch / FPS / KEEP.** No wasm. Handles `f2a753a` and Chead
+`8cc1ce1` untouched. Stall spawn `xz=-98.5,-2358.4` untouched. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+Native player/g1 playtest green (synthetic greyscale unchanged).
+
+**Remaining holes**
+
+- P0-1 live spawn-idle rAF after hard-refresh still required. Harness
+  long_walk is 32.7 fps / 35ms class; hall walk is ~24 fps. Do not close
+  ff37828 re-prove from a Mac capture or from harness alone.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688 ribs
+  + two 685 highlight handle bars. Keep closed unless a later pass
+  regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck DL;
+  no model-Y fudge.
+- Missing-neighbor: harness `play_door_mihok` left_clear=0. Not
+  LIVE-closed — need Mihok at −161,−2382 θ290 after hard-refresh. Do not
+  walk r6 from r71 to "fill" it.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+

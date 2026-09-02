@@ -1914,6 +1914,30 @@ static unsigned count_dark_rect(const uint8_t *rgba, int w, int h, int x0, int y
     return n;
 }
 
+/* Uncleared FB (sw_raster_clear black). Dark texels still have luma. */
+static unsigned count_clear_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                                 int y1)
+{
+    unsigned n = 0;
+    int x, y;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            if (p[0] == 0 && p[1] == 0 && p[2] == 0)
+                n++;
+        }
+    }
+    return n;
+}
+
 /* Unshaded 685-688 albedo (~115,99,99 dusty rose). N64 metal is darker. */
 static unsigned count_mauve_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
                                  int y1)
@@ -4754,6 +4778,21 @@ static int shot_one(const char *out_dir, const char *tag)
                     }
                 }
             }
+        }
+    }
+    if (!strcmp(tag, "play_door_mihok")) {
+        unsigned clear, dark, area;
+        int w = port_api_fb_width(), h = port_api_fb_height();
+        /* Left third, skip HUD. Mihok pose (−161,−2382 θ290) left-side
+         * one-sided r71 alcove: uncleared FB, not dark crate/grout. */
+        clear = count_clear_rect(fb, w, h, 0, 40, w / 3, 200);
+        dark = count_dark_rect(fb, w, h, 0, 40, w / 3, 200);
+        area = (unsigned)((w / 3) * (200 - 40));
+        printf("mihok_void %s left_clear=%u left_dark=%u area=%u walked=%d cur=%d\n", tag,
+               clear, dark, area, port_stage_rooms_walked(), port_stage_current_room());
+        if (clear > area / 20u) {
+            fprintf(stderr, "%s left missing-neighbor void clear=%u/%u\n", tag, clear, area);
+            return -1;
         }
     }
     snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);
