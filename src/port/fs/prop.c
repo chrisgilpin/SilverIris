@@ -4358,6 +4358,10 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
  * so 1.15× oversize is not needed (that ballooned the r71 alcove). */
 #define SLAB_RIM 8.f
 #define SLAB_ZPUSH 4.f
+/* Visual cutout leaves can be 80–450 wide to cover a G1 hole. Collision at
+ * that half-w is an infinite plane through the spawn hall: live rAF walked
+ * Bond off the −89 hallway snap into the stall (HUD x=-219). Door-sized. */
+#define SLAB_CLIP_HALF 100.f
 static uint8_t g_slab_file[SLAB_FILE_SIZE];
 static PortModel g_slab_mdl;
 static int g_slab_ok;
@@ -4408,6 +4412,8 @@ static void push_off_slabs(float world_x, float world_z, float radius, float *pd
             float nx, nz, tx, tz, rx, rz, along, across, need, clear, side;
             if (hw < 20.f)
                 continue;
+            if (hw > SLAB_CLIP_HALF)
+                hw = SLAB_CLIP_HALF;
             if (yaw == 90.f) {
                 nx = 1.f;
                 nz = 0.f;

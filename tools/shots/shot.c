@@ -3024,6 +3024,31 @@ static int playtest_chris(const char *out_dir)
         fprintf(stderr, "play_spawn fitted doors are not retail Pgas\n");
         return -1;
     }
+    /* Live rAF sim-ticks after load. A 400u G1 cutout plane walked Bond from
+     * the hallway snap into the stall (HUD x=-219) in a few seconds. */
+    {
+        int t;
+        float x0 = port_api_player_x(), z0 = port_api_player_z(), x1, z1;
+        for (t = 0; t < 40; t++) {
+            port_api_set_pad(0, 0, 0, 0);
+            if (port_api_sim_tick((uint32_t)(t + 1)) != 0) {
+                fprintf(stderr, "play_spawn idle tick failed\n");
+                return -1;
+            }
+        }
+        x1 = port_api_player_x();
+        z1 = port_api_player_z();
+        printf("play_spawn idle40 xz=%.1f,%.1f d=%.1f,%.1f\n", (double)x1, (double)z1,
+               (double)(x1 - x0), (double)(z1 - z0));
+        /* Off-edge inward nudge is +Z; stall jam is −X to x=-219. */
+        if (x1 < -170.f || (x1 - x0) < -40.f) {
+            fprintf(stderr, "play_spawn idle drift to stall xz=%.1f,%.1f\n", (double)x1,
+                    (double)z1);
+            return -1;
+        }
+        place(spawn_x, spawn_z, 270.f);
+        port_player_set_pitch(0.f);
+    }
     /* Same xz as Mihok live, spawn yaw 270: brown 685 handles, not a grey
      * 4-band slab, extra-idle not overlapping the leaf. */
     {

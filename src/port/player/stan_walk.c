@@ -1556,6 +1556,77 @@ static int dest_too_close_to_wall(float wx, float wz)
     return 0;
 }
 
+/* Inward (into-tile) unit normal of the nearest unlinked edge. Tile 147's
+ * south edge is spawn; its centroid is the stall cubicle, so a centroid
+ * nudge walked Bond to HUD x=-219. */
+static int unlinked_edge_inward(const StanTile *t, float wx, float wz, float *nx,
+                                float *nz, float *dist)
+{
+    float cx = 0.f, cz = 0.f, best_d = 1.0e30f, bnx = 0.f, bnz = 0.f;
+    int k, n, hit = 0;
+
+    if (!t || t->n < 3)
+        return 0;
+    for (k = 0; k < t->n; k++) {
+        cx += t->x[k];
+        cz += t->z[k];
+    }
+    cx /= (float)t->n;
+    cz /= (float)t->n;
+    for (k = 0; k < t->n; k++) {
+        float d, ex, ez, len, px, pz, in;
+        n = (k + 1 == t->n) ? 0 : k + 1;
+        if (t->link[k] >> 4)
+            continue;
+        d = dist_seg(wx, wz, t->x[k], t->z[k], t->x[n], t->z[n]);
+        if (d >= best_d)
+            continue;
+        ex = t->x[n] - t->x[k];
+        ez = t->z[n] - t->z[k];
+        len = sqrtf(ex * ex + ez * ez);
+        if (len < 0.1f)
+            continue;
+        px = -ez / len;
+        pz = ex / len;
+        in = (cx - t->x[k]) * px + (cz - t->z[k]) * pz;
+        if (in < 0.f) {
+            px = -px;
+            pz = -pz;
+        }
+        best_d = d;
+        bnx = px;
+        bnz = pz;
+        hit = 1;
+    }
+    if (!hit)
+        return 0;
+    if (nx)
+        *nx = bnx;
+    if (nz)
+        *nz = bnz;
+    if (dist)
+        *dist = best_d;
+    return 1;
+}
+
+static int push_off_unlinked_edge(float *wx, float *wz, float skin)
+{
+    const StanTile *t;
+    float nx, nz, d, need;
+
+    if (!wx || !wz || !g_have_links)
+        return 0;
+    t = follow_clip ? tile_for_walk(*wx, *wz) : tile_at_world(*wx, *wz);
+    if (!t)
+        t = tile_at_world(*wx, *wz);
+    if (!unlinked_edge_inward(t, *wx, *wz, &nx, &nz, &d) || d >= skin)
+        return 0;
+    need = skin + 2.f - d;
+    *wx += nx * need;
+    *wz += nz * need;
+    return 1;
+}
+
 /* Draw-only: G1 walls sit inside walkable tiles. Pull the camera off
  * unlinked edges by extra slack. clip_step / PORT_WALL_SKIN stay 30. */
 #define PORT_DRAW_SKIN 46.0f
@@ -1971,9 +2042,26 @@ static void clip_step_ex(float ox, float oz, float *nx, float *nz, float *ny, in
     }
 
     local_to_world(cx, cz, &cwx, &cwz);
-    /* On a sliver / stall wall: every step died. Snap to open floor. */
+    /* On a sliver / stall wall: every step died. Snap to open floor.
+     * Spawn sits on tile 147's unlinked south edge; a centroid snap walked
+     * along that mega-triangle into the stall (live HUD x=-219). Push off
+     * the edge into the tile instead. */
     if (cx == ox && cz == oz && trapped_world(cwx, cwz) == 0 &&
         !has_walkable_neighbor(cwx, cwz, start_door)) {
+        float nwx = cwx, nwz = cwz;
+        if (tile_at_world(cwx, cwz) &&
+            push_off_unlinked_edge(&nwx, &nwz, PORT_WALL_SKIN)) {
+            cx = nwx - g_ox;
+            cz = nwz - g_oz;
+            *nx = cx;
+            *nz = cz;
+            if (ny) {
+                ey = 0.f;
+                if (port_stan_eye_y(cx, cz, &ey) == 0)
+                    *ny = ey;
+            }
+            return;
+        }
         if (try_snap_local(&cx, &cz, ny)) {
             *nx = cx;
             *nz = cz;
