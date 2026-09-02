@@ -355,14 +355,8 @@ int g1_tex_slot_keep_albedo(int slot)
     if (slot < 0 || slot >= G1_TEX_SLOTS || !g_slots[slot].loaded)
         return 0;
     id = g_slots[slot].id;
-    /* Pgas_plant_met1_do1 tiles + oliveguard / Cheadjim. skip=pose identity
-     * SHADE covers no_mtx chr; these IDs still bind on door props / room
-     * leftovers with baked grey cn. IDs are dump SETTEX from ColiveguardZ
-     * and CheadjimZ, not invented palettes. */
-    if (id >= 685u && id <= 688u)
-        return 1;
-    if (id == 706u)
-        return 1;
+    /* oliveguard / Cheadjim leftovers off no_mtx. Door 685-688/706 keep
+     * Rare Vtx.cn so SHADE*TEXEL is brown metal, not unshaded mauve. */
     if (id == 1609u || id == 1613u || id == 1616u || id == 1619u || id == 1622u)
         return 1;
     if (id >= 1814u && id <= 1816u)

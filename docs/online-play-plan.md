@@ -2000,3 +2000,45 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
   still shifts with camera along that leaf.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 retail Pgas leaf + SHADE*TEXEL)
+
+P0-2: Mihok/Chris live after `c816f7c` was still a mauve/pink horizontally
+ribbed slab, not N64 brown metal with handles. The 4-quad G1DL used
+SETTEX 685–688 at cn=255 and `keep_albedo`, so the dusty-rose CI8 tiles
+drew unshaded. Image 685 *is* the handle-bar panel; 686–688 are the
+ribbed plates — stretching them full-bright made a shutter. Retail
+`Pgas_plant_met1_do1` is a solid 96-vert leaf (front+back, 706 ±X
+thickness, Rare grey cn 119–202). Fitted path/alcove/cutout faces now
+copy that P*Z, scale xyz to the Rare portal, and SHADE*TEXEL. Synthetic
+packs keep a 4-row G1DL with the same grey cn. KEEP door-jump `102237e`,
+viscyl `dfde794`, wasm-stack FPS `ff37828`.
+
+**1 — door faces.** `play_clip_door` is brown metal 4-panel leaves with
+685 handle bars (not a mauve shutter). `clipdoor_fill dark=43 metal=4185
+area=5120 mauve=101` `clipdoor_olive n=34` hunt teleports=0.
+`spawn_fill play_spawn dark=0 metal=10547 area=13376 mauve=0`.
+`play_hall_a` dark=5 metal=10077 mauve=0.
+
+**2 — hitch / FPS / clip.** `play_spawn` frame_ms=17.27 drawn=71 seen=2
+skip_range=1 skip_leaf=22 mag=7/21. `long_walk` frame_ms=19.59.
+`long_walk_hall` (−348,−2117) frame_ms=35.28 — 35ms class kept.
+`door_jump` frame_ms=25.46 alcove pinned +Z. `mihok_block` clip_step
+d=12.0. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+`door tex shade mid=38400 full=0` (cn80 × SETTEX 685).
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok ~23:43 ET was
+  pre-this SHA). Harness clip-door is brown panels + handles; spawn
+  alcove is still a 640-wide glancing leaf (covers the G1≠stan void).
+- P0-3 live match still required. chris2 far-corner detached head
+  remains. Mihok pose (−161,−2382 θ290) left black void (one-sided r71
+  alcove / missing neighbor) is not a 685 face smear. Do not close
+  P0-2/P0-3 without Mihok/live match.
+- Combat AI / matching engine later. Campaign out of v1.
+

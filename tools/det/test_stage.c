@@ -4698,8 +4698,8 @@ static int test_skip_pose_camo_albedo(void)
     return 0;
 }
 
-/* SETTEX 685 (door) with baked cn=80 must keep texel albedo even off
- * skip=pose. Rooms still modulate other ids (test_shade_modulate). */
+/* SETTEX 685 (door) with baked cn=80 must SHADE*TEXEL even off skip=pose.
+ * Keeping albedo made Facility leaves a mauve ribbed slab. */
 static int test_door_tex_albedo(void)
 {
     uint8_t vtx_be[48];
@@ -4786,12 +4786,12 @@ static int test_door_tex_albedo(void)
         if (pr >= 60 && pr <= 100)
             mid++;
     }
-    if (full < 1000)
-        return fail("door SETTEX 685 must keep albedo off no_mtx");
-    if (mid > 80)
-        return fail("door SETTEX 685 still SHADE-flattened");
+    if (full >= 1000)
+        return fail("door SETTEX 685 kept albedo (want SHADE*TEXEL)");
+    if (mid < 1000)
+        return fail("door SETTEX 685 missing SHADE*TEXEL mid");
     g1_tex_unload();
-    printf("door tex albedo full=%u (cn80 ignored, SETTEX 685)\n", full);
+    printf("door tex shade mid=%u full=%u (cn80 * SETTEX 685)\n", mid, full);
     return 0;
 }
 

@@ -4319,12 +4319,13 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 }
 
 
-/* Closed-door slab. Retail Pgas_plant_met1_do1 is a solid 4-panel leaf
+/* Closed-door slab. Retail Pgas_plant_met1_do1 is a solid 96-vert leaf
  * (SETTEX 685 top with the two handle bars, then 686/687/688 ribbed
- * plates; 706 is the ±X thickness, not a face handle). A single 685
- * backing tiled across the portal stretched those bars into a face.
- * Fitted path/alcove/cutout faces keep the same 4-row × 1-or-2-col
- * layout, sized to the Rare portal horiz x tall. G1 owns the jamb. */
+ * plates, 706 ±X thickness, front and back). A 4-quad G1DL of those
+ * tiles at cn=255 was the mauve ribbed slab: 685-688 albedo is dusty
+ * rose; N64 is SHADE*TEXEL on Rare grey cn. Fitted faces copy that
+ * P*Z, scale xyz to the Rare portal, and leave cn/ST alone. Missing
+ * / non-seg4 packs keep a 4-row G1DL with retail-like grey cn. */
 #define SLAB_DOOR_TEX 685u /* Pgas_plant_met1_do1 top panel; imagelist "685" */
 #define SLAB_PANEL0_TEX 686u
 #define SLAB_PANEL1_TEX 687u
@@ -4332,11 +4333,12 @@ static int near_room(const PortProp *pr, const float room1[3], const float *room
 #define SLAB_RETAIL_ID 158
 #define SLAB_RETAIL_HALF_W 350.f
 #define SLAB_RETAIL_BOTTOM -787.f
+#define SLAB_RETAIL_Z 44.f
 #define SLAB_CMD_MAX 48
 #define SLAB_VTX_BASE (4 + SLAB_CMD_MAX * 8)
 #define SLAB_QUAD_BYTES 96
 #define SLAB_QUADS_MAX 8
-#define SLAB_FILE_SIZE (SLAB_VTX_BASE + SLAB_QUADS_MAX * SLAB_QUAD_BYTES)
+#define SLAB_FILE_SIZE 3072
 #define SLAB_POOL 48
 #define SLAB_SETTEX_MIRROR 0xC0580002u /* cms=1 cmt=1, same as P*Z */
 #define SLAB_UV_S 992                  /* retail panel ST */
@@ -4486,18 +4488,19 @@ static void wr16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)v;
 }
 
-static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16_t t)
+static void wr_vtx(uint8_t *v, int16_t x, int16_t y, int16_t z, int16_t s, int16_t t,
+                   uint8_t cn)
 {
     wr16(v + 0, (uint16_t)x);
     wr16(v + 2, (uint16_t)y);
     wr16(v + 4, (uint16_t)z);
     wr16(v + 8, (uint16_t)s);
     wr16(v + 10, (uint16_t)t);
-    /* Full-bright shade so SETTEX 685 reads as a brown door face, not a
-     * crushed black slab (118,112,98 * texel looked like a void). */
-    v[12] = 255;
-    v[13] = 255;
-    v[14] = 255;
+    /* Rare Pgas cn is ~119-202 grey. 255 * 685-688 albedo is the mauve
+     * slab; SHADE*TEXEL on this grey is brown metal. */
+    v[12] = cn;
+    v[13] = cn;
+    v[14] = cn;
     v[15] = 255;
 }
 
@@ -4515,7 +4518,8 @@ static int gdl_has_seg4_vtx(const uint8_t *pri, uint32_t n)
 
 static int slab_is_retail(const PortModel *m)
 {
-    return m && m->npart > 0 && m->part[0].vtx4 != 0 &&
+    /* Pgas is 96 verts / 5 SETTEX. Tiny synthetic magenta doors also G_VTX 04. */
+    return m && m->npart > 0 && m->part[0].vtx4 != 0 && m->part[0].nvtx >= 64u &&
            gdl_has_seg4_vtx(m->part[0].pri, m->part[0].pri_n);
 }
 
@@ -4555,7 +4559,7 @@ static void slab_bounds(const PortModel *m, float *half_w, float *bottom)
  * ST matches Pgas_plant_met1_do1: t=0 at the panel sill, t=vt at the lintel. */
 static void slab_cmd_quad(uint8_t *f, uint32_t *cmd, uint32_t *vtx, int16_t x0,
                           int16_t y0, int16_t x1, int16_t y1, int16_t z, int16_t s0,
-                          int16_t t0, int16_t s1, int16_t t1)
+                          int16_t t0, int16_t s1, int16_t t1, uint8_t cn0, uint8_t cn1)
 {
     uint32_t gvtx = ((uint32_t)(uint8_t)G_VTX << 24) | (0x20u << 16);
     uint32_t v1, v2;
@@ -4572,18 +4576,18 @@ static void slab_cmd_quad(uint8_t *f, uint32_t *cmd, uint32_t *vtx, int16_t x0,
     wr32(f + *cmd, 0xB1000002u);
     wr32(f + *cmd + 4, 0x00000010u);
     *cmd += 8;
-    wr_vtx(f + v1 + 0, x0, y0, z, s0, t0);
-    wr_vtx(f + v1 + 16, x1, y0, z, s1, t0);
-    wr_vtx(f + v1 + 32, x1, y1, z, s1, t1);
+    wr_vtx(f + v1 + 0, x0, y0, z, s0, t0, cn0);
+    wr_vtx(f + v1 + 16, x1, y0, z, s1, t0, cn0);
+    wr_vtx(f + v1 + 32, x1, y1, z, s1, t1, cn1);
     wr32(f + *cmd, gvtx);
     wr32(f + *cmd + 4, 0x05000000u | v2);
     *cmd += 8;
     wr32(f + *cmd, 0xB1000002u);
     wr32(f + *cmd + 4, 0x00000010u);
     *cmd += 8;
-    wr_vtx(f + v2 + 0, x0, y0, z, s0, t0);
-    wr_vtx(f + v2 + 16, x1, y1, z, s1, t1);
-    wr_vtx(f + v2 + 32, x0, y1, z, s0, t1);
+    wr_vtx(f + v2 + 0, x0, y0, z, s0, t0, cn0);
+    wr_vtx(f + v2 + 16, x1, y1, z, s1, t1, cn1);
+    wr_vtx(f + v2 + 32, x0, y1, z, s0, t1, cn1);
     *vtx += 96;
 }
 
@@ -4602,6 +4606,8 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
 {
     static const uint32_t k_row_tex[4] = { SLAB_PANEL2_TEX, SLAB_PANEL1_TEX,
                                            SLAB_PANEL0_TEX, SLAB_DOOR_TEX };
+    /* Pgas dump cn, bottom 688 → top 685. */
+    static const uint8_t k_row_cn[5] = { 120, 136, 152, 174, 197 };
     uint32_t cmd = 4;
     uint32_t vtx = SLAB_VTX_BASE;
     uint32_t end = (uint32_t)(uint8_t)G_ENDDL << 24;
@@ -4638,7 +4644,8 @@ static void slab_write(uint8_t *f, int16_t hw, int16_t ht)
                 s0 = 0;
                 s1 = us;
             }
-            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, 0, s1, vt);
+            slab_cmd_quad(f, &cmd, &vtx, x0, y[row], x1, y[row + 1], 0, s0, 0, s1, vt,
+                          k_row_cn[row], k_row_cn[row + 1]);
         }
     }
 
@@ -4709,10 +4716,111 @@ static void alcove_hall_left(float *leftx, float *leftz)
     *leftz = 1.f;
 }
 
+static int16_t slab_i16(float v)
+{
+    if (v >= 0.f)
+        return (int16_t)(v + 0.5f);
+    return (int16_t)(v - 0.5f);
+}
+
+/* Copy Pgas and scale the 96-vert bank to this portal. Keep ST + cn. */
+static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int16_t hw,
+                           int16_t ht)
+{
+    const uint8_t *ov;
+    uint8_t *v;
+    uint32_t i, n, voff;
+    float half_w, bottom, top, tall, zsc;
+
+    if (!src || !src->file || src->file_len == 0 || src->file_len > SLAB_FILE_SIZE)
+        return 0;
+    if (!src->part[0].pri || !src->part[0].vtx4 || src->part[0].nvtx < 16)
+        return 0;
+    ov = (const uint8_t *)src->part[0].vtx4;
+    if (ov < src->file || ov + 16u > src->file + src->file_len)
+        return 0;
+    voff = (uint32_t)(ov - src->file);
+    memcpy(f, src->file, src->file_len);
+    if (src->file_len < SLAB_FILE_SIZE)
+        memset(f + src->file_len, 0, SLAB_FILE_SIZE - src->file_len);
+    slab_bounds(src, &half_w, &bottom);
+    top = bottom;
+    n = src->part[0].nvtx;
+    if (n > 256u)
+        n = 256u;
+    for (i = 0; i < n; i++) {
+        const uint8_t *p = ov + i * 16u;
+        int16_t y;
+        if (p + 16u > src->file + src->file_len)
+            break;
+        y = (int16_t)((p[2] << 8) | p[3]);
+        if ((float)y > top)
+            top = (float)y;
+    }
+    tall = top - bottom;
+    if (half_w < 1.f)
+        half_w = SLAB_RETAIL_HALF_W;
+    if (tall < 1.f)
+        tall = 1575.f;
+    /* ±44 retail thickness; cap so a 640 alcove is not an 80u block. */
+    zsc = (float)hw / half_w;
+    if (zsc > 16.f / SLAB_RETAIL_Z)
+        zsc = 16.f / SLAB_RETAIL_Z;
+    if (zsc < 8.f / SLAB_RETAIL_Z)
+        zsc = 8.f / SLAB_RETAIL_Z;
+    v = f + voff;
+    for (i = 0; i < n; i++) {
+        int16_t x, y, z;
+        if (v + 16u > f + SLAB_FILE_SIZE)
+            break;
+        x = (int16_t)((v[0] << 8) | v[1]);
+        y = (int16_t)((v[2] << 8) | v[3]);
+        z = (int16_t)((v[4] << 8) | v[5]);
+        wr16(v + 0, (uint16_t)slab_i16((float)x * ((float)hw / half_w)));
+        wr16(v + 2, (uint16_t)slab_i16(((float)y - bottom) * ((float)ht / tall)));
+        wr16(v + 4, (uint16_t)slab_i16((float)z * zsc));
+        v += 16;
+    }
+    memset(dst, 0, sizeof *dst);
+    dst->file = f;
+    dst->file_len = src->file_len;
+    dst->npart = 1;
+    dst->fit_scale = 1.f;
+    dst->part[0] = src->part[0];
+    dst->part[0].pri = f + (src->part[0].pri - src->file);
+    dst->part[0].pri_n = src->part[0].pri_n;
+    if (src->part[0].sec)
+        dst->part[0].sec = f + (src->part[0].sec - src->file);
+    dst->part[0].vtx4 = (uintptr_t)(f + voff);
+    dst->part[0].ox = 0.f;
+    dst->part[0].oy = 0.f;
+    dst->part[0].oz = 0.f;
+    dst->part[0].rx = 0.f;
+    dst->part[0].ry = 0.f;
+    dst->part[0].rz = 0.f;
+    return 1;
+}
+
+static PortModel *slab_retail_src(void)
+{
+    PortModel *m;
+    if (g_retail_slab_ok)
+        return &g_retail_slab;
+    m = load_model(SLAB_RETAIL_ID);
+    if (m && be32(m->file) != PORT_BG_MAGIC_G1DL && slab_is_retail(m) &&
+        m->file_len > 0 && m->file_len <= SLAB_FILE_SIZE) {
+        g_retail_slab = *m;
+        g_retail_slab_ok = 1;
+        return &g_retail_slab;
+    }
+    return NULL;
+}
+
 static PortModel *slab_sized(float width, float tall)
 {
     int16_t hw, ht;
     int i;
+    PortModel *src;
 
     if (width < 50.f)
         width = 50.f;
@@ -4732,6 +4840,9 @@ static PortModel *slab_sized(float width, float tall)
     if (g_slab_pool_n >= SLAB_POOL)
         g_slab_pool_n = 0;
     i = g_slab_pool_n++;
+    src = slab_retail_src();
+    if (src && slab_fit_retail(g_slab_pool[i], &g_slab_pool_mdl[i], src, hw, ht))
+        return &g_slab_pool_mdl[i];
     slab_write(g_slab_pool[i], hw, ht);
     slab_bind(&g_slab_pool_mdl[i], g_slab_pool[i]);
     return &g_slab_pool_mdl[i];
@@ -5245,9 +5356,9 @@ int port_prop_fill_rooms(G1RoomDl *out, int cap, const float room1[3],
     }
     /*
      * Start-hallway openings have no PROPDEF_DOOR (those pads sit in the
-     * gas-plant cluster). Fit a closed G1DL slab on door-sized portals.
-     * Size the 685/686/687/688 four-panel leaf to the Rare portal so a
-     * sealed opening is a door, not a stretched 685 smear.
+     * gas-plant cluster). Fit the retail Pgas 96-vert leaf (or a shaded
+     * 4-panel G1DL) on door-sized portals so a sealed opening is brown
+     * metal with handles, not an unshaded mauve ribbed slab.
      */
     {
         int o, no = port_stage_opening_count();

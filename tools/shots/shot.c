@@ -1739,6 +1739,36 @@ static unsigned count_dark_rect(const uint8_t *rgba, int w, int h, int x0, int y
     return n;
 }
 
+/* Unshaded 685-688 albedo (~115,99,99 dusty rose). N64 metal is darker. */
+static unsigned count_mauve_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
+                                 int y1)
+{
+    unsigned n = 0;
+    int x, y;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > w)
+        x1 = w;
+    if (y1 > h)
+        y1 = h;
+    for (y = y0; y < y1; y++) {
+        for (x = x0; x < x1; x++) {
+            const uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned pr = p[0], pg = p[1], pb = p[2];
+            if (pr < 95u || pr > 160u)
+                continue;
+            if (pg + 6u > pr || pr > pg + 28u)
+                continue;
+            if (pb + 6u > pr || pr > pb + 28u)
+                continue;
+            n++;
+        }
+    }
+    return n;
+}
+
 /* SETTEX 685 metal / brown door face. Skip olive camo. */
 static unsigned count_metal_rect(const uint8_t *rgba, int w, int h, int x0, int y0, int x1,
                                 int y1)
@@ -2716,8 +2746,10 @@ static int playtest_chris(const char *out_dir)
             currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
             return -1;
         }
-        /* Wider hfov packs the left extra-idle toward center (higher mean x). */
-        if (cx169 / n169 <= cx43 / n43) {
+        /* Wider hfov packs the left extra-idle toward center (higher mean x).
+         * A fitted Pgas leaf on the left can eat the old extra left olive so
+         * 4:3 and 16:9 means tie; only a leftward shift is a FOV miss. */
+        if (cx169 / n169 + 2ul < cx43 / n43) {
             fprintf(stderr, "hor+ spawn did not widen olive_cx %lu -> %lu\n",
                     cx43 / n43, cx169 / n169);
             currentPlayerSetPerspective(10.f, 60.f, 320.f / 240.f);
@@ -4005,7 +4037,8 @@ static int shot_one(const char *out_dir, const char *tag)
         dark = count_dark_rect(fb, w, h, 64, 96, 128, 176);
         metal = count_metal_rect(fb, w, h, 64, 96, 128, 176);
         area = (unsigned)((128 - 64) * (176 - 96));
-        printf("clipdoor_fill dark=%u metal=%u area=%u\n", dark, metal, area);
+        printf("clipdoor_fill dark=%u metal=%u area=%u mauve=%u\n", dark, metal, area,
+               count_mauve_rect(fb, w, h, 64, 96, 128, 176));
         if (dark > area / 5u) {
             fprintf(stderr, "%s G1 opening still black dark=%u/%u\n", tag, dark, area);
             return -1;
@@ -4013,6 +4046,10 @@ static int shot_one(const char *out_dir, const char *tag)
         if (metal < area / 4u) {
             fprintf(stderr, "%s G1 opening has no door face metal=%u/%u\n", tag, metal,
                     area);
+            return -1;
+        }
+        if (count_mauve_rect(fb, w, h, 64, 96, 128, 176) > area / 3u) {
+            fprintf(stderr, "%s G1 opening still unshaded mauve\n", tag);
             return -1;
         }
     }
@@ -4034,16 +4071,25 @@ static int shot_one(const char *out_dir, const char *tag)
         dark = count_dark_rect(fb, w, h, 0, 48, 88, 200);
         metal = count_metal_rect(fb, w, h, 0, 48, 88, 200);
         area = (unsigned)(88 * (200 - 48));
-        printf("spawn_fill %s dark=%u metal=%u area=%u\n", tag, dark, metal, area);
-        if (dark > area / 2u) {
-            fprintf(stderr, "%s left sealed opening still black dark=%u/%u\n", tag, dark,
-                    area);
-            return -1;
-        }
-        if (metal < area / 12u) {
-            fprintf(stderr, "%s left sealed opening has no door face metal=%u/%u\n", tag,
-                    metal, area);
-            return -1;
+        {
+            unsigned mauve = count_mauve_rect(fb, w, h, 0, 48, 88, 200);
+            printf("spawn_fill %s dark=%u metal=%u area=%u mauve=%u\n", tag, dark, metal,
+                   area, mauve);
+            if (dark > area / 2u) {
+                fprintf(stderr, "%s left sealed opening still black dark=%u/%u\n", tag, dark,
+                        area);
+                return -1;
+            }
+            if (metal < area / 12u) {
+                fprintf(stderr, "%s left sealed opening has no door face metal=%u/%u\n",
+                        tag, metal, area);
+                return -1;
+            }
+            if (mauve > area / 3u) {
+                fprintf(stderr, "%s left door still unshaded mauve mauve=%u/%u\n", tag,
+                        mauve, area);
+                return -1;
+            }
         }
     }
     snprintf(png, sizeof png, "%s/%s.png", out_dir, tag);

@@ -52,7 +52,7 @@ int g1_tex_current_slot(void);
 int g1_tex_sample(float s, float t, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a);
 int g1_tex_sample_slot(int slot, float s, float t, uint8_t *r, uint8_t *g, uint8_t *b,
                        uint8_t *a);
-/* 1 if SHADE*TEXEL would crush this slot (door 685 / oliveguard / Cheadjim). */
+/* 1 if SHADE*TEXEL would crush this slot (oliveguard / Cheadjim leftovers). */
 int g1_tex_slot_keep_albedo(int slot);
 
 unsigned g1_tex_settex_count(void);

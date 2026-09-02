@@ -224,8 +224,8 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                     if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
                         /* G_CC_MODULATERGB: texel * Vtx.cn. cn=0 keeps albedo
                          * (G1 greyscale / SETTEX checkers use zeroed verts).
-                         * Door 685 / oliveguard / Cheadjim keep texel even
-                         * when cn is baked grey (skip=pose leftover off no_mtx). */
+                         * oliveguard / Cheadjim keep texel off no_mtx. Door
+                         * 685-688/706 modulate so the leaf is brown metal. */
                         if (g_shade_mod && (r | g | bl) &&
                             !g1_tex_slot_keep_albedo(tex_slot)) {
                             r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
