@@ -225,7 +225,7 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   hudLine(
     ctx,
-    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}  seq ${game.audioSeqOn() ? 1 : 0}`,
+    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  seq ${game.audioSeqOn() ? 1 : 0}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}`,
     8,
     14,
   );
