@@ -3171,11 +3171,11 @@ Native player/g1 playtest green. Greyscale
 
 ---
 
-## STATUS (2026-09-02 missing-neighbor harness)
+## STATUS (2026-09-02 missing-neighbor harness `23be532`)
 
-P0 missing-neighbor / portal-depth slice on `8cc1ce1` (no new wasm). Harness
-exercised `play_door_mihok` (−161,−2382 θ290). Not LIVE-closed — live 1215
-was stall spawn/θ263 only.
+P0 missing-neighbor / portal-depth slice `23be532` on `8cc1ce1` (no new
+wasm). Harness exercised `play_door_mihok` (−161,−2382 θ290). Not
+LIVE-closed — live 1215 was stall spawn/θ263 only.
 
 r71 has three bg portals: path `r7-r71` and `r11-r71` (closed slabs, vis
 cull) and stacked `r6-r71` at the **same local xz** as `r7-r71`
