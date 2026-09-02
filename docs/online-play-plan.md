@@ -1921,3 +1921,47 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
   body in the far corner.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 living-guard slab push `ba5a817`)
+
+P0-3 slice on top of 4-panel leaves `c816f7c` (KEEP). SHA `ba5a817`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+The r71 alcove is a visual slab, not a stan door, so extra-idle at
+−350,−2320 sat its skip=pose AABB in the left G1 void (Mihok: jammed
+inside the left spawn-hall wall, los=1 shoot-through, W stuck at
+x=−219). Emit and viscyl now push 80u off path/alcove/cutout faces the
+same way stan doors already do. Pad stays for hitscan. KEEP door-jump
+`102237e`, wasm-stack FPS `ff37828`, 4-panel `c816f7c`.
+
+**1 — extra-idle off the leaf.** `hallwalk idle gi=0 pad=-350.0,-2320.0
+vis=-347.9,-2345.9 r=115.0 aabb=-403.1,-2337.1..-277.4,-2271.7 block=0`.
+`play_spawn` / `play_hall_a` / `play_door_chris1` show the body in the
+hall beside the ribbed leaf, not a G1-void intersection. `play_clip_door`
+clipdoor_fill dark=45 metal=4513 area=5120 `clipdoor_olive n=34`
+`walked n=1 11` hunt teleports=0. `spawn_fill play_spawn dark=20
+metal=12039 area=13376`.
+
+**2 — hitch / FPS.** Re-measured: `play_spawn` frame_ms=26.18 (38.2 fps)
+drawn=71 seen=2 skip_range=1 skip_leaf=22 mag=7/21. `long_walk`
+frame_ms=28.84. `long_walk_hall` (−348,−2117) frame_ms=45.13 — 35ms class
+kept. `door_jump` frame_ms=31.56 alcove pinned +Z. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok ~10:35pm ET
+  was pre-`c816f7c`). Harness spawn/hall/clipdoor leaves are ribbed
+  685–688 metal, not a stretched 685 face. Mihok pose (−161,−2382 θ290)
+  is an extra-idle close-up (`dark=321`), not a 30% black wedge in
+  harness; one-sided r71 alcove / missing neighbor still open.
+- P0-3 live match still required (Mihok ~10:35pm ET was pre-`ba5a817`).
+  viscyl r=115 still overlaps the 80u slab push; `door_jump_249` can
+  still read as camo on the leaf. chris2 far-corner body remains. Do not
+  close P0-2/P0-3 without Mihok/live match.
+- Combat AI / matching engine later. Campaign out of v1.
+
