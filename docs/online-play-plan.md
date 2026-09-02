@@ -1885,3 +1885,39 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 - Guards / player still clip through walls (P0-3).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-01 door 4-panel leaf `c816f7c`)
+
+P0-2 Chris/Mihok live: sealed doors were a stretched mauve face, not N64
+brown metal panels. Cause: fitted path/alcove/cutout faces used one SETTEX
+685 backing tiled across the whole portal. Image 685 is the *top* Pgas
+panel and contains two vertical handle bars — stretching that tile made
+the face smear. Retail `Pgas_plant_met1_do1` is a solid 4-row leaf (685
+top, then 686/687/688 ribbed plates; 706 is ±X thickness, not a face
+handle). Fitted slabs now match that layout: one 32×33 copy per panel,
+mirror wrap, two columns when hw≥160. KEEP door-jump `102237e`, wasm-stack
+FPS `ff37828`, albedo `30db967`/`34e7bb9`.
+
+**1 — door faces.** Chris pose `play_door_chris1` (−139,−2337 θ260) is
+ribbed 685–688 panels, not a face. `play_spawn` spawn_fill dark=28
+metal=10541 area=13376. `play_hall_a` dark=8 metal=12463. `play_clip_door`
+clipdoor_fill dark=45 metal=4513 area=5120 `clipdoor_olive n=34`
+`walked n=1 11` hunt teleports=0.
+
+**2 — hitch / FPS.** Re-measured: `play_spawn` frame_ms=26.43 (37.8 fps)
+drawn=71 seen=2 skip_range=1 skip_leaf=22 mag=7/21. `long_walk`
+frame_ms=28.99. `long_walk_hall` (−348,−2117) frame_ms=45.21 — 35ms class
+kept. `door_jump` frame_ms=31.29 alcove pinned +Z. y=29.12.
+
+Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- Mihok pose (−161,−2382 θ290) still has a left-side black void (one-sided
+  r71 alcove / missing neighbor). Not a 685 face smear.
+- Guards / player still clip through walls (P0-3). chris2 still shows a
+  body in the far corner.
+- Combat AI / matching engine later. Campaign out of v1.
+
