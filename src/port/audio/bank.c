@@ -10,6 +10,8 @@
  * KF7 bolt / pickup / door-close / wall ricochet / ammo crate / armour /
  * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
  * placeholder (GE has no footstep SFX ID); pack install is optional.
+ * Music seq may also decode instruments.ctl / instruments.tbl VADPCM
+ * into host PCM for pitched loop playback. Still not ASP HLE.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
@@ -34,10 +36,19 @@
 #define PACK_SFX_GET_HIT_MALE_N 25
 #define PACK_SFX_MAX_SAMPLES 44100u
 #define PACK_SFX_MAX_BOOK (8 * 2 * 8)
+#define PACK_INST_WAVES 128
+#define PACK_INST_PCM_MAX 65536u
+#define PACK_INST_PROGS 80
 
 static int16_t *g_owned[16];
 static int16_t *g_yelp_owned[PACK_SFX_GET_HIT_MALE_N];
 static int16_t *g_fall_owned[PACK_SFX_BODY_FALL_N];
+static int16_t *g_iwave[PACK_INST_WAVES];
+static uint32_t g_iwave_n[PACK_INST_WAVES];
+static uint32_t g_iwave_base[PACK_INST_WAVES];
+static uint32_t g_iwave_srcn[PACK_INST_WAVES];
+static uint32_t g_iwave_book[PACK_INST_WAVES];
+static int g_niwave;
 
 __attribute__((weak)) const C0Pack *port_pack(void)
 {
@@ -312,17 +323,183 @@ int port_audio_load_pack_sfx(void)
     return n;
 }
 
+void port_audio_unload_pack_instruments(void)
+{
+    int i;
+
+    port_audio_unload_inst();
+    for (i = 0; i < g_niwave; i++) {
+        free(g_iwave[i]);
+        g_iwave[i] = NULL;
+        g_iwave_n[i] = 0;
+        g_iwave_base[i] = 0;
+        g_iwave_srcn[i] = 0;
+        g_iwave_book[i] = 0;
+    }
+    g_niwave = 0;
+}
+
+static int decode_wave_cached(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
+                              uint32_t tbl_n, uint32_t wave)
+{
+    uint32_t base, src_n, book_off, i;
+    uint32_t ns_cap;
+    int16_t book[PACK_SFX_MAX_BOOK];
+    int16_t *pcm;
+    int order, npred, nbook, ns;
+    int slot;
+
+    if (wave + 20 > ctl_n)
+        return -1;
+    if (ctl[wave + 8] != 0)
+        return -1;
+    base = be32(ctl + wave);
+    src_n = (uint32_t)bes32(ctl + wave + 4);
+    book_off = be32(ctl + wave + 16);
+    if (book_off + 8 > ctl_n)
+        return -1;
+    if (base > tbl_n || src_n > tbl_n - base || src_n < 9)
+        return -1;
+    for (i = 0; i < (uint32_t)g_niwave; i++) {
+        if (g_iwave_base[i] == base && g_iwave_srcn[i] == src_n &&
+            g_iwave_book[i] == book_off && g_iwave[i])
+            return (int)i;
+    }
+    if (g_niwave >= PACK_INST_WAVES)
+        return -1;
+    order = bes32(ctl + book_off);
+    npred = bes32(ctl + book_off + 4);
+    if (order != 2 || npred < 1 || npred > 8)
+        return -1;
+    nbook = npred * order * 8;
+    if (nbook > (int)PACK_SFX_MAX_BOOK)
+        return -1;
+    if (book_off + 8u + (uint32_t)nbook * 2u > ctl_n)
+        return -1;
+    for (i = 0; i < (uint32_t)nbook; i++)
+        book[i] = bes16(ctl + book_off + 8u + i * 2u);
+    ns_cap = (src_n / 9u) * 16u + 16u;
+    if (ns_cap > PACK_INST_PCM_MAX)
+        ns_cap = PACK_INST_PCM_MAX;
+    pcm = (int16_t *)malloc((size_t)ns_cap * sizeof(int16_t));
+    if (!pcm)
+        return -1;
+    ns = port_audio_adpcm_decode(tbl + base, src_n, book, order, npred, pcm, ns_cap);
+    if (ns < 32) {
+        free(pcm);
+        return -1;
+    }
+    slot = g_niwave++;
+    g_iwave[slot] = pcm;
+    g_iwave_n[slot] = (uint32_t)ns;
+    g_iwave_base[slot] = base;
+    g_iwave_srcn[slot] = src_n;
+    g_iwave_book[slot] = book_off;
+    return slot;
+}
+
+static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
+                                 uint32_t tbl_n)
+{
+    uint32_t bank, inst, sound, wave, keymap, loop_off;
+    int16_t ninst, scount;
+    int i, s, n = 0, wi;
+    uint8_t ivol, svol, kmin, kmax, kbase, vmin, vmax, vol;
+    uint32_t loop0, loop1, loop_ct;
+
+    port_audio_unload_pack_instruments();
+    if (ctl_n < 8 || be16(ctl) != 0x4231 || be16(ctl + 2) < 1)
+        return 0;
+    bank = be32(ctl + 4);
+    if (bank + 16 > ctl_n)
+        return 0;
+    ninst = bes16(ctl + bank);
+    if (ninst < 1 || ninst > PACK_INST_PROGS)
+        return 0;
+    if (bank + 12u + 4u * (uint32_t)ninst > ctl_n)
+        return 0;
+    for (i = 0; i < ninst; i++) {
+        inst = be32(ctl + bank + 12u + 4u * (uint32_t)i);
+        if (inst + 16 > ctl_n)
+            continue;
+        ivol = ctl[inst];
+        if (ivol < 1)
+            ivol = 127;
+        scount = bes16(ctl + inst + 14);
+        if (scount < 1)
+            continue;
+        if (inst + 16u + 4u * (uint32_t)scount > ctl_n)
+            continue;
+        for (s = 0; s < scount; s++) {
+            sound = be32(ctl + inst + 16u + 4u * (uint32_t)s);
+            if (sound + 16 > ctl_n)
+                continue;
+            keymap = be32(ctl + sound + 4);
+            wave = be32(ctl + sound + 8);
+            svol = ctl[sound + 13];
+            if (svol < 1)
+                svol = 127;
+            if (keymap + 6 > ctl_n)
+                continue;
+            vmin = ctl[keymap];
+            vmax = ctl[keymap + 1];
+            kmin = ctl[keymap + 2];
+            kmax = ctl[keymap + 3];
+            kbase = ctl[keymap + 4];
+            if (kmin > kmax)
+                continue;
+            wi = decode_wave_cached(ctl, ctl_n, tbl, tbl_n, wave);
+            if (wi < 0)
+                continue;
+            loop0 = 0;
+            loop1 = 0;
+            loop_off = (wave + 20 <= ctl_n) ? be32(ctl + wave + 12) : 0;
+            if (loop_off && loop_off + 12 <= ctl_n) {
+                loop0 = be32(ctl + loop_off);
+                loop1 = be32(ctl + loop_off + 4);
+                loop_ct = be32(ctl + loop_off + 8);
+                (void)loop_ct;
+                if (loop1 > g_iwave_n[wi])
+                    loop1 = g_iwave_n[wi];
+                if (loop0 >= loop1) {
+                    loop0 = 0;
+                    loop1 = 0;
+                }
+            }
+            vol = (uint8_t)(((uint32_t)ivol * (uint32_t)svol) / 127u);
+            if (vol < 1)
+                vol = 1;
+            if (port_audio_inst_push(i, kmin, kmax, kbase, vmin, vmax, vol, g_iwave[wi],
+                                     g_iwave_n[wi], loop0, loop1) != 0)
+                continue;
+            n++;
+        }
+    }
+    return n;
+}
+
 int port_audio_load_pack_music(void)
 {
     const C0Pack *pack;
     const C0PackEntry *seq;
+    const C0PackEntry *ctl;
+    const C0PackEntry *tbl;
+    int ok;
 
     port_audio_unload_seq();
+    port_audio_unload_pack_instruments();
     pack = port_pack();
     if (!pack)
         return 0;
     seq = c0pack_find(pack, "assets/music/Mfacility.bin");
     if (!seq || !seq->bytes || seq->size < 68)
         return 0;
-    return port_audio_load_seq(seq->bytes, seq->size) == 0 ? 1 : 0;
+    ok = port_audio_load_seq(seq->bytes, seq->size) == 0 ? 1 : 0;
+    if (!ok)
+        return 0;
+    ctl = c0pack_find(pack, "assets/music/instruments.ctl");
+    tbl = c0pack_find(pack, "assets/music/instruments.tbl");
+    if (ctl && tbl && ctl->bytes && tbl->bytes && ctl->size >= 64 && tbl->size >= 64)
+        (void)load_pack_instruments(ctl->bytes, ctl->size, tbl->bytes, tbl->size);
+    return 1;
 }

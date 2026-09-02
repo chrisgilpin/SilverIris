@@ -50,9 +50,13 @@
 #define STEP_AMP 5200
 #define STEP_LEN ((PORT_AUDIO_RATE * 70u) / 1000u)
 #define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
-/* Compact MIDI (ALCSeq) walker. Triangle voices, not ASP / wavetable. */
+/* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
+ * when instruments.ctl is loaded. Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
+#define INST_PROGS 80
+#define INST_SOUNDS 160
+#define INST_PCM_DIV 2048
 #define SEQ_HDR 68u
 #define SEQ_AMP 700
 #define SEQ_META 0xFFu
@@ -160,12 +164,36 @@ static uint32_t g_seq_wait;
 static int g_seq_pending;
 static uint64_t g_seq_frac;
 static uint8_t g_seq_vol[SEQ_TRACKS];
+static uint8_t g_seq_prog[SEQ_TRACKS];
 static uint32_t g_seq_vleft[SEQ_VOICES];
 static uint32_t g_seq_vphase[SEQ_VOICES];
 static uint32_t g_seq_vinc[SEQ_VOICES];
 static int g_seq_vamp[SEQ_VOICES];
 static uint8_t g_seq_vnote[SEQ_VOICES];
+static const int16_t *g_seq_vpcm[SEQ_VOICES];
+static uint32_t g_seq_vpcn[SEQ_VOICES];
+static uint32_t g_seq_vpos[SEQ_VOICES];
+static uint32_t g_seq_vloop0[SEQ_VOICES];
+static uint32_t g_seq_vloop1[SEQ_VOICES];
 static uint8_t g_seq_alive;
+
+typedef struct {
+    const int16_t *pcm;
+    uint32_t n;
+    uint32_t loop0;
+    uint32_t loop1;
+    uint8_t prog;
+    uint8_t kmin;
+    uint8_t kmax;
+    uint8_t kbase;
+    uint8_t vmin;
+    uint8_t vmax;
+    uint8_t vol;
+} InstSound;
+
+static InstSound g_inst[INST_SOUNDS];
+static int g_ninst;
+static int g_inst_ready;
 
 /* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
 static const uint16_t k_midi_hz[128] = {
@@ -345,6 +373,11 @@ static void seq_voices_clear(void)
         g_seq_vinc[i] = 0;
         g_seq_vamp[i] = 0;
         g_seq_vnote[i] = 0;
+        g_seq_vpcm[i] = 0;
+        g_seq_vpcn[i] = 0;
+        g_seq_vpos[i] = 0;
+        g_seq_vloop0[i] = 0;
+        g_seq_vloop1[i] = 0;
     }
     g_seq_alive = 0;
 }
@@ -368,6 +401,7 @@ static void seq_walker_clear(void)
         g_seq_status[i] = 0;
         g_seq_delta[i] = 0;
         g_seq_vol[i] = 100u;
+        g_seq_prog[i] = 0;
     }
     seq_voices_clear();
 }
@@ -383,6 +417,117 @@ void port_audio_unload_seq(void)
 int port_audio_seq_on(void)
 {
     return g_seq_on != 0;
+}
+
+int port_audio_inst_on(void)
+{
+    return g_inst_ready != 0;
+}
+
+void port_audio_unload_inst(void)
+{
+    g_ninst = 0;
+    g_inst_ready = 0;
+    memset(g_inst, 0, sizeof g_inst);
+    seq_voices_clear();
+}
+
+int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key_base,
+                         uint8_t vel_min, uint8_t vel_max, uint8_t vol,
+                         const int16_t *pcm, uint32_t n, uint32_t loop_start,
+                         uint32_t loop_end)
+{
+    InstSound *s;
+
+    if (prog < 0 || prog >= INST_PROGS || !pcm || n < 2 || g_ninst >= INST_SOUNDS)
+        return -1;
+    if (key_min > key_max)
+        return -1;
+    if (vol < 1)
+        vol = 127;
+    if (vol > 127)
+        vol = 127;
+    if (loop_end > n)
+        loop_end = n;
+    if (loop_start >= loop_end)
+        loop_start = loop_end = 0;
+    s = &g_inst[g_ninst++];
+    s->pcm = pcm;
+    s->n = n;
+    s->loop0 = loop_start;
+    s->loop1 = loop_end;
+    s->prog = (uint8_t)prog;
+    s->kmin = key_min;
+    s->kmax = key_max;
+    s->kbase = key_base > 127u ? 60u : key_base;
+    s->vmin = vel_min;
+    s->vmax = vel_max;
+    s->vol = vol;
+    g_inst_ready = 1;
+    return 0;
+}
+
+static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
+{
+    int i;
+    const InstSound *exact = 0;
+    const InstSound *key = 0;
+    const InstSound *near = 0;
+    const InstSound *any = 0;
+    int best_d = 999;
+    int d;
+
+    if (!g_inst_ready)
+        return 0;
+    for (i = 0; i < g_ninst; i++) {
+        const InstSound *s = &g_inst[i];
+        int vel_ok;
+
+        if (s->prog != prog || !s->pcm || s->n < 2)
+            continue;
+        if (!any)
+            any = s;
+        vel_ok = (vel >= s->vmin && vel <= s->vmax);
+        if (note >= s->kmin && note <= s->kmax) {
+            if (vel_ok) {
+                exact = s;
+                break;
+            }
+            if (!key)
+                key = s;
+        } else if (vel_ok) {
+            d = (note < s->kmin) ? (int)s->kmin - (int)note : (int)note - (int)s->kmax;
+            if (d < best_d) {
+                best_d = d;
+                near = s;
+            }
+        }
+    }
+    if (exact)
+        return exact;
+    if (key)
+        return key;
+    if (near)
+        return near;
+    return any;
+}
+
+static uint32_t pitch_step(uint8_t note, uint8_t base)
+{
+    uint32_t hn;
+    uint32_t hb;
+
+    if (note > 127u)
+        note = 127u;
+    if (base > 127u)
+        base = 60u;
+    hn = k_midi_hz[note];
+    hb = k_midi_hz[base];
+    if (!hb)
+        hb = k_midi_hz[60];
+    if (!hn)
+        hn = hb;
+    return (uint32_t)(((uint64_t)hn << 16) / (uint64_t)hb);
 }
 
 static int seq_ok_off(uint32_t off)
@@ -529,6 +674,7 @@ static void seq_note_off(uint8_t note)
     for (i = 0; i < SEQ_VOICES; i++) {
         if (g_seq_vleft[i] && g_seq_vnote[i] == note) {
             g_seq_vleft[i] = 0;
+            g_seq_vpcm[i] = 0;
             g_seq_alive &= (uint8_t)~(1u << i);
         }
     }
@@ -543,6 +689,8 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     int amp;
     uint32_t hz;
     uint8_t vol;
+    uint8_t prog;
+    const InstSound *snd;
 
     if (note > 127u || vel == 0) {
         seq_note_off(note);
@@ -559,18 +707,37 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         }
     }
     vol = g_seq_vol[ch & 15u];
-    amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)vol / (127u * 127u));
-    if (amp < 1)
-        amp = 1;
-    hz = k_midi_hz[note];
     left = seq_dur_samples(dur_ticks);
     if (left < 2u)
         left = 2u;
     g_seq_vleft[slot] = left;
     g_seq_vphase[slot] = 0;
-    g_seq_vinc[slot] = phase_inc(hz);
-    g_seq_vamp[slot] = amp;
+    g_seq_vpos[slot] = 0;
+    g_seq_vpcm[slot] = 0;
+    g_seq_vpcn[slot] = 0;
+    g_seq_vloop0[slot] = 0;
+    g_seq_vloop1[slot] = 0;
     g_seq_vnote[slot] = note;
+    prog = g_seq_prog[ch & 15u];
+    snd = (prog < INST_PROGS) ? inst_pick(prog, note, vel) : 0;
+    if (snd) {
+        amp = (int)((uint32_t)vel * (uint32_t)vol * (uint32_t)snd->vol / (127u * 127u));
+        if (amp < 1)
+            amp = 1;
+        g_seq_vpcm[slot] = snd->pcm;
+        g_seq_vpcn[slot] = snd->n;
+        g_seq_vloop0[slot] = snd->loop0;
+        g_seq_vloop1[slot] = snd->loop1;
+        g_seq_vinc[slot] = pitch_step(note, snd->kbase);
+        g_seq_vamp[slot] = amp;
+    } else {
+        amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)vol / (127u * 127u));
+        if (amp < 1)
+            amp = 1;
+        hz = k_midi_hz[note];
+        g_seq_vinc[slot] = phase_inc(hz);
+        g_seq_vamp[slot] = amp;
+    }
     g_seq_alive |= (uint8_t)(1u << slot);
 }
 
@@ -662,6 +829,8 @@ static void seq_apply_event(uint32_t tr)
         seq_note_off(b1);
     else if (cmd == SEQ_CC && b1 == SEQ_CC_VOL)
         g_seq_vol[ch] = b2;
+    else if (cmd == SEQ_PROG)
+        g_seq_prog[ch] = b1;
 }
 
 static void seq_next_event(void)
@@ -799,11 +968,39 @@ static int seq_mix_sample(void)
     for (i = 0; i < SEQ_VOICES; i++) {
         if (g_seq_vleft[i] == 0)
             continue;
-        acc += osc_tri(g_seq_vphase[i], g_seq_vamp[i]);
-        g_seq_vphase[i] += g_seq_vinc[i];
+        if (g_seq_vpcm[i] && g_seq_vpcn[i] > 0) {
+            uint32_t idx = g_seq_vpos[i] >> 16;
+            uint32_t n = g_seq_vpcn[i];
+            uint32_t l0 = g_seq_vloop0[i];
+            uint32_t l1 = g_seq_vloop1[i];
+
+            if (l1 > l0 && l1 <= n) {
+                if (idx >= l1) {
+                    uint32_t span = l1 - l0;
+                    if (span) {
+                        idx = l0 + (idx - l0) % span;
+                        g_seq_vpos[i] = (idx << 16) | (g_seq_vpos[i] & 0xffffu);
+                    }
+                }
+            } else if (idx >= n) {
+                g_seq_vleft[i] = 0;
+                g_seq_vpcm[i] = 0;
+                g_seq_alive &= (uint8_t)~(1u << i);
+                continue;
+            }
+            if (idx >= n)
+                idx = n - 1u;
+            acc += (int)(((int32_t)g_seq_vpcm[i][idx] * g_seq_vamp[i]) / INST_PCM_DIV);
+            g_seq_vpos[i] += g_seq_vinc[i];
+        } else {
+            acc += osc_tri(g_seq_vphase[i], g_seq_vamp[i]);
+            g_seq_vphase[i] += g_seq_vinc[i];
+        }
         g_seq_vleft[i]--;
-        if (g_seq_vleft[i] == 0)
+        if (g_seq_vleft[i] == 0) {
+            g_seq_vpcm[i] = 0;
             g_seq_alive &= (uint8_t)~(1u << i);
+        }
     }
     return acc;
 }

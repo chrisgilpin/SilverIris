@@ -645,6 +645,49 @@ int main(int argc, char **argv)
             return fail("seq did not overlay gun");
         if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
             return fail("seq overlay touched game RNG");
+
+        {
+            int16_t wave[128];
+            char tri_hex[65];
+            char wav_hex[65];
+            int wi;
+
+            for (wi = 0; wi < 128; wi++)
+                wave[wi] = 12000;
+            port_audio_init();
+            port_audio_unload_inst();
+            if (port_audio_inst_on())
+                return fail("inst on before push");
+            if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                return fail("seq load tri");
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, tri_hex);
+            port_audio_unload_seq();
+            if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                return fail("inst push");
+            if (!port_audio_inst_on())
+                return fail("inst flag");
+            if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                return fail("seq load wav");
+            port_audio_cb(pcm, NFRAMES);
+            if (all_zero(pcm))
+                return fail("wav seq silence");
+            hash_pcm(pcm, wav_hex);
+            if (strcmp(wav_hex, tri_hex) == 0)
+                return fail("wav pcm matches triangle");
+            if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                return fail("wav seq touched game RNG");
+            port_audio_unload_inst();
+            if (port_audio_inst_on())
+                return fail("inst after unload");
+            if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                return fail("seq load after unload");
+            port_audio_cb(pcm, NFRAMES);
+            hash_pcm(pcm, hex);
+            if (strcmp(hex, tri_hex) != 0)
+                return fail("triangle after inst unload");
+            printf("wavetable seq distinct=1 restore=1\n");
+        }
     }
 
     port_audio_cb(NULL, 16);

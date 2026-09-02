@@ -14,11 +14,21 @@ void port_audio_shutdown(void);
 void port_audio_cb(int16_t *stereo, int nframes);
 
 void port_audio_set_placeholder_music(int on);
-/* Compact MIDI (pack Mfacility.bin). Triangle voices; not ASP HLE. */
+/* Compact MIDI (pack Mfacility.bin). Triangle voices unless a wavetable
+ * bank is loaded. Not ASP HLE (no envelopes, RSP mixer, or spatial). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
 void port_audio_unload_seq(void);
 int port_audio_seq_on(void);
 int port_audio_load_pack_music(void);
+/* Mixer does not own `pcm`. key/vel ranges are ALKeyMap. loop_end==0
+ * means one-shot. prog is MIDI program / ALBank inst index. */
+int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key_base,
+                         uint8_t vel_min, uint8_t vel_max, uint8_t vol,
+                         const int16_t *pcm, uint32_t n, uint32_t loop_start,
+                         uint32_t loop_end);
+void port_audio_unload_inst(void);
+int port_audio_inst_on(void);
+void port_audio_unload_pack_instruments(void);
 void port_audio_play_gun(void);
 void port_audio_play_dry(void);
 void port_audio_play_door(void);

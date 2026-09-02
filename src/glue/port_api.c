@@ -86,6 +86,7 @@ PORT_KEEP void port_api_shutdown(void)
 {
     port_stage_unload();
     port_audio_unload_pack_sfx();
+    port_audio_unload_pack_instruments();
     port_audio_unload_seq();
     port_audio_shutdown();
     port_shutdown();
@@ -149,6 +150,11 @@ PORT_KEEP void port_api_audio_set_music(int on)
 PORT_KEEP int port_api_audio_seq_on(void)
 {
     return port_audio_seq_on();
+}
+
+PORT_KEEP int port_api_audio_inst_on(void)
+{
+    return port_audio_inst_on();
 }
 
 PORT_KEEP int port_api_audio_rate(void)
