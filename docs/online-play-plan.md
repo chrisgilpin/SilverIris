@@ -2002,10 +2002,10 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-02 retail Pgas leaf + SHADE*TEXEL)
+## STATUS (2026-09-02 retail Pgas leaf + SHADE*TEXEL `6377093`)
 
 P0-2: Mihok/Chris live after `c816f7c` was still a mauve/pink horizontally
-ribbed slab, not N64 brown metal with handles. The 4-quad G1DL used
+ribbed slab, not N64 brown metal with handles. SHA `6377093`. The 4-quad G1DL used
 SETTEX 685–688 at cn=255 and `keep_albedo`, so the dusty-rose CI8 tiles
 drew unshaded. Image 685 *is* the handle-bar panel; 686–688 are the
 ribbed plates — stretching them full-bright made a shutter. Retail
