@@ -5452,28 +5452,30 @@ static int emit_guard_body(G1RoomDl *out, int cap, int k, PortProp *pr, const fl
                     pr->head->fit_scale = mdl->fit_scale;
                     pr->head->fit_ymin = mdl->fit_ymin;
                     {
-                        /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520
-                         * sits above the oliveguard collar (default-head DL
-                         * stripped). 26u/52u world Y left a live θ263 / high-
-                         * behind wall gap (Mihok 0732/1018). 220u buried the
-                         * face; neck-column / pad-yaw XZ shoved. Drop world Y
-                         * only, skip die rest (copy, not the shared table). */
+                        /* Cheadjim y=-38..215. HeadPlaceholder idle T.y≈520.
+                         * Pad extra_y 52 vs 80 was bit-identical on spawn
+                         * (Mihok 1018/1032 still floated) — T.oy does not
+                         * move this njoints==1 Chead. Drop model Y on the
+                         * copied neck 4x4 instead (scale 0.123 → 160 model
+                         * ≈ 20 world). 26u/52u/80u pad-Y failed live; 220u
+                         * pad-Y buried the face. Die stays 0. */
                         float headj[4][4];
-                        const float seat_y = dead ? 0.f : 80.f;
+                        const float seat_m = dead ? 0.f : 160.f;
                         memcpy(headj, mdl->head_mtx, sizeof headj);
+                        headj[1][3] -= seat_m;
                         if (g_head_joint_drawn == 0) {
                             static int s_head_log;
                             if (s_head_log < 1) {
                                 s_head_log = 1;
-                                printf("head_joint chr=%d T=%.1f,%.1f,%.1f seatY=%.0f %s\n",
+                                printf("head_joint chr=%d T=%.1f,%.1f,%.1f seatM=%.0f %s\n",
                                        pr->chrnum, (double)headj[0][3], (double)headj[1][3],
-                                       (double)headj[2][3], (double)seat_y,
+                                       (double)headj[2][3], (double)seat_m,
                                        dead ? "die" : (mdl_is_aim(mdl) ? "aim" : (mdl_is_walk(mdl) ? "walk" : "idle")));
                             }
                         }
                         g_emit_jtab = &headj[0][0];
                         g_emit_nj = 1;
-                        k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, -seat_y, 0.f,
+                        k = emit_parts(out, cap, k, pr, pr->head, room1, 0.f, 0.f, 0.f,
                                        0.f, 0.f, 0.f, add_yaw, pdx, 0.f, pdz);
                     }
                     g_head_joint_drawn++;
