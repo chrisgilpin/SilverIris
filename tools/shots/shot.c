@@ -3001,12 +3001,61 @@ static int playtest_chris(const char *out_dir)
     spawn_x = port_api_player_x();
     spawn_z = port_api_player_z();
     spawn_y = port_api_player_y();
-    printf("playtest spawn xz=%.1f,%.1f y=%.1f cur=%d inv=%.6f\n",
+    printf("playtest spawn xz=%.1f,%.1f y=%.1f cur=%d inv=%.6f retail_slab=%d models=%d\n",
            (double)spawn_x, (double)spawn_z, (double)spawn_y,
-           port_api_current_room(), (double)port_stage_bg_inv());
+           port_api_current_room(), (double)port_stage_bg_inv(),
+           port_prop_slab_is_retail(), port_prop_models());
     port_stan_debug_at(spawn_x, spawn_z);
+    /* Mihok live 0143/0205/0221: spawn HUD x=-219 z=-2364 (pad 167 stall
+     * sliver), not the hallway snap (~-89,-2390). */
+    {
+        float jx = spawn_x + 219.f, jz = spawn_z + 2364.3f;
+        if (jx * jx + jz * jz < 24.f * 24.f || spawn_x < -170.f) {
+            fprintf(stderr, "playtest spawn still stall jam xz=%.1f,%.1f\n",
+                    (double)spawn_x, (double)spawn_z);
+            return -1;
+        }
+    }
     if (shot_one(out_dir, "play_spawn") != 0)
         return -1;
+    dump_slabs_local("play_spawn");
+    dump_near_guards("play_spawn", spawn_x, spawn_z);
+    if (!port_prop_slab_is_retail()) {
+        fprintf(stderr, "play_spawn fitted doors are not retail Pgas\n");
+        return -1;
+    }
+    /* Same xz as Mihok live, spawn yaw 270: brown 685 handles, not a grey
+     * 4-band slab, extra-idle not overlapping the leaf. */
+    {
+        float lx = DOOR_JUMP_X, lz = DOOR_JUMP_Z, ey = spawn_y;
+        int gi, ng, near = 0;
+        (void)port_stan_eye_y(lx, lz, &ey);
+        place(lx, lz, 270.f);
+        port_player_set_pitch(0.f);
+        if (shot_one(out_dir, "play_door_live") != 0)
+            return -1;
+        dump_slabs_local("play_door_live");
+        dump_near_guards("play_door_live", lx, lz);
+        ng = port_prop_guard_count();
+        for (gi = 0; gi < ng; gi++) {
+            float gx = 0.f, gz = 0.f, r1[3], d;
+            if (port_prop_guard_xz(gi, &gx, &gz) != 0)
+                continue;
+            r1[0] = r1[1] = r1[2] = 0.f;
+            (void)port_stage_room1(r1);
+            d = sqrtf((gx - r1[0] - lx) * (gx - r1[0] - lx) +
+                      (gz - r1[2] - lz) * (gz - r1[2] - lz));
+            if (d < 40.f && !port_stan_guard_dead_at(gx, gz))
+                near++;
+        }
+        printf("play_door_live near_living=%d\n", near);
+        if (near > 0) {
+            fprintf(stderr, "play_door_live living guard in leaf near=%d\n", near);
+            return -1;
+        }
+        place(spawn_x, spawn_z, 270.f);
+        port_player_set_pitch(0.f);
+    }
     if (port_prop_head_joint_drawn() < 1) {
         fprintf(stderr, "play_spawn headj=%d (idle Chead not on neck 4x4)\n",
                 port_prop_head_joint_drawn());
@@ -4432,7 +4481,8 @@ static int shot_one(const char *out_dir, const char *tag)
             return -1;
         }
     }
-    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a")) {
+    if (!strcmp(tag, "play_spawn") || !strcmp(tag, "play_hall_a") ||
+        !strcmp(tag, "play_door_live")) {
         unsigned dark, metal, area;
         int w = port_api_fb_width(), h = port_api_fb_height();
         dark = count_dark_rect(fb, w, h, 0, 48, 88, 200);

@@ -588,6 +588,15 @@ int port_stage_load(int level_id)
     g_level = level_id;
     g_CurrentStageToLoad = st->files_id;
     g1_tex_set_pack(port_pack());
+    /* Fitted Pgas / 4-row G1DL SETTEX 685-688,706. Load before rooms so a
+     * late fill cannot miss them if slots are already stamped. */
+    {
+        static const unsigned k_door[] = { 685u, 686u, 687u, 688u, 706u };
+        unsigned ti;
+        g1_tex_begin_dl();
+        for (ti = 0; ti < 5u; ti++)
+            (void)g1_tex_settex(0xC0580002u, k_door[ti]);
+    }
     port_rng_on_stage_load();
     {
         float level_sc = 1.0f;
@@ -676,19 +685,28 @@ int port_stage_load(int level_id)
                 float pad_y = y;
                 int got = 0;
                 if (g_bg_inv != 1.f) {
-                    /* Pad 167 * inv sits on the r13 catwalk; Rare snaps
-                     * onto the hall it faces. Do not keep a high-floor hit. */
-                    if (port_stan_eye_y(x, z, &ey) == 0 && ey < 200.f) {
+                    /* Pad 167 * inv can sit on a stall sliver (live HUD
+                     * x=-219 z=-2364, body in the left leaf). Rare snaps
+                     * along look onto the hall. Prefer that over keeping
+                     * pad xz just because eye_y hit a <200 tile. */
+                    float pad_x = x, pad_z = z;
+                    if (port_stan_snap_walkable(&x, &z, lx, lz, PORT_STAN_NEAR_XZ,
+                                                &ey) == 0 &&
+                        ey < 200.f) {
                         y = ey;
                         got = 1;
-                    } else if (port_stan_snap_walkable(&x, &z, lx, lz,
-                                                      PORT_STAN_NEAR_XZ, &ey) == 0) {
-                        y = ey;
-                        got = 1;
-                    } else if (port_stan_snap_walkable(&x, &z, 0.f, 0.f,
-                                                      PORT_STAN_NEAR_XZ, &ey) == 0) {
-                        y = ey;
-                        got = 1;
+                    } else {
+                        x = pad_x;
+                        z = pad_z;
+                        if (port_stan_eye_y(x, z, &ey) == 0 && ey < 200.f) {
+                            y = ey;
+                            got = 1;
+                        } else if (port_stan_snap_walkable(&x, &z, 0.f, 0.f,
+                                                          PORT_STAN_NEAR_XZ,
+                                                          &ey) == 0) {
+                            y = ey;
+                            got = 1;
+                        }
                     }
                 } else {
                     port_stan_set_world_origin(0.0f, 0.0f, 0.0f);

@@ -360,6 +360,11 @@ static int dispatch(uint8_t cmd, uint32_t w0, uint32_t w1, uintptr_t w1_full, in
                 apply_chr_joint((int)((w1 & 0x00FFFFFFu) / G1_CHR_MTX_BYTES));
             return 0;
         }
+        /* Fitted Pgas G_MTX 0x03 LOAD is the gas-plant GROUP. Seg 3 is
+         * unbound on purpose (a leftover room MOVEWORD would replace the
+         * portal look-at and draw a mauve ribbed slab). Keep the pose. */
+        if (((w1 >> 24) & 0xF) == 3 && g_seg[4])
+            return 0;
         if (be) {
             const uint8_t *p = (const uint8_t *)resolve_addr(w1, 0);
             apply_matrix(w0, mtx_from_be(p));
@@ -823,21 +828,26 @@ int g1_interpret_rooms(const G1RoomDl *rooms, int n)
         {
             uintptr_t part_seg[16];
             int isolated = 0;
-            if (g_no_mtx) {
+            if (g_no_mtx || rooms[i].seg4) {
                 uintptr_t keep4 = rooms[i].seg4;
                 uintptr_t keep5 = rooms[i].seg5;
                 memset(g_slot, 0, sizeof g_slot);
                 memcpy(part_seg, g_seg, sizeof part_seg);
                 isolated = 1;
-                /* Drop leftover room/BG segments so a chr G_DL cannot blit
-                 * another map area. Mesh G_VTX is seg4/seg5. */
-                g_seg[14] = 0;
-                g_seg[15] = 0;
                 g_seg[4] = keep4;
                 g_seg[5] = keep5;
-                g_dl_lo = keep5;
-                if (keep5 && rooms[i].seg5_len)
-                    g_dl_hi = keep5 + rooms[i].seg5_len;
+                if (g_no_mtx) {
+                    /* Drop leftover room/BG segments so a chr G_DL cannot blit
+                     * another map area. Mesh G_VTX is seg4/seg5. */
+                    g_seg[14] = 0;
+                    g_seg[15] = 0;
+                    g_dl_lo = keep5;
+                    if (keep5 && rooms[i].seg5_len)
+                        g_dl_hi = keep5 + rooms[i].seg5_len;
+                } else {
+                    /* Fitted P*Z: leftover room seg 3 must not G_MTX LOAD. */
+                    g_seg[3] = 0;
+                }
             }
             walk_be(rooms[i].pri, rooms[i].pri_n);
             if (rooms[i].sec && rooms[i].sec_n)

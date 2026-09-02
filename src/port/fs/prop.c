@@ -216,6 +216,7 @@ static int g_floor_clamp;
 static float g_die_lift;
 static PortModel g_retail_slab;
 static int g_retail_slab_ok;
+static PortModel *slab_retail_src(void);
 static int g_intro_pad = -1;
 static int g_have_intro;
 static float g_intro_pos[3];
@@ -3551,6 +3552,7 @@ int port_prop_load(int level_id)
     (void)load_wppk();
     (void)load_ak47(); /* bind Gak47Z if present; viewgun stays PP7 */
     (void)load_mp5k(); /* bind Gmp5kZ if present; viewgun stays PP7 */
+    (void)slab_retail_src();
     return PORT_PROP_OK;
 }
 
@@ -4490,6 +4492,8 @@ int port_prop_push_off_slabs_local(float lx, float lz, float radius, float *pdx,
 
 int port_prop_slab_emit_count(void) { return g_slab_emit_n; }
 
+int port_prop_slab_is_retail(void) { return g_retail_slab_ok; }
+
 int port_prop_slab_emit_at(int i, float *x, float *z, float *yaw, int *kind)
 {
     if (i < 0 || i >= g_slab_emit_n)
@@ -4829,6 +4833,16 @@ static int slab_fit_retail(uint8_t *f, PortModel *dst, const PortModel *src, int
     dst->part[0].rx = 0.f;
     dst->part[0].ry = 0.f;
     dst->part[0].rz = 0.f;
+    /* Portal pose is look-at * R_yaw. Pgas G_MTX 0x03 LOAD of leftover
+     * room matrices replaced that and drew a mauve ribbed slab. */
+    {
+        uint8_t *pri = (uint8_t *)dst->part[0].pri;
+        uint32_t n = dst->part[0].pri_n, i;
+        for (i = 0; i < n; i++) {
+            if (pri[i * 8u] == (uint8_t)0x01 && pri[i * 8u + 4] == 3)
+                memset(pri + i * 8u, 0, 8);
+        }
+    }
     return 1;
 }
 

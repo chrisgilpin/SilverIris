@@ -193,6 +193,8 @@ int port_prop_drop_xyz(float *x, float *y, float *z);
 /* Last fill_rooms fitted door faces (path / spawn-alcove / G1 cutout).
  * World xz + yaw. kind 0=path 1=alcove 2=cutout. */
 int port_prop_slab_emit_count(void);
+/* 1 if fitted faces copy retail Pgas_plant_met1_do1 (SETTEX 685-688/706). */
+int port_prop_slab_is_retail(void);
 int port_prop_slab_emit_at(int i, float *x, float *z, float *yaw, int *kind);
 /* Push a player-local cylinder off last fill_rooms fitted leaves. */
 int port_prop_push_off_slabs_local(float lx, float lz, float radius, float *pdx,
