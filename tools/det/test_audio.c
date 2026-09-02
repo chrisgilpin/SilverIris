@@ -929,6 +929,52 @@ int main(int argc, char **argv)
             }
 
             {
+                char det_hex[65];
+
+                port_audio_unload_inst();
+                if (port_audio_det_on())
+                    return fail("det on before set");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push det");
+                if (port_audio_det_on())
+                    return fail("det default");
+                port_audio_inst_set_detune(0);
+                if (port_audio_det_on())
+                    return fail("det zero set");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load det zero");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("zero detune changed wav");
+                port_audio_inst_set_detune(40);
+                if (!port_audio_det_on())
+                    return fail("det flag");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load det");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("det seq silence");
+                hash_pcm(pcm, det_hex);
+                if (strcmp(det_hex, wav_hex) == 0)
+                    return fail("detune 40 matches zero wav");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("det seq touched game RNG");
+                port_audio_unload_inst();
+                if (port_audio_det_on())
+                    return fail("det after unload");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push after det");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load after det");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("wav after det unload");
+                printf("detune seq distinct=1 restore=1\n");
+            }
+
+            {
                 /* Same one-track seq with CC10=0 before the note. */
                 static const uint8_t k_seq_ccpan[] = {
                     0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

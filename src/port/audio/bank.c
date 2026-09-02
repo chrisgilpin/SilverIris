@@ -11,8 +11,8 @@
  * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
  * placeholder (GE has no footstep SFX ID); pack install is optional.
  * Music seq may also decode instruments.ctl / instruments.tbl VADPCM
- * into host PCM for pitched loop playback plus ALEnvelope ramps and
- * ALSound.samplePan. Still not ASP HLE.
+ * into host PCM for pitched loop playback plus ALEnvelope ramps,
+ * ALSound.samplePan, and ALKeyMap.detune. Still not ASP HLE.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
@@ -502,6 +502,7 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
             if (pan > 127u)
                 pan = 127u;
             port_audio_inst_set_pan(pan);
+            port_audio_inst_set_detune((int8_t)ctl[keymap + 5]);
             n++;
         }
     }

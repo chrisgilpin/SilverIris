@@ -14,7 +14,7 @@ SFX ID) on a fifth voice so they do not cut gun/door; L/R feet pan
 48/80. Compact MIDI seq is a synthetic one-note fixture
 (`seq.pcm.sha256`); runtime Facility play walks pack `Mfacility.bin` on
 seq voices. Pack `instruments.ctl` / `instruments.tbl` VADPCM is decoded
-to host PCM and pitched by MIDI key vs keyBase (loops plus ALEnvelope
-attack/decay/release). Without that bank the voices stay triangles.
-World SFX take a mixer pan and distance vol from listener xz. Not ASP
-HLE (no RSP mixer).
+to host PCM and pitched by MIDI key vs keyBase plus ALKeyMap.detune
+cents (loops plus ALEnvelope attack/decay/release). Without that bank
+the voices stay triangles. World SFX take a mixer pan and distance vol
+from listener xz. Not ASP HLE (no RSP mixer).

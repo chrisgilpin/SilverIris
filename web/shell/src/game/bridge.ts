@@ -55,6 +55,7 @@ export type GameModule = {
   _port_api_audio_inst_on?: () => number;
   _port_api_audio_env_on?: () => number;
   _port_api_audio_pan_on?: () => number;
+  _port_api_audio_det_on?: () => number;
   _port_api_audio_spat_on?: () => number;
   _port_api_audio_dist_on?: () => number;
   _port_api_audio_set_music: (on: number) => void;
@@ -164,6 +165,7 @@ export type GameBridge = {
   audioInstOn(): boolean;
   audioEnvOn(): boolean;
   audioPanOn(): boolean;
+  audioDetOn(): boolean;
   audioSpatOn(): boolean;
   audioDistOn(): boolean;
   audioSetMusic(on: boolean): void;
@@ -423,6 +425,9 @@ export async function loadGame(url = "/game.js"): Promise<GameBridge> {
     },
     audioPanOn(): boolean {
       return !!(alive && M._port_api_audio_pan_on && M._port_api_audio_pan_on());
+    },
+    audioDetOn(): boolean {
+      return !!(alive && M._port_api_audio_det_on && M._port_api_audio_det_on());
     },
     audioSpatOn(): boolean {
       return !!(alive && M._port_api_audio_spat_on && M._port_api_audio_spat_on());

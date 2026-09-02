@@ -56,6 +56,7 @@
 /* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
  * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
  * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
+ * ALKeyMap.detune cents on wavetable pitch (0 is the 12-TET step).
  * World SFX take a one-shot mixer pan + distance vol from listener xz.
  * Not ASP HLE. */
 #define SEQ_VOICES 8
@@ -232,6 +233,7 @@ typedef struct {
     uint8_t atk_vol;
     uint8_t dec_vol;
     uint8_t pan;
+    int8_t detune;
 } InstSound;
 
 static InstSound g_inst[INST_SOUNDS];
@@ -239,6 +241,7 @@ static int g_ninst;
 static int g_inst_ready;
 static int g_env_ready;
 static int g_pan_ready;
+static int g_det_ready;
 
 /* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
 static const uint16_t k_midi_hz[128] = {
@@ -252,6 +255,43 @@ static const uint16_t k_midi_hz[128] = {
     2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978,
     5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548,11175,
     11840,12544
+};
+
+/* 2^(cents/1200) in Q16 for ALKeyMap.detune -128..127. Index = cents+128.
+ * cents=0 is 65536 so pitch_step can skip the multiply. */
+static const uint32_t k_cents_q16[256] = {
+    60865u, 60901u, 60936u, 60971u, 61006u, 61041u, 61077u, 61112u,
+    61147u, 61183u, 61218u, 61253u, 61289u, 61324u, 61360u, 61395u,
+    61430u, 61466u, 61501u, 61537u, 61573u, 61608u, 61644u, 61679u,
+    61715u, 61751u, 61786u, 61822u, 61858u, 61893u, 61929u, 61965u,
+    62001u, 62037u, 62073u, 62108u, 62144u, 62180u, 62216u, 62252u,
+    62288u, 62324u, 62360u, 62396u, 62432u, 62468u, 62504u, 62540u,
+    62576u, 62613u, 62649u, 62685u, 62721u, 62757u, 62794u, 62830u,
+    62866u, 62903u, 62939u, 62975u, 63012u, 63048u, 63085u, 63121u,
+    63158u, 63194u, 63231u, 63267u, 63304u, 63340u, 63377u, 63413u,
+    63450u, 63487u, 63523u, 63560u, 63597u, 63634u, 63670u, 63707u,
+    63744u, 63781u, 63818u, 63854u, 63891u, 63928u, 63965u, 64002u,
+    64039u, 64076u, 64113u, 64150u, 64187u, 64224u, 64261u, 64299u,
+    64336u, 64373u, 64410u, 64447u, 64485u, 64522u, 64559u, 64596u,
+    64634u, 64671u, 64708u, 64746u, 64783u, 64821u, 64858u, 64896u,
+    64933u, 64971u, 65008u, 65046u, 65083u, 65121u, 65159u, 65196u,
+    65234u, 65272u, 65309u, 65347u, 65385u, 65423u, 65460u, 65498u,
+    65536u, 65574u, 65612u, 65650u, 65688u, 65726u, 65764u, 65802u,
+    65840u, 65878u, 65916u, 65954u, 65992u, 66030u, 66068u, 66106u,
+    66144u, 66183u, 66221u, 66259u, 66297u, 66336u, 66374u, 66412u,
+    66451u, 66489u, 66528u, 66566u, 66605u, 66643u, 66682u, 66720u,
+    66759u, 66797u, 66836u, 66874u, 66913u, 66952u, 66990u, 67029u,
+    67068u, 67107u, 67145u, 67184u, 67223u, 67262u, 67301u, 67340u,
+    67378u, 67417u, 67456u, 67495u, 67534u, 67573u, 67612u, 67651u,
+    67691u, 67730u, 67769u, 67808u, 67847u, 67886u, 67926u, 67965u,
+    68004u, 68043u, 68083u, 68122u, 68161u, 68201u, 68240u, 68280u,
+    68319u, 68359u, 68398u, 68438u, 68477u, 68517u, 68556u, 68596u,
+    68635u, 68675u, 68715u, 68755u, 68794u, 68834u, 68874u, 68914u,
+    68953u, 68993u, 69033u, 69073u, 69113u, 69153u, 69193u, 69233u,
+    69273u, 69313u, 69353u, 69393u, 69433u, 69473u, 69513u, 69553u,
+    69594u, 69634u, 69674u, 69714u, 69755u, 69795u, 69835u, 69876u,
+    69916u, 69956u, 69997u, 70037u, 70078u, 70118u, 70159u, 70199u,
+    70240u, 70280u, 70321u, 70362u, 70402u, 70443u, 70484u, 70524u
 };
 
 static uint32_t phase_inc(uint32_t hz)
@@ -516,6 +556,11 @@ int port_audio_pan_on(void)
     return g_pan_ready != 0;
 }
 
+int port_audio_det_on(void)
+{
+    return g_det_ready != 0;
+}
+
 static uint8_t take_next_pan(void)
 {
     uint8_t p = g_next_pan;
@@ -651,12 +696,25 @@ static void inst_recompute_pan(void)
     }
 }
 
+static void inst_recompute_det(void)
+{
+    int i;
+    g_det_ready = 0;
+    for (i = 0; i < g_ninst; i++) {
+        if (g_inst[i].detune != 0) {
+            g_det_ready = 1;
+            return;
+        }
+    }
+}
+
 void port_audio_unload_inst(void)
 {
     g_ninst = 0;
     g_inst_ready = 0;
     g_env_ready = 0;
     g_pan_ready = 0;
+    g_det_ready = 0;
     memset(g_inst, 0, sizeof g_inst);
     seq_voices_clear();
 }
@@ -698,9 +756,11 @@ int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key
     s->atk_vol = 127u;
     s->dec_vol = 127u;
     s->pan = SEQ_PAN_C;
+    s->detune = 0;
     g_inst_ready = 1;
     inst_recompute_env();
     inst_recompute_pan();
+    inst_recompute_det();
     return 0;
 }
 
@@ -739,6 +799,17 @@ void port_audio_inst_set_pan(uint8_t pan)
         pan = 127u;
     s->pan = pan;
     inst_recompute_pan();
+}
+
+void port_audio_inst_set_detune(int8_t cents)
+{
+    InstSound *s;
+
+    if (g_ninst < 1)
+        return;
+    s = &g_inst[g_ninst - 1];
+    s->detune = cents;
+    inst_recompute_det();
 }
 
 static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
@@ -786,10 +857,11 @@ static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
     return any;
 }
 
-static uint32_t pitch_step(uint8_t note, uint8_t base)
+static uint32_t pitch_step(uint8_t note, uint8_t base, int8_t detune)
 {
     uint32_t hn;
     uint32_t hb;
+    uint32_t step;
 
     if (note > 127u)
         note = 127u;
@@ -801,7 +873,14 @@ static uint32_t pitch_step(uint8_t note, uint8_t base)
         hb = k_midi_hz[60];
     if (!hn)
         hn = hb;
-    return (uint32_t)(((uint64_t)hn << 16) / (uint64_t)hb);
+    step = (uint32_t)(((uint64_t)hn << 16) / (uint64_t)hb);
+    if (detune != 0) {
+        uint32_t r = k_cents_q16[(int)detune + 128];
+        step = (uint32_t)(((uint64_t)step * (uint64_t)r) >> 16);
+        if (step < 1u)
+            step = 1u;
+    }
+    return step;
 }
 
 static int seq_ok_off(uint32_t off)
@@ -1104,7 +1183,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         g_seq_vpcn[slot] = snd->n;
         g_seq_vloop0[slot] = snd->loop0;
         g_seq_vloop1[slot] = snd->loop1;
-        g_seq_vinc[slot] = pitch_step(note, snd->kbase);
+        g_seq_vinc[slot] = pitch_step(note, snd->kbase, snd->detune);
         g_seq_vamp[slot] = amp;
         g_seq_vpan[slot] = mix_pan(g_seq_pan[ch & 15u], snd->pan);
         if (inst_env_used(snd)) {
