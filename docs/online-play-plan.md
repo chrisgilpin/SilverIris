@@ -3815,3 +3815,55 @@ restore=1). This pass did not re-run long_walk / handle_xrange / neck_gap
   placeholder `3c97070`.
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 P0-1 evidence + Mac walk rAF `1efb61c`)
+
+P0-1 first-enemy Chrome freeze stays LIVE-CLOSED on `7ab099c` (no new wasm).
+Live wasm is still `f134481` (**270964**, Last-Modified 21:39:58 GMT).
+Hard-refresh Chrome `?ff_netplay=0`, pack `fff814d2…`.
+
+Chris 14:21 was the **pre-fix** freeze (wasm **252947** @ 18:18 GMT, hit 1,
+Incognito ~101% CPU). Do not treat 14:21 as a `7ab099c` / `f134481` result.
+`.local/mihok-chrome-playtest-chris-fire-freeze-20260902-1421.md`
+
+**1 — fire-hit LIVE re-prove.** Stall HUD `x=-98.5 z=-2358.4 y=29.1 θ270`
+**seq 1e**. First KeyF: hits 1 kills 1 mag 7→6 sfx=1. Guard 0 dead=1.
+Post-hit rAF **178 / 3500ms ≈ 50.9 fps**. Tab did not freeze. hp stayed 8.
+`.local/mihok-chrome-playtest-20260902-1747.md`. Do not reopen as P0#1.
+
+**2 — walk rAF this Mac only.** Idle rAF **152 / 3517ms ≈ 43.2 fps**; walk
+KeyW ≈**36.0 fps** (126 / 3500ms) to x=−573.3 last_sfx=15 spat=1 dist=0.
+Tab did not freeze. `.local/mihok-chrome-playtest-20260902-1746.md`.
+Facility-box CDP :9226 still unreachable (LAN 192.168.1.0/24 / Parallels
+10.211.55 / tailscale linux :9226 closed). Overnight box idle 24.5–28.8
+(0446/0612/1147) still the last Facility samples — cite, do not close
+`ff37828`. No ASP slice (clock-out).
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (re-proved on `f134481` wasm:
+  stall θ270 hit 1 / kill 1, post-hit ≈51 fps). Do not reopen as walking
+  freeze. Evidence: Chris 14:21
+  `.local/mihok-chrome-playtest-chris-fire-freeze-20260902-1421.md`;
+  fix SHA `7ab099c`; latest live re-prove 1747.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~43 / walk ~36 (seq + wavetable + envelope + pan + spat
+  + dist) does not close `ff37828`. Facility-box CDP :9226 was not
+  reachable this pass. Overnight box idle 24.5–28.8 (0446/0612/1147)
+  still the last Facility samples — cite, do not claim CLOSED.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Live 1746/1747 still shows both.
+  Keep closed unless a later pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (RSP mixer). Music is pack compact MIDI plus
+  instruments.tbl PCM plus ALEnvelope plus ALSound/CC10 pan `82e68d3`,
+  not ASP. World SFX mixer pan `67b7bce` + distance vol `f134481` (live
+  spat=1 / dist=0 while walking, last_sfx=15; stall fire dist=0 because
+  extra-idle is inside 400u). Not RSP spatial. Footsteps remain mixer
+  placeholder `3c97070`.
+- Combat AI / matching engine later. Campaign out of v1.
+
