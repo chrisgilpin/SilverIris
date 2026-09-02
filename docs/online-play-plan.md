@@ -3310,3 +3310,49 @@ Native player/gun/g1 playtest green. Greyscale
   placeholder `3c97070`, not pack IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 fire-hit LIVE `7ab099c`)
+
+P0-1 first-enemy Chrome freeze LIVE-CLOSED on `7ab099c` (no new wasm).
+Hard-refresh Chrome on https://007.goodhouseinc.com `?ff_netplay=0`, pack
+`fff814d2…`, wasm **253721** Last-Modified 18:47:03 GMT (`7ab099c`).
+Chris 14:21 was the pre-fix freeze (wasm 252947 @ 18:18 GMT, hit 1,
+Incognito ~101% CPU). Do not treat 14:21 as a `7ab099c` result.
+
+Sit chase dests on a ground tile; rAF catch-up capped 100ms / 2 ticks.
+KEEP handles `f2a753a`, Chead `8cc1ce1`, stall −98.5/−2358.4,
+missing-neighbor `23be532`, wasm-stack `ff37828`, footsteps `3c97070`.
+
+**1 — fire-hit LIVE.** Stall HUD `x=-98.5 z=-2358.4 y=29.1 θ261` aimed at
+extra-idle −350,−2320. First fire: hits 1 kills 1 mag 7→6 sfx=1. Guard
+drops; post-hit rAF **201 / 3500ms ≈ 57.4 fps**. Tab did not freeze.
+`.local/mihok-chrome-playtest-20260902-1458.md`. Harness `--firehit`
+miss 23.70 / hit 23.46 `guard_fire_ms=1.31` (was 322) after 73–76ms
+dead=1 hits=2 kills=1.
+
+**2 — hitch / FPS / KEEP.** This capture box live rAF idle ≈49.7 fps
+(174 / 3501ms); walk KeyW ≈40.9 fps (143 / 3500ms) last_sfx=15. Mac
+box, not Facility rAF — do not close `ff37828` from it. Stall idle
+xz=−98.5,−2358.4. Handles/Chead/void untouched.
+
+Native player/gun/g1 playtest green (firehit re-run). Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-1 fire-hit LIVE-CLOSED on `7ab099c` (stall θ261 hit 1 / kill 1,
+  post-hit ≈57 fps). Do not reopen as the walking stack freeze.
+- P0-2 live spawn-idle / walk rAF still required on the Facility box.
+  Mac live idle ~50 / walk ~41 does not close `ff37828`.
+- P0-2 doors: Mihok 1032/1215 live-closed spawn/θ263 — brown 686-688
+  ribs + two 685 highlight handle bars. Keep closed unless a later
+  pass regresses ribs or bars.
+- P0-3 LIVE-CLOSED on `8cc1ce1` (θ263 neck_gap=7). KEEP stitched-neck
+  DL; no model-Y fudge.
+- Missing-neighbor LIVE-CLOSED on `8cc1ce1` at −161,−2382 θ290. Do not
+  walk stacked r6.
+- Full ASP HLE still out (music, spatial; footsteps are mixer
+  placeholder `3c97070`, live last_sfx=15 while walking, not pack IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
