@@ -2334,3 +2334,54 @@ Native player/gun/lockstep/g1 green. Greyscale
 - Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
 - Combat AI / matching engine later. Campaign out of v1.
 
+---
+
+## STATUS (2026-09-02 live rAF stall clip `b3fdadf`)
+
+P0-2/P0-3 on top of fitted Pgas skip G_MTX `bad9aff` (KEEP). SHA `b3fdadf`.
+Pushed to `origin/main`, Hetzner `/home/grok/GoldenEye` pull + `make -C
+native wasm` + `silveriris-vite` restart. Live wasm is this SHA.
+
+Mihok 0143/0205/0221/0235/0304 after hard-refresh of `bad9aff`: HUD still
+x=-219 z=-2364 mauve 4-band + floating head. Harness never sim-ticked
+after load so spawn stayed −89.5,−2390 with brown Pgas; live rAF ticks.
+Tile 147's unlinked south edge made every zero-stick clip look trapped;
+centroid snap walked along that mega-triangle into the stall (camera
+inside the leaf). A 400u G1 cutout collision plane also shoved −X.
+clip_step now pushes off the unlinked edge along its inward normal.
+Fitted-slab collision half-w is a door (100u), not the visual oversize.
+`play_spawn idle40` stays x>-170. KEEP door-jump `102237e`, viscyl
+`dfde794`, SHADE*TEXEL `6377093`, alcove pin `07e6b41`, G1 clip
+`4785f0f`, wasm-stack FPS `ff37828`, skip G_MTX `bad9aff`.
+
+**1 — spawn / doors.** `playtest spawn xz=-89.5,-2390.0 y=29.1
+retail_slab=1`. `play_spawn idle40 xz=-98.5,-2358.4 d=-9.0,31.6` (not
+x=-219). `spawn_fill play_spawn dark=55 metal=7175 area=13376 mauve=203`.
+`play_door_live` near_living=0. `play_clip_door` clipdoor_fill dark=43
+metal=4185 mauve=101 `olive n=34` hunt teleports=0. `chris2 vis gi=37
+dpad=22.2`. `door_jump` alcove spawn-left (−89.5,−2274 yaw 180).
+
+**2 — hitch / FPS / clip.** `play_spawn` frame_ms=29.78 drawn=71 seen=2
+skip_range=1 skip_leaf=22 mag=7/21 held=1 headj=1. `long_walk`
+frame_ms=29.72. `long_walk_hall` (−348,−2117) frame_ms=40.39 — 35ms class
+kept (this box; live rAF KEEP `ff37828`). `door_jump` frame_ms=31.93.
+`mihok_block` clip_step d=12.0. `play_corner` g1clip push 27u.
+`play_wall_close` blocked. `fire_hitch miss_ms=23.62 hit_ms=23.26 hits=1`.
+y=29.12.
+
+Native player/gun/lockstep/g1 green. Greyscale
+`643fcb7f83cabd7f505df4163130af8cebfb76b7cd524ec5881e2d81972cd477`.
+
+**Remaining holes**
+
+- P0-2 live match after hard-refresh still required (Mihok 0304 was
+  `bad9aff`; live wasm after this push is `b3fdadf` idle-tick stall
+  clip). Harness spawn is brown 685 handles at −89.5,−2390. Do not close
+  without Mihok/live match.
+- P0-3 live match still required. Idle ticks no longer walk to x=-219;
+  extra-idle at play_door_live is in the hall. `play_wall` pitch −35 still
+  reads as ceiling (already on stan skin 30). Mihok pose left void /
+  missing neighbor still open. Do not close without Mihok/live match.
+- Full ASP HLE still out (music, spatial, footsteps / other SFX IDs).
+- Combat AI / matching engine later. Campaign out of v1.
+
