@@ -90,6 +90,8 @@ static StanTile g_tile[PORT_STAN_MAX_TILES];
 static int g_ntile;
 static StanDoor g_door[PORT_STAN_MAX_DOORS];
 static int g_ndoor;
+static float g_last_use_x, g_last_use_z;
+static int g_last_use;
 static StanGuard g_guard[PORT_STAN_MAX_GUARDS];
 static int g_nguard;
 static int g_ray_guard;
@@ -140,6 +142,7 @@ void port_stan_unload(void)
 {
     g_ntile = 0;
     g_ndoor = 0;
+    g_last_use = 0;
     g_nguard = 0;
     g_ray_guard = -1;
     g_scale = 1.0f;
@@ -164,7 +167,11 @@ void port_stan_set_world_origin(float x, float y, float z)
     g_oz = z;
 }
 
-void port_stan_clear_doors(void) { g_ndoor = 0; }
+void port_stan_clear_doors(void)
+{
+    g_ndoor = 0;
+    g_last_use = 0;
+}
 
 void port_stan_clear_guards(void)
 {
@@ -554,8 +561,22 @@ int port_stan_use_door(float local_x, float local_z, float look_x, float look_z)
             if (open)
                 g_door[i].frac = 0.f;
         }
+        g_last_use_x = bx;
+        g_last_use_z = bz;
+        g_last_use = 1;
         return open ? 1 : 2;
     }
+}
+
+int port_stan_last_use_xz(float *x, float *z)
+{
+    if (!g_last_use)
+        return 0;
+    if (x)
+        *x = g_last_use_x;
+    if (z)
+        *z = g_last_use_z;
+    return 1;
 }
 
 int port_stan_tile_count(void) { return g_ntile; }

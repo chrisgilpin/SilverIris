@@ -591,13 +591,14 @@ void port_player_tick(int8_t stick_x, int8_t stick_y, uint16_t buttons)
         float lz = -cosf(rad);
         {
             int used = port_stan_use_door(p->x, p->z, lx, lz);
-            if (used == 2) {
-                if (port_audio_play_door_close)
-                    port_audio_play_door_close();
-                port_gun_suppress_fire();
-            } else if (used) {
-                if (port_audio_play_door)
-                    port_audio_play_door();
+            if (used) {
+                float dx, dz;
+                void (*fn)(void) = (used == 2) ? port_audio_play_door_close
+                                               : port_audio_play_door;
+                if (port_stan_last_use_xz(&dx, &dz))
+                    port_sfx_play_world(fn, dx, dz);
+                else if (fn)
+                    fn();
                 port_gun_suppress_fire();
             }
         }

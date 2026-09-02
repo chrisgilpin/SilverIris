@@ -19,8 +19,8 @@ void port_audio_set_placeholder_music(int on);
  * instruments.ctl supplies them. ALSound.samplePan + MIDI CC10, center-
  * unity at 64 (both channels full). ALKeyMap.detune in cents on pitched
  * wavetable voices (0 keeps the 12-TET step). Mixer pan + distance vol
- * on world SFX (listener xz) and L/R walk steps (pan only). Not ASP HLE
- * (no RSP mixer). */
+ * on world SFX and door open/close (listener xz) and L/R walk steps
+ * (pan only). Not ASP HLE (no RSP mixer). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
 void port_audio_unload_seq(void);
 int port_audio_seq_on(void);

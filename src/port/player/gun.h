@@ -64,6 +64,9 @@ void port_gun_reset_seat(int seat);
 void port_gun_tick(uint16_t buttons);
 /* Skip this rising Z: it was a door use, not a shot. */
 void port_gun_suppress_fire(void);
+/* Mixer pan + distance vol from listener xz, then fn(). Center/full at
+ * 64/127. Used for world SFX and door open/close. */
+void port_sfx_play_world(void (*fn)(void), float sx, float sz);
 
 int32_t *port_ammoheldarr(void);
 int port_gun_weapon(void);

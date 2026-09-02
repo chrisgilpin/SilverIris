@@ -750,8 +750,13 @@ static int test_door_use_open(void)
         return fail("use did not open");
     {
         float f = port_stan_door_frac_at(300.0f, 0.0f);
+        float ux, uz;
         if (f <= 0.f || f > 1.f)
             return fail("use frac not started");
+        if (!port_stan_last_use_xz(&ux, &uz))
+            return fail("use last xz");
+        if (ux < 299.f || ux > 301.f || uz < -1.f || uz > 1.f)
+            return fail("use last xz not door");
     }
 
     port_player_set_pose(200.0f, y, 0.0f, 90.0f);

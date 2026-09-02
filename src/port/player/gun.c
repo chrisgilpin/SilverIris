@@ -149,7 +149,7 @@ static uint8_t sfx_vol_at(float sx, float sz)
     return (uint8_t)vol;
 }
 
-static void play_world(void (*fn)(void), float sx, float sz)
+void port_sfx_play_world(void (*fn)(void), float sx, float sz)
 {
     if (!fn)
         return;
@@ -234,29 +234,29 @@ static void fire_hitscan(void)
         {
             int guard = (src == 1) ? port_stan_ray_hit_guard() : 0;
             if ((src == 2 || src == 6 || guard || src == 5) && port_audio_play_hit)
-                play_world(port_audio_play_hit, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_hit, g->hit_x, g->hit_z);
             else if ((src == 1 || src == 3 || src == 4) && port_audio_play_rico)
-                play_world(port_audio_play_rico, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_rico, g->hit_x, g->hit_z);
             if ((src == 2 || src == 6 || guard) && port_audio_play_yelp)
-                play_world(port_audio_play_yelp, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_yelp, g->hit_x, g->hit_z);
         }
         if (src == 2) {
             port_chr_kill();
             port_score_add_kill();
             if (port_audio_play_fall)
-                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 6) {
             float hx = 0.f, hz = 0.f;
             if (port_prop_chr_hit_xz(&hx, &hz) == 0)
                 port_stan_mark_guard_at(hx, hz);
             port_score_add_kill();
             if (port_audio_play_fall)
-                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 1 && port_stan_ray_hit_guard()) {
             port_stan_mark_ray_guard();
             port_score_add_kill();
             if (port_audio_play_fall)
-                play_world(port_audio_play_fall, g->hit_x, g->hit_z);
+                port_sfx_play_world(port_audio_play_fall, g->hit_x, g->hit_z);
         } else if (src == 5 && hit_seat >= 0) {
             int dead;
             port_set_cur_player(hit_seat);
@@ -266,7 +266,7 @@ static void fire_hitscan(void)
             if (dead) {
                 port_score_add_kill();
                 if (port_audio_play_fall)
-                    play_world(port_audio_play_fall, g->hit_x, g->hit_z);
+                    port_sfx_play_world(port_audio_play_fall, g->hit_x, g->hit_z);
             }
         }
     }

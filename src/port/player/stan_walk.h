@@ -55,6 +55,8 @@ int port_stan_guard_dead_at(float world_x, float world_z);
 #define PORT_DOOR_USE_RANGE 200.0f
 /* 1 opened, 2 closed, 0 none. Both 1 and 2 are success. */
 int port_stan_use_door(float local_x, float local_z, float look_x, float look_z);
+/* World xz of the last successful use_door. 1 if a use has happened. */
+int port_stan_last_use_xz(float *x, float *z);
 /* 1 if room-local xz sits inside a closed (frac=0) door slab. */
 int port_stan_closed_door_at_local(float local_x, float local_z);
 /* Same test in world xz (portal centre, pad origin). Open / frac>0 is 0. */
