@@ -199,6 +199,14 @@ function syncHits(): void {
   }
 }
 
+function hudLine(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.strokeStyle = "rgba(18,20,24,0.85)";
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
+  ctx.strokeText(text, x, y);
+  ctx.fillText(text, x, y);
+}
+
 function drawHud(): void {
   if (!game?.ready()) return;
   const ctx = canvas.getContext("2d");
@@ -207,11 +215,17 @@ function drawHud(): void {
   const x = game.playerX();
   const z = game.playerZ();
   const th = game.playerTheta();
-  ctx.fillStyle = "rgba(18,20,24,0.72)";
-  ctx.fillRect(0, 0, canvas.width, 62);
-  ctx.fillStyle = "#e8e6e1";
+  /* Do not fill a 62px bar: spawn 685 handle bars sit in that band on the
+   * left door (Mihok 0446: brown ribs, no distinct handles). Stroke the
+   * debug text so the G1 door face stays visible. */
   ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(`x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`, 8, 14);
+  ctx.fillStyle = "#e8e6e1";
+  hudLine(
+    ctx,
+    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}`,
+    8,
+    14,
+  );
   const hp = game.health();
   if (hp < lastHp)
     hurtFlash = 12;
@@ -220,7 +234,8 @@ function drawHud(): void {
   {
     const w = game.gunWeapon();
     const wname = w === 1 ? "KF7" : w === 2 ? "MP5K" : "PP7";
-    ctx.fillText(
+    hudLine(
+      ctx,
       `${wname} ${game.gunMag()}/${game.gunReserve()}  hp ${hp}${game.armour() ? " arm " + game.armour() : ""}${hp <= 0 ? " DEAD" : ""}${hurtFlash > 0 && hp > 0 ? "  UNDER FIRE" : ""}  hits ${game.gunHits()}  crc ${game.crcPlayers().toString(16).padStart(8, "0")}`,
       8,
       28,
@@ -245,13 +260,15 @@ function drawHud(): void {
       game.chrCount() > 0
         ? `${board}${clock}  grd ${game.chrX().toFixed(0)},${game.chrZ().toFixed(0)}  act ${game.chrAction()}`
         : `${board}${clock}`;
-    ctx.fillText(
+    hudLine(
+      ctx,
       `${gline}${los ? `  los ${los} shots ${game.guardShots()}` : ""}`,
       8,
       42,
     );
   }
-  ctx.fillText(
+  hudLine(
+    ctx,
     `fb ${game.fbNonzero()}  last ${game.lastDrawName()}  rm ${game.bgRooms()} wlk ${game.roomsWalked()} cur ${game.currentRoom()} c0 ${game.gdlC0() ? 1 : 0} vtx ${game.gdlVtx() ? 1 : 0} tex ${game.settex()}/${game.texOk()}/${game.texMiss()}`,
     8,
     56,

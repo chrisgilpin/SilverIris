@@ -370,6 +370,7 @@ export function blitRgbaToCanvas(
     const sctx = scratch.getContext("2d");
     if (sctx) {
       sctx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(scratch as CanvasImageSource, ox, oy, dw, dh);
       return true;
     }

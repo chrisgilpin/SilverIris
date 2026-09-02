@@ -1679,8 +1679,20 @@ void port_stan_visual_xz(float lx, float lz, float *ox, float *oz)
     t = tile_for_walk(wx, wz);
     if (!t)
         t = tile_at_world(wx, wz);
-    if (t && t->n >= 3)
-        (void)push_off_unlinked_on_tile(t, &wx, &wz, PORT_DRAW_SKIN);
+    /* clip_step already used WALL_SKIN 30. DRAW_SKIN 46 on tile 147's south
+     * edge is a −X shove into the stall leaf (Mihok 0446: 685 bars edge-on
+     * under the HUD, extra-idle neck in profile). Keep other unlinked
+     * walls, G1, and fitted slabs. */
+    if (t && t->n >= 3) {
+        float ux = wx, uz = wz, udx, udz;
+        (void)push_off_unlinked_on_tile(t, &ux, &uz, PORT_DRAW_SKIN);
+        udx = ux - wx;
+        udz = uz - wz;
+        if (!(udx < -1.f && fabsf(udz) < fabsf(udx))) {
+            wx = ux;
+            wz = uz;
+        }
+    }
     {
         float lx2 = wx - g_ox, lz2 = wz - g_oz;
         (void)port_stage_g1_wall_push(lx2, lz2, PORT_DRAW_SKIN, &pdx, &pdz);

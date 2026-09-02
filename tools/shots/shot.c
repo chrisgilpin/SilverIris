@@ -3021,7 +3021,8 @@ static int playtest_chris(const char *out_dir)
                (double)(vx - spawn_x), (double)(vz - spawn_z));
         /* Centroid / inward-edge look-at walked the camera into the stall
          * leaf (visual d≈−25 −X). clip keeps the body; look-at must stay
-         * in the hall so 685 handles and the extra-idle neck read. */
+         * in the hall so 685 handles and the extra-idle neck read. A −16u
+         * cap still put 685 bars under the HUD and the neck in profile. */
         if (vx < -170.f || (vx - spawn_x) < -18.f) {
             fprintf(stderr, "play_spawn visual still stall xz=%.1f,%.1f d=%.1f,%.1f\n",
                     (double)vx, (double)vz, (double)(vx - spawn_x),
@@ -3070,13 +3071,14 @@ static int playtest_chris(const char *out_dir)
                 return -1;
             }
         }
-        /* Mihok 0414: live rAF sits at idle40 xz. Look-left θ257 showed a
-         * floating Chead when look-at was in the leaf. Snap that pose. */
+        /* Mihok 0446: live rAF sits at idle40 xz. Look-left θ263 showed a
+         * floating Chead when look-at was still −16u −X into the leaf.
+         * Snap that pose (257 was 0414; live 0446 is 263). */
         place(x1, z1, 270.f);
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_spawn_idle") != 0)
             return -1;
-        place(x1, z1, 257.f);
+        place(x1, z1, 263.f);
         port_player_set_pitch(0.f);
         if (shot_one(out_dir, "play_lookleft") != 0)
             return -1;
