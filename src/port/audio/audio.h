@@ -15,7 +15,8 @@ void port_audio_cb(int16_t *stereo, int nframes);
 
 void port_audio_set_placeholder_music(int on);
 /* Compact MIDI (pack Mfacility.bin). Triangle voices unless a wavetable
- * bank is loaded. Not ASP HLE (no envelopes, RSP mixer, or spatial). */
+ * bank is loaded. ALEnvelope attack/decay/release on seq voices when
+ * instruments.ctl supplies them. Not ASP HLE (no RSP mixer or spatial). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);
 void port_audio_unload_seq(void);
 int port_audio_seq_on(void);
@@ -26,8 +27,14 @@ int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key
                          uint8_t vel_min, uint8_t vel_max, uint8_t vol,
                          const int16_t *pcm, uint32_t n, uint32_t loop_start,
                          uint32_t loop_end);
+/* Last pushed InstSound. Times are ALMicroTime (us). decay_us==-1 sustains
+ * at decay_vol until note-off. Defaults (0, -1, 0, 127, 127) match the
+ * pre-envelope mix. */
+void port_audio_inst_set_env(int32_t attack_us, int32_t decay_us, int32_t release_us,
+                            uint8_t attack_vol, uint8_t decay_vol);
 void port_audio_unload_inst(void);
 int port_audio_inst_on(void);
+int port_audio_env_on(void);
 void port_audio_unload_pack_instruments(void);
 void port_audio_play_gun(void);
 void port_audio_play_dry(void);

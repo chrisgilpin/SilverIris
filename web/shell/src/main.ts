@@ -225,7 +225,7 @@ function drawHud(): void {
   ctx.fillStyle = "#e8e6e1";
   hudLine(
     ctx,
-    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  seq ${game.audioSeqOn() ? (game.audioInstOn() ? "1w" : "1") : "0"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}`,
+    `x ${x.toFixed(1)}  z ${z.toFixed(1)}  y ${game.playerY().toFixed(1)}  θ ${th.toFixed(0)}°  φ ${game.playerPhi().toFixed(0)}°  stan ${game.stanTiles()}${game.stanOnTile() ? "+" : "-"}  seq ${game.audioSeqOn() ? (game.audioInstOn() ? (game.audioEnvOn() ? "1we" : "1w") : "1") : "0"}  rAF ${rafFps.toFixed(0)}  sfx ${game.audioLastSfx()}`,
     8,
     14,
   );
@@ -326,7 +326,8 @@ function ensurePlayer(): AudioPlayer | null {
     game?.audioCb(out, n);
   }, game.audioRate());
   /* Placeholder 196/294 Hz triangle drone stays off. Pack compact MIDI
-   * (Mfacility.bin) mixes on seq voices; instruments.tbl PCM when loaded. */
+   * (Mfacility.bin) mixes on seq voices; instruments.tbl PCM + ALEnvelope
+   * when loaded. Not ASP HLE. */
   if (player) game.audioSetMusic(false);
   return player;
 }

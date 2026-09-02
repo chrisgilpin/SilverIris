@@ -6,12 +6,13 @@
 
 /*
  * Decode pack sfx.ctl / sfx.tbl VADPCM one-shots. Not ASP HLE — no
- * envelopes, pitch, or RSP mixer. Gun / dry / door / body-fall / hit /
+ * RSP mixer or spatial. Gun / dry / door / body-fall / hit /
  * KF7 bolt / pickup / door-close / wall ricochet / ammo crate / armour /
  * rifle-cock reload / male yelp / Bond hurt. Walk steps are a mixer
  * placeholder (GE has no footstep SFX ID); pack install is optional.
  * Music seq may also decode instruments.ctl / instruments.tbl VADPCM
- * into host PCM for pitched loop playback. Still not ASP HLE.
+ * into host PCM for pitched loop playback plus ALEnvelope ramps.
+ * Still not ASP HLE.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.
@@ -401,11 +402,12 @@ static int decode_wave_cached(const uint8_t *ctl, uint32_t ctl_n, const uint8_t 
 static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8_t *tbl,
                                  uint32_t tbl_n)
 {
-    uint32_t bank, inst, sound, wave, keymap, loop_off;
+    uint32_t bank, inst, sound, wave, keymap, loop_off, env_off;
     int16_t ninst, scount;
     int i, s, n = 0, wi;
-    uint8_t ivol, svol, kmin, kmax, kbase, vmin, vmax, vol;
+    uint8_t ivol, svol, kmin, kmax, kbase, vmin, vmax, vol, atk_vol, dec_vol;
     uint32_t loop0, loop1, loop_ct;
+    int32_t atk_us, dec_us, rel_us;
 
     port_audio_unload_pack_instruments();
     if (ctl_n < 8 || be16(ctl) != 0x4231 || be16(ctl + 2) < 1)
@@ -434,6 +436,7 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
             sound = be32(ctl + inst + 16u + 4u * (uint32_t)s);
             if (sound + 16 > ctl_n)
                 continue;
+            env_off = be32(ctl + sound);
             keymap = be32(ctl + sound + 4);
             wave = be32(ctl + sound + 8);
             svol = ctl[sound + 13];
@@ -472,6 +475,23 @@ static int load_pack_instruments(const uint8_t *ctl, uint32_t ctl_n, const uint8
             if (port_audio_inst_push(i, kmin, kmax, kbase, vmin, vmax, vol, g_iwave[wi],
                                      g_iwave_n[wi], loop0, loop1) != 0)
                 continue;
+            atk_us = 0;
+            dec_us = -1;
+            rel_us = 0;
+            atk_vol = 127u;
+            dec_vol = 127u;
+            if (env_off && env_off + 14u <= ctl_n) {
+                atk_us = bes32(ctl + env_off);
+                dec_us = bes32(ctl + env_off + 4);
+                rel_us = bes32(ctl + env_off + 8);
+                atk_vol = ctl[env_off + 12];
+                dec_vol = ctl[env_off + 13];
+                if (atk_us < 0)
+                    atk_us = 0;
+                if (rel_us < 0)
+                    rel_us = 0;
+            }
+            port_audio_inst_set_env(atk_us, dec_us, rel_us, atk_vol, dec_vol);
             n++;
         }
     }

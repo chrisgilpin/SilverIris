@@ -51,7 +51,8 @@
 #define STEP_LEN ((PORT_AUDIO_RATE * 70u) / 1000u)
 #define STEP_CRACK ((PORT_AUDIO_RATE * 14u) / 1000u)
 /* Compact MIDI (ALCSeq) walker. Triangle voices, or pack wavetable PCM
- * when instruments.ctl is loaded. Not ASP HLE. */
+ * when instruments.ctl is loaded. ALEnvelope attack/decay/release when
+ * the bank supplies them. Not ASP HLE (no RSP mixer or spatial). */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -73,6 +74,11 @@
 #define SEQ_LOOPEND 0x2Du
 #define SEQ_BLOCK 0xFEu
 #define SEQ_CC_VOL 7
+#define ENV_ATTACK 0
+#define ENV_DECAY 1
+#define ENV_SUSTAIN 2
+#define ENV_RELEASE 3
+#define ENV_SAMP_CAP 176400u /* 8s at 22050 */
 #define SFX_KIND_MAX 15
 #define YELP_VARS 25
 #define FALL_VARS 11
@@ -176,6 +182,17 @@ static uint32_t g_seq_vpos[SEQ_VOICES];
 static uint32_t g_seq_vloop0[SEQ_VOICES];
 static uint32_t g_seq_vloop1[SEQ_VOICES];
 static uint8_t g_seq_alive;
+static uint8_t g_seq_veon[SEQ_VOICES];
+static uint8_t g_seq_vephase[SEQ_VOICES];
+static int g_seq_vefrom[SEQ_VOICES];
+static int g_seq_veto[SEQ_VOICES];
+static uint32_t g_seq_vespan[SEQ_VOICES];
+static uint32_t g_seq_veleft[SEQ_VOICES];
+static int32_t g_seq_veatkus[SEQ_VOICES];
+static int32_t g_seq_vedecus[SEQ_VOICES];
+static int32_t g_seq_verelus[SEQ_VOICES];
+static uint8_t g_seq_veatkvol[SEQ_VOICES];
+static uint8_t g_seq_vedecvol[SEQ_VOICES];
 
 typedef struct {
     const int16_t *pcm;
@@ -189,11 +206,17 @@ typedef struct {
     uint8_t vmin;
     uint8_t vmax;
     uint8_t vol;
+    int32_t atk_us;
+    int32_t dec_us;
+    int32_t rel_us;
+    uint8_t atk_vol;
+    uint8_t dec_vol;
 } InstSound;
 
 static InstSound g_inst[INST_SOUNDS];
 static int g_ninst;
 static int g_inst_ready;
+static int g_env_ready;
 
 /* Rounded 12-TET Hz for MIDI notes 0..127 (A4=440). */
 static const uint16_t k_midi_hz[128] = {
@@ -364,6 +387,19 @@ static uint32_t seq_be32(const uint8_t *p)
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
 }
 
+static void seq_voice_kill(int i)
+{
+    if (i < 0 || i >= SEQ_VOICES)
+        return;
+    g_seq_vleft[i] = 0;
+    g_seq_vpcm[i] = 0;
+    g_seq_veon[i] = 0;
+    g_seq_vephase[i] = 0;
+    g_seq_veleft[i] = 0;
+    g_seq_vespan[i] = 0;
+    g_seq_alive &= (uint8_t)~(1u << i);
+}
+
 static void seq_voices_clear(void)
 {
     int i;
@@ -378,6 +414,17 @@ static void seq_voices_clear(void)
         g_seq_vpos[i] = 0;
         g_seq_vloop0[i] = 0;
         g_seq_vloop1[i] = 0;
+        g_seq_veon[i] = 0;
+        g_seq_vephase[i] = 0;
+        g_seq_vefrom[i] = 0;
+        g_seq_veto[i] = 0;
+        g_seq_vespan[i] = 0;
+        g_seq_veleft[i] = 0;
+        g_seq_veatkus[i] = 0;
+        g_seq_vedecus[i] = -1;
+        g_seq_verelus[i] = 0;
+        g_seq_veatkvol[i] = 127u;
+        g_seq_vedecvol[i] = 127u;
     }
     g_seq_alive = 0;
 }
@@ -424,10 +471,36 @@ int port_audio_inst_on(void)
     return g_inst_ready != 0;
 }
 
+int port_audio_env_on(void)
+{
+    return g_env_ready != 0;
+}
+
+static int inst_env_used(const InstSound *s)
+{
+    if (!s)
+        return 0;
+    return s->atk_us > 0 || s->rel_us > 0 || s->atk_vol != 127 || s->dec_vol != 127 ||
+           s->dec_us >= 0;
+}
+
+static void inst_recompute_env(void)
+{
+    int i;
+    g_env_ready = 0;
+    for (i = 0; i < g_ninst; i++) {
+        if (inst_env_used(&g_inst[i])) {
+            g_env_ready = 1;
+            return;
+        }
+    }
+}
+
 void port_audio_unload_inst(void)
 {
     g_ninst = 0;
     g_inst_ready = 0;
+    g_env_ready = 0;
     memset(g_inst, 0, sizeof g_inst);
     seq_voices_clear();
 }
@@ -463,8 +536,38 @@ int port_audio_inst_push(int prog, uint8_t key_min, uint8_t key_max, uint8_t key
     s->vmin = vel_min;
     s->vmax = vel_max;
     s->vol = vol;
+    s->atk_us = 0;
+    s->dec_us = -1;
+    s->rel_us = 0;
+    s->atk_vol = 127u;
+    s->dec_vol = 127u;
     g_inst_ready = 1;
+    inst_recompute_env();
     return 0;
+}
+
+void port_audio_inst_set_env(int32_t attack_us, int32_t decay_us, int32_t release_us,
+                            uint8_t attack_vol, uint8_t decay_vol)
+{
+    InstSound *s;
+
+    if (g_ninst < 1)
+        return;
+    s = &g_inst[g_ninst - 1];
+    if (attack_us < 0)
+        attack_us = 0;
+    if (release_us < 0)
+        release_us = 0;
+    if (attack_vol > 127u)
+        attack_vol = 127u;
+    if (decay_vol > 127u)
+        decay_vol = 127u;
+    s->atk_us = attack_us;
+    s->dec_us = decay_us;
+    s->rel_us = release_us;
+    s->atk_vol = attack_vol;
+    s->dec_vol = decay_vol;
+    inst_recompute_env();
 }
 
 static const InstSound *inst_pick(uint8_t prog, uint8_t note, uint8_t vel)
@@ -668,14 +771,106 @@ static uint32_t seq_dur_samples(uint32_t ticks)
     return (uint32_t)(num / den);
 }
 
+static uint32_t env_us_to_samp(int32_t us)
+{
+    uint64_t n;
+
+    if (us <= 0)
+        return 0;
+    n = ((uint64_t)PORT_AUDIO_RATE * (uint64_t)us) / 1000000ull;
+    if (n > (uint64_t)ENV_SAMP_CAP)
+        n = (uint64_t)ENV_SAMP_CAP;
+    return (uint32_t)n;
+}
+
+static int env_gain_now(int i)
+{
+    uint32_t span;
+    uint32_t left;
+    uint32_t t;
+    int from;
+    int to;
+
+    span = g_seq_vespan[i];
+    left = g_seq_veleft[i];
+    from = g_seq_vefrom[i];
+    to = g_seq_veto[i];
+    if (span == 0 || left == 0)
+        return to;
+    if (left >= span)
+        return from;
+    t = span - left;
+    return from + (int)(((int32_t)(to - from) * (int32_t)t) / (int32_t)span);
+}
+
+static void env_begin(int i, int from, int to, int32_t us, uint8_t phase)
+{
+    uint32_t n;
+
+    g_seq_vephase[i] = phase;
+    g_seq_vefrom[i] = from;
+    g_seq_veto[i] = to;
+    n = env_us_to_samp(us);
+    if (n == 0) {
+        g_seq_vespan[i] = 0;
+        g_seq_veleft[i] = 0;
+    } else {
+        g_seq_vespan[i] = n;
+        g_seq_veleft[i] = n;
+    }
+}
+
+static void env_begin_decay(int i)
+{
+    int from = g_seq_veto[i];
+
+    if (g_seq_vedecus[i] < 0) {
+        env_begin(i, g_seq_vedecvol[i], g_seq_vedecvol[i], 0, ENV_SUSTAIN);
+        return;
+    }
+    env_begin(i, from, g_seq_vedecvol[i], g_seq_vedecus[i], ENV_DECAY);
+}
+
+static void env_begin_attack(int i)
+{
+    env_begin(i, 0, g_seq_veatkvol[i], g_seq_veatkus[i], ENV_ATTACK);
+    if (g_seq_vespan[i] == 0)
+        env_begin_decay(i);
+}
+
+static void env_begin_release(int i)
+{
+    env_begin(i, env_gain_now(i), 0, g_seq_verelus[i], ENV_RELEASE);
+}
+
+static int env_step(int i)
+{
+    if (g_seq_vephase[i] == ENV_SUSTAIN)
+        return 0;
+    if (g_seq_veleft[i] > 0)
+        g_seq_veleft[i]--;
+    if (g_seq_veleft[i] == 0) {
+        if (g_seq_vephase[i] == ENV_ATTACK)
+            env_begin_decay(i);
+        else if (g_seq_vephase[i] == ENV_DECAY)
+            env_begin(i, g_seq_vedecvol[i], g_seq_vedecvol[i], 0, ENV_SUSTAIN);
+        else if (g_seq_vephase[i] == ENV_RELEASE)
+            return 1;
+    }
+    return 0;
+}
+
 static void seq_note_off(uint8_t note)
 {
     int i;
     for (i = 0; i < SEQ_VOICES; i++) {
-        if (g_seq_vleft[i] && g_seq_vnote[i] == note) {
+        if (!(g_seq_alive & (1u << i)) || g_seq_vnote[i] != note)
+            continue;
+        if (g_seq_veon[i] && g_seq_verelus[i] > 0 && g_seq_vephase[i] != ENV_RELEASE) {
             g_seq_vleft[i] = 0;
-            g_seq_vpcm[i] = 0;
-            g_seq_alive &= (uint8_t)~(1u << i);
+            env_begin_release(i);
+        } else {
+            seq_voice_kill(i);
         }
     }
 }
@@ -718,6 +913,15 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     g_seq_vloop0[slot] = 0;
     g_seq_vloop1[slot] = 0;
     g_seq_vnote[slot] = note;
+    g_seq_veon[slot] = 0;
+    g_seq_vephase[slot] = 0;
+    g_seq_veleft[slot] = 0;
+    g_seq_vespan[slot] = 0;
+    g_seq_veatkus[slot] = 0;
+    g_seq_vedecus[slot] = -1;
+    g_seq_verelus[slot] = 0;
+    g_seq_veatkvol[slot] = 127u;
+    g_seq_vedecvol[slot] = 127u;
     prog = g_seq_prog[ch & 15u];
     snd = (prog < INST_PROGS) ? inst_pick(prog, note, vel) : 0;
     if (snd) {
@@ -730,6 +934,15 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
         g_seq_vloop1[slot] = snd->loop1;
         g_seq_vinc[slot] = pitch_step(note, snd->kbase);
         g_seq_vamp[slot] = amp;
+        if (inst_env_used(snd)) {
+            g_seq_veon[slot] = 1;
+            g_seq_veatkus[slot] = snd->atk_us;
+            g_seq_vedecus[slot] = snd->dec_us;
+            g_seq_verelus[slot] = snd->rel_us;
+            g_seq_veatkvol[slot] = snd->atk_vol;
+            g_seq_vedecvol[slot] = snd->dec_vol;
+            env_begin_attack(slot);
+        }
     } else {
         amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)vol / (127u * 127u));
         if (amp < 1)
@@ -966,8 +1179,17 @@ static int seq_mix_sample(void)
     if (!g_seq_alive)
         return 0;
     for (i = 0; i < SEQ_VOICES; i++) {
-        if (g_seq_vleft[i] == 0)
+        int amp;
+        int done_rel = 0;
+
+        if (!(g_seq_alive & (1u << i)))
             continue;
+        amp = g_seq_vamp[i];
+        if (g_seq_veon[i]) {
+            amp = (int)(((int32_t)amp * env_gain_now(i)) / 127);
+            if (amp < 0)
+                amp = 0;
+        }
         if (g_seq_vpcm[i] && g_seq_vpcn[i] > 0) {
             uint32_t idx = g_seq_vpos[i] >> 16;
             uint32_t n = g_seq_vpcn[i];
@@ -983,23 +1205,31 @@ static int seq_mix_sample(void)
                     }
                 }
             } else if (idx >= n) {
-                g_seq_vleft[i] = 0;
-                g_seq_vpcm[i] = 0;
-                g_seq_alive &= (uint8_t)~(1u << i);
+                seq_voice_kill(i);
                 continue;
             }
             if (idx >= n)
                 idx = n - 1u;
-            acc += (int)(((int32_t)g_seq_vpcm[i][idx] * g_seq_vamp[i]) / INST_PCM_DIV);
+            acc += (int)(((int32_t)g_seq_vpcm[i][idx] * amp) / INST_PCM_DIV);
             g_seq_vpos[i] += g_seq_vinc[i];
         } else {
-            acc += osc_tri(g_seq_vphase[i], g_seq_vamp[i]);
+            acc += osc_tri(g_seq_vphase[i], amp);
             g_seq_vphase[i] += g_seq_vinc[i];
         }
-        g_seq_vleft[i]--;
-        if (g_seq_vleft[i] == 0) {
-            g_seq_vpcm[i] = 0;
-            g_seq_alive &= (uint8_t)~(1u << i);
+        if (g_seq_veon[i])
+            done_rel = env_step(i);
+        if (g_seq_vleft[i] > 0) {
+            g_seq_vleft[i]--;
+            if (g_seq_vleft[i] == 0) {
+                if (g_seq_veon[i] && g_seq_verelus[i] > 0 &&
+                    g_seq_vephase[i] != ENV_RELEASE) {
+                    env_begin_release(i);
+                } else {
+                    seq_voice_kill(i);
+                }
+            }
+        } else if (done_rel) {
+            seq_voice_kill(i);
         }
     }
     return acc;

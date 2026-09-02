@@ -687,6 +687,54 @@ int main(int argc, char **argv)
             if (strcmp(hex, tri_hex) != 0)
                 return fail("triangle after inst unload");
             printf("wavetable seq distinct=1 restore=1\n");
+
+            {
+                char env_hex[65];
+
+                port_audio_unload_inst();
+                if (port_audio_env_on())
+                    return fail("env on before set");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 128) != 0)
+                    return fail("inst push env");
+                if (port_audio_env_on())
+                    return fail("env default");
+                port_audio_inst_set_env(0, -1, 0, 127, 127);
+                if (port_audio_env_on())
+                    return fail("env default set");
+                {
+                    char loop_hex[65];
+
+                    if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                        return fail("seq load loop");
+                    port_audio_cb(pcm, NFRAMES);
+                    hash_pcm(pcm, loop_hex);
+                    port_audio_inst_set_env(1000000, -1, 0, 127, 127);
+                    if (!port_audio_env_on())
+                        return fail("env flag");
+                    if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                        return fail("seq load env");
+                    port_audio_cb(pcm, NFRAMES);
+                    if (all_zero(pcm))
+                        return fail("env seq silence");
+                    hash_pcm(pcm, env_hex);
+                    if (strcmp(env_hex, loop_hex) == 0)
+                        return fail("env pcm matches unenveloped wav");
+                }
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("env seq touched game RNG");
+                port_audio_unload_inst();
+                if (port_audio_env_on())
+                    return fail("env after unload");
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, wave, 128, 0, 0) != 0)
+                    return fail("inst push after env");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load after env");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, wav_hex) != 0)
+                    return fail("wav after env unload");
+                printf("envelope seq distinct=1 restore=1\n");
+            }
         }
     }
 
