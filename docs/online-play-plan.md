@@ -1967,9 +1967,9 @@ Native player/gun/lockstep/2p-corridor/g1 green. Greyscale
 
 ---
 
-## STATUS (2026-09-01 viscyl slab push `pending`)
+## STATUS (2026-09-01 viscyl slab push `dfde794`)
 
-P0-3 follow-on to `ba5a817` (KEEP). Slab push used 80u while viscyl is
+P0-3 follow-on to `ba5a817` (KEEP). SHA `dfde794`. Slab push used 80u while viscyl is
 clamped to `PORT_VIS_RMIN` 115u, so the extra-idle still overlapped the
 r71 leaf (`door_jump_249` camo on the door). Emit + viscyl now push
 115u. Extra-idle skips camera-space G1 leaf push so the mesh does not
