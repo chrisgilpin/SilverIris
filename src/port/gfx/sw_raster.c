@@ -104,11 +104,24 @@ static float edge(float ax, float ay, float bx, float by, float cx, float cy)
 }
 
 #define TRI_BLOCK 8
+#define TRI_BLOCK2 16
+#define BOX_MIX 0
+#define BOX_OUT 1
+#define BOX_IN -1
 
-/* Half-plane reject for a pixel-center rectangle. w is linear, so if all
- * four corners miss the same edge the block has no inside pixels. */
-static int tri_box_out(int x0, int y0, int x1, int y1, float area, float ax, float ay,
-                       float bx, float by, float cx, float cy)
+static int tri_pix_in(float w0, float w1, float w2, float area)
+{
+    if (area > 0)
+        return w0 >= 0 && w1 >= 0 && w2 >= 0;
+    return w0 <= 0 && w1 <= 0 && w2 <= 0;
+}
+
+/* Pixel-center rectangle vs triangle. w is linear, so:
+ * BOX_OUT: all four corners miss the same half-plane (no inside pixel).
+ * BOX_IN: all four corners are inside (convex → every pixel-center is).
+ * BOX_MIX: the block still has work. Never drops an inside pixel. */
+static int tri_box_class(int x0, int y0, int x1, int y1, float area, float ax, float ay,
+                         float bx, float by, float cx, float cy)
 {
     float px[4], py[4];
     int i, n0 = 0, n1 = 0, n2 = 0;
@@ -141,7 +154,11 @@ static int tri_box_out(int x0, int y0, int x1, int y1, float area, float ax, flo
                 n2++;
         }
     }
-    return n0 == 4 || n1 == 4 || n2 == 4;
+    if (n0 == 4 || n1 == 4 || n2 == 4)
+        return BOX_OUT;
+    if (n0 == 0 && n1 == 0 && n2 == 0)
+        return BOX_IN;
+    return BOX_MIX;
 }
 
 static int finite_xy(float x, float y)
@@ -172,12 +189,105 @@ static uint16_t pack_depth(float ndc_z)
     return (uint16_t)d;
 }
 
+static void fill_tri_box(int minx, int miny, int maxx, int maxy, int all_in, float area,
+                         float x0, float y0, float x1, float y1, float x2, float y2,
+                         float z0, float z1, float z2, float iw0, float iw1, float iw2,
+                         const GirVert *v0, const GirVert *v1, const GirVert *v2,
+                         int tex_slot, int keep_al, int backdrop)
+{
+    int x, y, x0s, x1s;
+
+    for (y = miny; y <= maxy; y++) {
+        if (all_in) {
+            x0s = minx;
+            x1s = maxx;
+        } else {
+            /* Convex span: first/last inside pixel-center, then stamp that run. */
+            for (x0s = minx; x0s <= maxx; x0s++) {
+                float px = (float)x0s + 0.5f, py = (float)y + 0.5f;
+                if (tri_pix_in(edge(x1, y1, x2, y2, px, py), edge(x2, y2, x0, y0, px, py),
+                               edge(x0, y0, x1, y1, px, py), area))
+                    break;
+            }
+            if (x0s > maxx)
+                continue;
+            for (x1s = maxx; x1s > x0s; x1s--) {
+                float px = (float)x1s + 0.5f, py = (float)y + 0.5f;
+                if (tri_pix_in(edge(x1, y1, x2, y2, px, py), edge(x2, y2, x0, y0, px, py),
+                               edge(x0, y0, x1, y1, px, py), area))
+                    break;
+            }
+        }
+        for (x = x0s; x <= x1s; x++) {
+            float px = (float)x + 0.5f, py = (float)y + 0.5f;
+            float w0 = edge(x1, y1, x2, y2, px, py);
+            float w1 = edge(x2, y2, x0, y0, px, py);
+            float w2 = edge(x0, y0, x1, y1, px, py);
+            float a = w0 / area, b = w1 / area, c = w2 / area;
+            uint8_t r, g, bl, al;
+            uint16_t z;
+            /* Same test as put_px. Skip tex/shade on occluded pixels. */
+            z = backdrop ? (uint16_t)0xffff : pack_depth(a * z0 + b * z1 + c * z2);
+            if (z > g_zb[y][x])
+                continue;
+            r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
+            g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
+            bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
+            al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
+            if (tex_slot >= 0) {
+                uint8_t sr = r, sg = g, sb = bl, sa = al;
+                float ia = a * iw0, ib = b * iw1, ic = c * iw2;
+                float inv = ia + ib + ic;
+                float ss, tt;
+                /* Perspective-correct ST. Identity-MVP (w=1) matches affine. */
+                if (inv > 1.0e-12f) {
+                    ss = (ia * v0->s + ib * v1->s + ic * v2->s) / inv;
+                    tt = (ia * v0->t + ib * v1->t + ic * v2->t) / inv;
+                } else {
+                    ss = a * v0->s + b * v1->s + c * v2->s;
+                    tt = a * v0->t + b * v1->t + c * v2->t;
+                }
+                if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
+                    /* G_CC_MODULATERGB: texel * Vtx.cn. cn=0 keeps albedo
+                     * (G1 greyscale / SETTEX checkers use zeroed verts).
+                     * oliveguard / Cheadjim keep texel off no_mtx. Door
+                     * 685-688/706 modulate so the leaf is brown metal. */
+                    if (g_shade_mod && (r | g | bl) && !keep_al) {
+                        r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
+                        g = (uint8_t)(((unsigned)sg * (unsigned)g) / 255u);
+                        bl = (uint8_t)(((unsigned)sb * (unsigned)bl) / 255u);
+                        al = sa;
+                    } else {
+                        r = sr;
+                        g = sg;
+                        bl = sb;
+                        al = sa;
+                    }
+                } else {
+                    apply_untextured_grey(&r, &g, &bl, &al);
+                }
+                /* Sample miss keeps vertex shade (grey), never forced black. */
+            } else {
+                apply_untextured_grey(&r, &g, &bl, &al);
+            }
+            /* Alpha 0 is a punch-through miss / portal — do not stamp black. */
+            if (al == 0)
+                continue;
+            g_zb[y][x] = z;
+            g_fb[y][x][0] = r;
+            g_fb[y][x][1] = g;
+            g_fb[y][x][2] = bl;
+            g_fb[y][x][3] = al;
+        }
+    }
+}
+
 static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2, int tex_slot)
 {
     float x0, y0, x1, y1, x2, y2, area;
     float z0, z1, z2, iw0, iw1, iw2;
-    int minx, maxx, miny, maxy, x, y, backdrop, keep_al;
-    int bx, by, bx1, by1;
+    int minx, maxx, miny, maxy, backdrop, keep_al;
+    int bx, by, bx1, by1, sx, sy, sx1, sy1, cls2, cls;
 
     if (!clip_to_screen(v0, &x0, &y0) || !clip_to_screen(v1, &x1, &y1) ||
         !clip_to_screen(v2, &x2, &y2))
@@ -233,84 +343,36 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     /* Slot albedo is per-triangle; bbox x/y are already clipped. */
     keep_al = (tex_slot >= 0) ? g1_tex_slot_keep_albedo(tex_slot) : 0;
 
-    for (by = miny; by <= maxy; by += TRI_BLOCK) {
-        by1 = by + TRI_BLOCK - 1;
+    for (by = miny; by <= maxy; by += TRI_BLOCK2) {
+        by1 = by + TRI_BLOCK2 - 1;
         if (by1 > maxy)
             by1 = maxy;
-        for (bx = minx; bx <= maxx; bx += TRI_BLOCK) {
-            bx1 = bx + TRI_BLOCK - 1;
+        for (bx = minx; bx <= maxx; bx += TRI_BLOCK2) {
+            bx1 = bx + TRI_BLOCK2 - 1;
             if (bx1 > maxx)
                 bx1 = maxx;
-            if (tri_box_out(bx, by, bx1, by1, area, x0, y0, x1, y1, x2, y2))
+            cls2 = tri_box_class(bx, by, bx1, by1, area, x0, y0, x1, y1, x2, y2);
+            if (cls2 == BOX_OUT)
                 continue;
-            for (y = by; y <= by1; y++) {
-                for (x = bx; x <= bx1; x++) {
-            float px = (float)x + 0.5f, py = (float)y + 0.5f;
-            float w0 = edge(x1, y1, x2, y2, px, py);
-            float w1 = edge(x2, y2, x0, y0, px, py);
-            float w2 = edge(x0, y0, x1, y1, px, py);
-            int inside;
-            if (area > 0)
-                inside = (w0 >= 0 && w1 >= 0 && w2 >= 0);
-            else
-                inside = (w0 <= 0 && w1 <= 0 && w2 <= 0);
-            if (inside) {
-                float a = w0 / area, b = w1 / area, c = w2 / area;
-                uint8_t r, g, bl, al;
-                uint16_t z;
-                /* Same test as put_px. Skip tex/shade on occluded pixels. */
-                z = backdrop ? (uint16_t)0xffff : pack_depth(a * z0 + b * z1 + c * z2);
-                if (z > g_zb[y][x])
-                    continue;
-                r = (uint8_t)(a * v0->r + b * v1->r + c * v2->r);
-                g = (uint8_t)(a * v0->g + b * v1->g + c * v2->g);
-                bl = (uint8_t)(a * v0->b + b * v1->b + c * v2->b);
-                al = (uint8_t)(a * v0->a + b * v1->a + c * v2->a);
-                if (tex_slot >= 0) {
-                    uint8_t sr = r, sg = g, sb = bl, sa = al;
-                    float ia = a * iw0, ib = b * iw1, ic = c * iw2;
-                    float inv = ia + ib + ic;
-                    float ss, tt;
-                    /* Perspective-correct ST. Identity-MVP (w=1) matches affine. */
-                    if (inv > 1.0e-12f) {
-                        ss = (ia * v0->s + ib * v1->s + ic * v2->s) / inv;
-                        tt = (ia * v0->t + ib * v1->t + ic * v2->t) / inv;
-                    } else {
-                        ss = a * v0->s + b * v1->s + c * v2->s;
-                        tt = a * v0->t + b * v1->t + c * v2->t;
-                    }
-                    if (g1_tex_sample_slot(tex_slot, ss, tt, &sr, &sg, &sb, &sa)) {
-                        /* G_CC_MODULATERGB: texel * Vtx.cn. cn=0 keeps albedo
-                         * (G1 greyscale / SETTEX checkers use zeroed verts).
-                         * oliveguard / Cheadjim keep texel off no_mtx. Door
-                         * 685-688/706 modulate so the leaf is brown metal. */
-                        if (g_shade_mod && (r | g | bl) && !keep_al) {
-                            r = (uint8_t)(((unsigned)sr * (unsigned)r) / 255u);
-                            g = (uint8_t)(((unsigned)sg * (unsigned)g) / 255u);
-                            bl = (uint8_t)(((unsigned)sb * (unsigned)bl) / 255u);
-                            al = sa;
-                        } else {
-                            r = sr;
-                            g = sg;
-                            bl = sb;
-                            al = sa;
-                        }
-                    } else {
-                        apply_untextured_grey(&r, &g, &bl, &al);
-                    }
-                    /* Sample miss keeps vertex shade (grey), never forced black. */
-                } else {
-                    apply_untextured_grey(&r, &g, &bl, &al);
-                }
-                /* Alpha 0 is a punch-through miss / portal — do not stamp black. */
-                if (al == 0)
-                    continue;
-                g_zb[y][x] = z;
-                g_fb[y][x][0] = r;
-                g_fb[y][x][1] = g;
-                g_fb[y][x][2] = bl;
-                g_fb[y][x][3] = al;
+            if (cls2 == BOX_IN) {
+                fill_tri_box(bx, by, bx1, by1, 1, area, x0, y0, x1, y1, x2, y2, z0, z1, z2,
+                             iw0, iw1, iw2, v0, v1, v2, tex_slot, keep_al, backdrop);
+                continue;
             }
+            for (sy = by; sy <= by1; sy += TRI_BLOCK) {
+                sy1 = sy + TRI_BLOCK - 1;
+                if (sy1 > by1)
+                    sy1 = by1;
+                for (sx = bx; sx <= bx1; sx += TRI_BLOCK) {
+                    sx1 = sx + TRI_BLOCK - 1;
+                    if (sx1 > bx1)
+                        sx1 = bx1;
+                    cls = tri_box_class(sx, sy, sx1, sy1, area, x0, y0, x1, y1, x2, y2);
+                    if (cls == BOX_OUT)
+                        continue;
+                    fill_tri_box(sx, sy, sx1, sy1, cls == BOX_IN, area, x0, y0, x1, y1, x2,
+                                 y2, z0, z1, z2, iw0, iw1, iw2, v0, v1, v2, tex_slot,
+                                 keep_al, backdrop);
                 }
             }
         }
