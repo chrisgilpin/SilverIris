@@ -13,7 +13,8 @@
  * Music seq may also decode instruments.ctl / instruments.tbl VADPCM
  * into host PCM for pitched loop playback plus ALEnvelope ramps,
  * ALSound.samplePan, ALKeyMap.detune, and ALInstrument.bendRange.
- * Seq CC7/CC10 update sounding voices. Still not ASP HLE.
+ * Seq CC7/CC10 update sounding voices. Wavetable PCM is linear-
+ * interpolated. Still not ASP HLE.
  *
  * SFX_ID n is ALInstrument.soundArray[n-1] (sndPlaySfx skips 0).
  * GET_HIT_MALE0–24 (134–158) cycle like Rare male_guard_yelp_counter.

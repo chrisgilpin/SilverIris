@@ -20,7 +20,8 @@ void port_audio_set_placeholder_music(int on);
  * unity at 64 (both channels full). ALKeyMap.detune in cents on pitched
  * wavetable voices (0 keeps the 12-TET step). MIDI pitch bend times
  * ALInstrument.bendRange (center 8192 is a no-op). CC7 / CC10 update
- * sounding voices (CC7 skips envelope RELEASE). Mixer pan + distance
+ * sounding voices (CC7 skips envelope RELEASE). Wavetable PCM is linear-
+ * interpolated (unity keyBase stays nearest). Mixer pan + distance
  * vol on world SFX and door open/close (listener xz) and L/R walk steps
  * (pan only). Not ASP HLE (no RSP mixer). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);

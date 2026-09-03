@@ -59,8 +59,10 @@
  * ALKeyMap.detune cents on wavetable pitch (0 is the 12-TET step).
  * MIDI pitch bend (14-bit, center 8192) times ALInstrument.bendRange
  * cents (N64 default 200). CC7 volume and CC10 pan update sounding
- * voices (Rare csplayer; CC7 skips RELEASE). World SFX take a one-shot
- * mixer pan + distance vol from listener xz. Not ASP HLE. */
+ * voices (Rare csplayer; CC7 skips RELEASE). Wavetable PCM is linear-
+ * interpolated between adjacent samples (unity keyBase keeps nearest).
+ * World SFX take a one-shot mixer pan + distance vol from listener xz.
+ * Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -1636,25 +1638,39 @@ static void seq_mix_sample(int *acc_l, int *acc_r)
         }
         if (g_seq_vpcm[i] && g_seq_vpcn[i] > 0) {
             uint32_t idx = g_seq_vpos[i] >> 16;
+            uint32_t frac = g_seq_vpos[i] & 0xffffu;
             uint32_t n = g_seq_vpcn[i];
             uint32_t l0 = g_seq_vloop0[i];
             uint32_t l1 = g_seq_vloop1[i];
+            uint32_t idx1;
+            int32_t s0, s1, lerp;
 
             if (l1 > l0 && l1 <= n) {
                 if (idx >= l1) {
                     uint32_t span = l1 - l0;
                     if (span) {
                         idx = l0 + (idx - l0) % span;
-                        g_seq_vpos[i] = (idx << 16) | (g_seq_vpos[i] & 0xffffu);
+                        g_seq_vpos[i] = (idx << 16) | frac;
                     }
                 }
+                idx1 = idx + 1u;
+                if (idx1 >= l1)
+                    idx1 = l0;
             } else if (idx >= n) {
                 seq_voice_kill(i);
                 continue;
+            } else {
+                idx1 = idx + 1u;
+                if (idx1 >= n)
+                    idx1 = n - 1u;
             }
             if (idx >= n)
                 idx = n - 1u;
-            s = (int)(((int32_t)g_seq_vpcm[i][idx] * amp) / INST_PCM_DIV);
+            s0 = (int32_t)g_seq_vpcm[i][idx];
+            s1 = (int32_t)g_seq_vpcm[i][idx1];
+            /* frac==0 (unity keyBase / octave) is the nearest sample. */
+            lerp = s0 + (int32_t)(((int64_t)(s1 - s0) * (int64_t)frac) >> 16);
+            s = (int)((lerp * amp) / INST_PCM_DIV);
             g_seq_vpos[i] += g_seq_vinc[i];
         } else {
             s = osc_tri(g_seq_vphase[i], amp);

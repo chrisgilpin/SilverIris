@@ -818,6 +818,46 @@ int main(int argc, char **argv)
             printf("wavetable seq distinct=1 restore=1\n");
 
             {
+                /* Note 61 vs keyBase 60 is a non-integer step, so frac!=0. */
+                static const uint8_t k_seq_61[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0x90, 0x3D, 0x64, 0x60, 0x00, 0xFF, 0x2F,
+                };
+                int16_t ramp[128];
+                char r60[65];
+                char r61[65];
+                int ri;
+
+                for (ri = 0; ri < 128; ri++)
+                    ramp[ri] = (int16_t)(ri * 200);
+                port_audio_unload_inst();
+                if (port_audio_inst_push(0, 0, 127, 60, 0, 127, 100, ramp, 128, 0, 0) != 0)
+                    return fail("inst push lerp");
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load lerp 60");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("lerp 60 silence");
+                hash_pcm(pcm, r60);
+                if (port_audio_load_seq(k_seq_61, (uint32_t)sizeof k_seq_61) != 0)
+                    return fail("seq load lerp 61");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("lerp 61 silence");
+                hash_pcm(pcm, r61);
+                if (strcmp(r61, r60) == 0)
+                    return fail("lerp 61 matches unity step");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("lerp touched game RNG");
+                printf("wavetable lerp distinct=1\n");
+            }
+
+            {
                 char env_hex[65];
 
                 port_audio_unload_inst();

@@ -16,6 +16,8 @@ SFX ID) on a fifth voice so they do not cut gun/door; L/R feet pan
 seq voices. Pack `instruments.ctl` / `instruments.tbl` VADPCM is decoded
 to host PCM and pitched by MIDI key vs keyBase plus ALKeyMap.detune
 cents (loops plus ALEnvelope attack/decay/release). MIDI pitch bend
-uses ALInstrument.bendRange (center 8192 is bit-identical). Without
-that bank the voices stay triangles. World SFX take a mixer pan and
-distance vol from listener xz. Not ASP HLE (no RSP mixer).
+uses ALInstrument.bendRange (center 8192 is bit-identical). Pitched
+wavetable samples linear-interpolate adjacent PCM (unity keyBase is
+the nearest sample). Without that bank the voices stay triangles.
+World SFX take a mixer pan and distance vol from listener xz. Not ASP
+HLE (no RSP mixer).
