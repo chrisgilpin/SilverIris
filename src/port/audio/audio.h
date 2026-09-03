@@ -19,7 +19,8 @@ void port_audio_set_placeholder_music(int on);
  * instruments.ctl supplies them. ALSound.samplePan + MIDI CC10, center-
  * unity at 64 (both channels full). ALKeyMap.detune in cents on pitched
  * wavetable voices (0 keeps the 12-TET step). MIDI pitch bend times
- * ALInstrument.bendRange (center 8192 is a no-op). Mixer pan + distance
+ * ALInstrument.bendRange (center 8192 is a no-op). CC7 / CC10 update
+ * sounding voices (CC7 skips envelope RELEASE). Mixer pan + distance
  * vol on world SFX and door open/close (listener xz) and L/R walk steps
  * (pan only). Not ASP HLE (no RSP mixer). */
 int port_audio_load_seq(const uint8_t *bytes, uint32_t n);

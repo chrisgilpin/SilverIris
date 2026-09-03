@@ -58,8 +58,9 @@
  * the bank supplies them. ALSound pan + MIDI CC10, center-unity at 64.
  * ALKeyMap.detune cents on wavetable pitch (0 is the 12-TET step).
  * MIDI pitch bend (14-bit, center 8192) times ALInstrument.bendRange
- * cents (N64 default 200). World SFX take a one-shot mixer pan +
- * distance vol from listener xz. Not ASP HLE. */
+ * cents (N64 default 200). CC7 volume and CC10 pan update sounding
+ * voices (Rare csplayer; CC7 skips RELEASE). World SFX take a one-shot
+ * mixer pan + distance vol from listener xz. Not ASP HLE. */
 #define SEQ_VOICES 8
 #define SEQ_TRACKS 16
 #define INST_PROGS 80
@@ -221,6 +222,9 @@ static int32_t g_seq_verelus[SEQ_VOICES];
 static uint8_t g_seq_veatkvol[SEQ_VOICES];
 static uint8_t g_seq_vedecvol[SEQ_VOICES];
 static uint8_t g_seq_vpan[SEQ_VOICES];
+static uint8_t g_seq_vvel[SEQ_VOICES];
+static uint8_t g_seq_vivol[SEQ_VOICES];
+static uint8_t g_seq_vispan[SEQ_VOICES];
 
 typedef struct {
     const int16_t *pcm;
@@ -509,6 +513,9 @@ static void seq_voices_clear(void)
         g_seq_veatkvol[i] = 127u;
         g_seq_vedecvol[i] = 127u;
         g_seq_vpan[i] = SEQ_PAN_C;
+        g_seq_vvel[i] = 0;
+        g_seq_vivol[i] = 127u;
+        g_seq_vispan[i] = SEQ_PAN_C;
     }
     g_seq_alive = 0;
 }
@@ -1227,6 +1234,49 @@ static int env_step(int i)
     return 0;
 }
 
+static int seq_amp_for(uint8_t vel, uint8_t chan_vol, uint8_t inst_vol, int wav)
+{
+    int amp;
+
+    if (wav)
+        amp = (int)((uint32_t)vel * (uint32_t)chan_vol * (uint32_t)inst_vol / (127u * 127u));
+    else
+        amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)chan_vol / (127u * 127u));
+    return amp;
+}
+
+static void seq_refresh_chan_vol(uint8_t ch)
+{
+    int i;
+
+    ch &= 15u;
+    for (i = 0; i < SEQ_VOICES; i++) {
+        int amp;
+        int wav;
+
+        if (!(g_seq_alive & (1u << i)) || g_seq_vch[i] != ch)
+            continue;
+        /* Rare csplayer skips RELEASE for CC7. */
+        if (g_seq_veon[i] && g_seq_vephase[i] == ENV_RELEASE)
+            continue;
+        wav = g_seq_vpcm[i] != 0;
+        amp = seq_amp_for(g_seq_vvel[i], g_seq_vol[ch], g_seq_vivol[i], wav);
+        g_seq_vamp[i] = amp;
+    }
+}
+
+static void seq_refresh_chan_pan(uint8_t ch)
+{
+    int i;
+
+    ch &= 15u;
+    for (i = 0; i < SEQ_VOICES; i++) {
+        if (!(g_seq_alive & (1u << i)) || g_seq_vch[i] != ch)
+            continue;
+        g_seq_vpan[i] = mix_pan(g_seq_pan[ch], g_seq_vispan[i]);
+    }
+}
+
 static void seq_note_off(uint8_t note)
 {
     int i;
@@ -1291,10 +1341,15 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
     g_seq_vedecvol[slot] = 127u;
     g_seq_vpan[slot] = g_seq_pan[ch & 15u];
     g_seq_vch[slot] = ch & 15u;
+    g_seq_vvel[slot] = vel;
+    g_seq_vivol[slot] = 127u;
+    g_seq_vispan[slot] = SEQ_PAN_C;
     prog = g_seq_prog[ch & 15u];
     snd = (prog < INST_PROGS) ? inst_pick(prog, note, vel) : 0;
     if (snd) {
-        amp = (int)((uint32_t)vel * (uint32_t)vol * (uint32_t)snd->vol / (127u * 127u));
+        g_seq_vivol[slot] = snd->vol;
+        g_seq_vispan[slot] = snd->pan;
+        amp = seq_amp_for(vel, vol, snd->vol, 1);
         if (amp < 1)
             amp = 1;
         g_seq_vpcm[slot] = snd->pcm;
@@ -1314,7 +1369,7 @@ static void seq_note_on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t dur_tick
             env_begin_attack(slot);
         }
     } else {
-        amp = (int)((uint32_t)SEQ_AMP * (uint32_t)vel * (uint32_t)vol / (127u * 127u));
+        amp = seq_amp_for(vel, vol, 127u, 0);
         if (amp < 1)
             amp = 1;
         hz = k_midi_hz[note];
@@ -1411,10 +1466,13 @@ static void seq_apply_event(uint32_t tr)
         seq_note_on(ch, b1, b2, dur);
     else if (cmd == SEQ_NOTEOFF)
         seq_note_off(b1);
-    else if (cmd == SEQ_CC && b1 == SEQ_CC_VOL)
+    else if (cmd == SEQ_CC && b1 == SEQ_CC_VOL) {
         g_seq_vol[ch] = b2;
-    else if (cmd == SEQ_CC && b1 == SEQ_CC_PAN)
+        seq_refresh_chan_vol(ch);
+    } else if (cmd == SEQ_CC && b1 == SEQ_CC_PAN) {
         g_seq_pan[ch] = b2 > 127u ? 127u : b2;
+        seq_refresh_chan_pan(ch);
+    }
     else if (cmd == SEQ_PROG) {
         g_seq_prog[ch] = b1;
         g_seq_brange[ch] = inst_bend_range(b1, g_seq_brange[ch]);

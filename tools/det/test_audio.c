@@ -1101,6 +1101,123 @@ int main(int argc, char **argv)
                     return fail("cc10 pan 0 leaked right");
                 printf("cc10 pan left=1\n");
             }
+
+            {
+                /* CC7=1 after the note is on (16 ticks ~3675 frames). */
+                static const uint8_t k_seq_cc7live[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x10, 0xB0, 0x07, 0x01, 0x00,
+                    0xFF, 0x2F,
+                };
+                static const uint8_t k_seq_cc7pre[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0xB0, 0x07, 0x01, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x00,
+                    0xFF, 0x2F,
+                };
+                char live_hex[65];
+                char pre_hex[65];
+                int li, eabs, labs;
+
+                port_audio_unload_inst();
+                if (port_audio_load_seq(k_seq, (uint32_t)sizeof k_seq) != 0)
+                    return fail("seq load cc7 base");
+                port_audio_cb(pcm, NFRAMES);
+                hash_pcm(pcm, hex);
+                if (strcmp(hex, seq_hex) != 0)
+                    return fail("cc7 base changed seq");
+                if (port_audio_load_seq(k_seq_cc7pre, (uint32_t)sizeof k_seq_cc7pre) != 0)
+                    return fail("seq load cc7 pre");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("cc7 pre silence");
+                hash_pcm(pcm, pre_hex);
+                if (strcmp(pre_hex, seq_hex) == 0)
+                    return fail("cc7 pre matches default vol");
+                if (port_audio_load_seq(k_seq_cc7live, (uint32_t)sizeof k_seq_cc7live) != 0)
+                    return fail("seq load cc7 live");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("cc7 live silence");
+                hash_pcm(pcm, live_hex);
+                if (strcmp(live_hex, seq_hex) == 0)
+                    return fail("cc7 live matches default vol");
+                if (strcmp(live_hex, pre_hex) == 0)
+                    return fail("cc7 live matches pre");
+                eabs = 0;
+                labs = 0;
+                for (li = 0; li < 2000; li++) {
+                    int s = pcm[li * 2];
+                    if (s < 0)
+                        s = -s;
+                    eabs += s;
+                }
+                for (li = 3800; li < NFRAMES; li++) {
+                    int s = pcm[li * 2];
+                    if (s < 0)
+                        s = -s;
+                    labs += s;
+                }
+                if (eabs < 1000)
+                    return fail("cc7 live early quiet");
+                if (labs >= eabs)
+                    return fail("cc7 live did not drop");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("cc7 live touched game RNG");
+                printf("cc7 live distinct=1 drop=1\n");
+            }
+
+            {
+                /* CC10=0 after the note is on. Early frames keep both channels. */
+                static const uint8_t k_seq_cc10live[] = {
+                    0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0xFF, 0x51, 0x07,
+                    0xA1, 0x20, 0x00, 0x90, 0x3C, 0x64, 0x60, 0x10, 0xB0, 0x0A, 0x00, 0x00,
+                    0xFF, 0x2F,
+                };
+                int li, r_early, r_late;
+
+                port_audio_unload_inst();
+                if (port_audio_load_seq(k_seq_cc10live, (uint32_t)sizeof k_seq_cc10live) != 0)
+                    return fail("seq load cc10 live");
+                port_audio_cb(pcm, NFRAMES);
+                if (all_zero(pcm))
+                    return fail("cc10 live silence");
+                r_early = 0;
+                r_late = 0;
+                for (li = 0; li < 2000; li++) {
+                    int r = pcm[li * 2 + 1];
+                    if (r < 0)
+                        r = -r;
+                    r_early += r;
+                }
+                for (li = 3800; li < NFRAMES; li++) {
+                    int r = pcm[li * 2 + 1];
+                    if (r < 0)
+                        r = -r;
+                    r_late += r;
+                }
+                if (r_early < 1000)
+                    return fail("cc10 live early right quiet");
+                if (r_late != 0)
+                    return fail("cc10 live late leaked right");
+                if (g_randomSeed != seed_a || g_chrObjRandomSeed != seed_b)
+                    return fail("cc10 live touched game RNG");
+                printf("cc10 live distinct=1\n");
+            }
         }
     }
 
