@@ -103,6 +103,47 @@ static float edge(float ax, float ay, float bx, float by, float cx, float cy)
     return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
 }
 
+#define TRI_BLOCK 8
+
+/* Half-plane reject for a pixel-center rectangle. w is linear, so if all
+ * four corners miss the same edge the block has no inside pixels. */
+static int tri_box_out(int x0, int y0, int x1, int y1, float area, float ax, float ay,
+                       float bx, float by, float cx, float cy)
+{
+    float px[4], py[4];
+    int i, n0 = 0, n1 = 0, n2 = 0;
+
+    px[0] = (float)x0 + 0.5f;
+    py[0] = (float)y0 + 0.5f;
+    px[1] = (float)x1 + 0.5f;
+    py[1] = (float)y0 + 0.5f;
+    px[2] = (float)x0 + 0.5f;
+    py[2] = (float)y1 + 0.5f;
+    px[3] = (float)x1 + 0.5f;
+    py[3] = (float)y1 + 0.5f;
+    for (i = 0; i < 4; i++) {
+        float w0 = edge(bx, by, cx, cy, px[i], py[i]);
+        float w1 = edge(cx, cy, ax, ay, px[i], py[i]);
+        float w2 = edge(ax, ay, bx, by, px[i], py[i]);
+        if (area > 0) {
+            if (w0 < 0)
+                n0++;
+            if (w1 < 0)
+                n1++;
+            if (w2 < 0)
+                n2++;
+        } else {
+            if (w0 > 0)
+                n0++;
+            if (w1 > 0)
+                n1++;
+            if (w2 > 0)
+                n2++;
+        }
+    }
+    return n0 == 4 || n1 == 4 || n2 == 4;
+}
+
 static int finite_xy(float x, float y)
 {
     return x == x && y == y && x > -1.0e6f && x < 1.0e6f && y > -1.0e6f && y < 1.0e6f;
@@ -136,6 +177,7 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     float x0, y0, x1, y1, x2, y2, area;
     float z0, z1, z2, iw0, iw1, iw2;
     int minx, maxx, miny, maxy, x, y, backdrop, keep_al;
+    int bx, by, bx1, by1;
 
     if (!clip_to_screen(v0, &x0, &y0) || !clip_to_screen(v1, &x1, &y1) ||
         !clip_to_screen(v2, &x2, &y2))
@@ -191,8 +233,18 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
     /* Slot albedo is per-triangle; bbox x/y are already clipped. */
     keep_al = (tex_slot >= 0) ? g1_tex_slot_keep_albedo(tex_slot) : 0;
 
-    for (y = miny; y <= maxy; y++) {
-        for (x = minx; x <= maxx; x++) {
+    for (by = miny; by <= maxy; by += TRI_BLOCK) {
+        by1 = by + TRI_BLOCK - 1;
+        if (by1 > maxy)
+            by1 = maxy;
+        for (bx = minx; bx <= maxx; bx += TRI_BLOCK) {
+            bx1 = bx + TRI_BLOCK - 1;
+            if (bx1 > maxx)
+                bx1 = maxx;
+            if (tri_box_out(bx, by, bx1, by1, area, x0, y0, x1, y1, x2, y2))
+                continue;
+            for (y = by; y <= by1; y++) {
+                for (x = bx; x <= bx1; x++) {
             float px = (float)x + 0.5f, py = (float)y + 0.5f;
             float w0 = edge(x1, y1, x2, y2, px, py);
             float w1 = edge(x2, y2, x0, y0, px, py);
@@ -258,6 +310,8 @@ static void draw_tri_raw(const GirVert *v0, const GirVert *v1, const GirVert *v2
                 g_fb[y][x][1] = g;
                 g_fb[y][x][2] = bl;
                 g_fb[y][x][3] = al;
+            }
+                }
             }
         }
     }
